@@ -5,7 +5,7 @@
 # Session Data files
 .RData
 .RDataTmp
-
+*.Rproj
 # User-specific files
 .Ruserdata
 
@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# claude stuff
+/reference
+CLAUDE.md
+
