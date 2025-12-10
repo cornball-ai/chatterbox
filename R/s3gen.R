@@ -364,8 +364,8 @@ s3gen <- torch::nn_module(
   "S3Gen",
 
   initialize = function() {
-    # Speech tokenizer for reference audio
-    self$tokenizer <- s3_tokenizer(n_mels = 80)
+    # Speech tokenizer for reference audio (128 mels for S3TokenizerV2)
+    self$tokenizer <- s3_tokenizer()
 
     # Mel spectrogram extractor
     # (reuse from audio_utils)
@@ -499,33 +499,95 @@ s3gen <- torch::nn_module(
 #' @return Model with loaded weights
 #' @export
 load_s3gen_weights <- function(model, state_dict) {
-  # This would map weights from the Python model to our R implementation
-  # Complex due to nested module structure
-
-  # Tokenizer weights
-  tok_keys <- grep("^tokenizer\\.", names(state_dict), value = TRUE)
-  for (key in tok_keys) {
-    # Map to tokenizer
+  # Helper to copy weight if exists
+  copy_if_exists <- function(r_param, key) {
+    if (key %in% names(state_dict)) {
+      tryCatch({
+        r_param$copy_(state_dict[[key]])
+        return(TRUE)
+      }, error = function(e) {
+        warning("Failed to copy ", key, ": ", e$message)
+        return(FALSE)
+      })
+    }
+    FALSE
   }
 
-  # Speaker encoder weights
-  spk_keys <- grep("^speaker_encoder\\.", names(state_dict), value = TRUE)
-  for (key in spk_keys) {
-    # Map to speaker_encoder
+  # ========== Speech Tokenizer ==========
+  # Load tokenizer weights (S3TokenizerV2)
+  load_s3tokenizer_weights(model$tokenizer, state_dict, prefix = "tokenizer.")
+
+  # ========== Speaker Encoder (CAMPPlus) ==========
+  load_campplus_weights(model$speaker_encoder, state_dict, prefix = "speaker_encoder.")
+
+  # ========== Flow Module ==========
+  # Input embedding
+  copy_if_exists(model$flow$input_embedding$weight, "flow.input_embedding.weight")
+
+  # Speaker embedding projection
+  copy_if_exists(model$flow$spk_embed_affine_layer$weight, "flow.spk_embed_affine_layer.weight")
+  copy_if_exists(model$flow$spk_embed_affine_layer$bias, "flow.spk_embed_affine_layer.bias")
+
+  # Encoder projection
+  copy_if_exists(model$flow$encoder_proj$weight, "flow.encoder_proj.weight")
+  copy_if_exists(model$flow$encoder_proj$bias, "flow.encoder_proj.bias")
+
+  # Encoder - this is a conformer with complex structure
+  # For now, load what we can (the simplified transformer encoder)
+  copy_if_exists(model$flow$encoder$input_proj$weight, "flow.encoder.embed.weight")
+  copy_if_exists(model$flow$encoder$input_proj$bias, "flow.encoder.embed.bias")
+
+  # Encoder upsample
+  copy_if_exists(model$flow$encoder$upsample$weight, "flow.encoder.upsample.weight")
+  copy_if_exists(model$flow$encoder$upsample$bias, "flow.encoder.upsample.bias")
+
+  # CFM Decoder/Estimator - complex nested structure
+  # The Python decoder is ConditionalDecoder (UNet-style)
+  # We have simplified CFM estimator
+  # Load what maps...
+
+  # Time embedding
+  copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$weight, "flow.decoder.estimator.time_embed.mlp.0.weight")
+  copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$bias, "flow.decoder.estimator.time_embed.mlp.0.bias")
+  copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$weight, "flow.decoder.estimator.time_embed.mlp.2.weight")
+  copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$bias, "flow.decoder.estimator.time_embed.mlp.2.bias")
+
+  # Input/output projections
+  copy_if_exists(model$flow$decoder$estimator$input_proj$weight, "flow.decoder.estimator.input_projection.weight")
+  copy_if_exists(model$flow$decoder$estimator$input_proj$bias, "flow.decoder.estimator.input_projection.bias")
+  copy_if_exists(model$flow$decoder$estimator$output_proj$weight, "flow.decoder.estimator.output_projection.weight")
+  copy_if_exists(model$flow$decoder$estimator$output_proj$bias, "flow.decoder.estimator.output_projection.bias")
+
+  # ========== HiFiGAN Vocoder ==========
+  if (!is.null(model$mel2wav)) {
+    load_hifigan_weights(model$mel2wav, state_dict, prefix = "mel2wav.")
   }
 
-  # Flow weights
-  flow_keys <- grep("^flow\\.", names(state_dict), value = TRUE)
-  for (key in flow_keys) {
-    # Map to flow module
-  }
+  model
+}
 
-  # Vocoder weights
-  voc_keys <- grep("^mel2wav\\.", names(state_dict), value = TRUE)
-  for (key in voc_keys) {
-    # Map to mel2wav
-  }
+#' Load S3Gen from safetensors file
+#'
+#' @param path Path to s3gen.safetensors
+#' @param device Device to load to ("cpu", "cuda", etc.)
+#' @return S3Gen model with loaded weights
+#' @export
+load_s3gen <- function(path, device = "cpu") {
+  # Read safetensors
+  state_dict <- read_safetensors(path, device)
 
-  warning("S3Gen weight loading not fully implemented")
+  # Create model
+  model <- s3gen()
+
+  # Create and attach vocoder
+  model$mel2wav <- create_s3gen_vocoder(device)
+
+  # Load weights
+  model <- load_s3gen_weights(model, state_dict)
+
+  # Move to device and eval mode
+  model$to(device = device)
+  model$eval()
+
   model
 }

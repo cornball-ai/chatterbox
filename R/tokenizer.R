@@ -18,6 +18,14 @@ SPECIAL_TOKENS <- list(
 #' @param vocab_path Path to tokenizer.json
 #' @return Tokenizer object (list)
 #' @export
+load_bpe_tokenizer <- function(vocab_path) {
+  load_tokenizer(vocab_path)
+}
+
+#' Load tokenizer from JSON file (internal)
+#'
+#' @param vocab_path Path to tokenizer.json
+#' @return Tokenizer object (list)
 load_tokenizer <- function(vocab_path) {
   json_data <- jsonlite::fromJSON(vocab_path, simplifyVector = FALSE)
 
