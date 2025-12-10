@@ -4,7 +4,7 @@
 #' Read audio file
 #'
 #' @param path Path to audio file (WAV format)
-#' @return List with samples (numeric vector normalized to [-1, 1]) and sr (sample rate)
+#' @return List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
 #' @export
 read_audio <- function(path) {
   wav <- tuneR::readWave(path)
@@ -28,7 +28,7 @@ read_audio <- function(path) {
 
 #' Write audio file
 #'
-#' @param samples Numeric vector of audio samples (normalized to [-1, 1])
+#' @param samples Numeric vector of audio samples (normalized to \[-1, 1\])
 #' @param sr Sample rate
 #' @param path Output path (WAV format)
 #' @export
