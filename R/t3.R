@@ -605,11 +605,50 @@ load_t3_weights <- function(model, state_dict) {
   }
 
   # Load perceiver weights
-  perceiver_keys <- grep("^cond_enc\\.perceiver\\.", names(state_dict), value = TRUE)
-  for (key in perceiver_keys) {
-    short_key <- sub("^cond_enc\\.perceiver\\.", "", key)
-    # Parse and assign (simplified - would need more robust parsing for production)
+  # Helper to copy if exists
+  copy_if_exists <- function(r_param, key) {
+    if (key %in% names(state_dict)) {
+      tryCatch({
+        r_param$copy_(state_dict[[key]])
+        return(TRUE)
+      }, error = function(e) {
+        warning("Failed to copy ", key, ": ", e$message)
+        return(FALSE)
+      })
+    }
+    FALSE
   }
+
+  # Perceiver query tokens
+  copy_if_exists(model$cond_enc$perceiver$query, "cond_enc.perceiver.query")
+
+  # Cross-attention layers
+  copy_if_exists(model$cond_enc$perceiver$norm1$weight, "cond_enc.perceiver.norm1.weight")
+  copy_if_exists(model$cond_enc$perceiver$norm1$bias, "cond_enc.perceiver.norm1.bias")
+  copy_if_exists(model$cond_enc$perceiver$norm2$weight, "cond_enc.perceiver.norm2.weight")
+  copy_if_exists(model$cond_enc$perceiver$norm2$bias, "cond_enc.perceiver.norm2.bias")
+
+  copy_if_exists(model$cond_enc$perceiver$q_proj$weight, "cond_enc.perceiver.q_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$q_proj$bias, "cond_enc.perceiver.q_proj.bias")
+  copy_if_exists(model$cond_enc$perceiver$k_proj$weight, "cond_enc.perceiver.k_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$k_proj$bias, "cond_enc.perceiver.k_proj.bias")
+  copy_if_exists(model$cond_enc$perceiver$v_proj$weight, "cond_enc.perceiver.v_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$v_proj$bias, "cond_enc.perceiver.v_proj.bias")
+  copy_if_exists(model$cond_enc$perceiver$out_proj$weight, "cond_enc.perceiver.out_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$out_proj$bias, "cond_enc.perceiver.out_proj.bias")
+
+  # Self-attention layers
+  copy_if_exists(model$cond_enc$perceiver$self_norm$weight, "cond_enc.perceiver.self_norm.weight")
+  copy_if_exists(model$cond_enc$perceiver$self_norm$bias, "cond_enc.perceiver.self_norm.bias")
+
+  copy_if_exists(model$cond_enc$perceiver$self_q_proj$weight, "cond_enc.perceiver.self_q_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$self_q_proj$bias, "cond_enc.perceiver.self_q_proj.bias")
+  copy_if_exists(model$cond_enc$perceiver$self_k_proj$weight, "cond_enc.perceiver.self_k_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$self_k_proj$bias, "cond_enc.perceiver.self_k_proj.bias")
+  copy_if_exists(model$cond_enc$perceiver$self_v_proj$weight, "cond_enc.perceiver.self_v_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$self_v_proj$bias, "cond_enc.perceiver.self_v_proj.bias")
+  copy_if_exists(model$cond_enc$perceiver$self_out_proj$weight, "cond_enc.perceiver.self_out_proj.weight")
+  copy_if_exists(model$cond_enc$perceiver$self_out_proj$bias, "cond_enc.perceiver.self_out_proj.bias")
 
   model
 }

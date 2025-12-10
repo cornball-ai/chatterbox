@@ -2,21 +2,16 @@
 % Please edit documentation in R/s3tokenizer.R
 \name{s3_tokenizer}
 \alias{s3_tokenizer}
-\title{S3Tokenizer module}
+\title{S3Tokenizer V2 module}
 \usage{
-s3_tokenizer(n_mels = 80)
+s3_tokenizer(config = NULL)
 }
 \arguments{
-\item{n_mels}{Number of mel bins (default 80)}
+\item{config}{Configuration list (default from s3_tokenizer_config())}
 }
 \value{
 nn_module
 }
 \description{
-This is a simplified implementation. The full S3TokenizerV2 uses a
-VQ-VAE based on SenseVoice-Large which is complex to port.
-}
-\details{
-For now, this provides the mel spectrogram computation and a placeholder
-for the quantizer that can be loaded from weights.
+S3Tokenizer V2 module
 }

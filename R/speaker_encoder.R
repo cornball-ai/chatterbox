@@ -258,13 +258,14 @@ cam_dense_tdnn_block <- torch::nn_module(
 #'
 #' @param in_channels Input channels
 #' @param out_channels Output channels
+#' @param bias Whether to use bias (default FALSE)
 #' @return nn_module
 transit_layer <- torch::nn_module(
   "TransitLayer",
 
-  initialize = function(in_channels, out_channels) {
+  initialize = function(in_channels, out_channels, bias = FALSE) {
     self$bn <- torch::nn_batch_norm1d(in_channels)
-    self$conv <- torch::nn_conv1d(in_channels, out_channels, 1, bias = TRUE)
+    self$conv <- torch::nn_conv1d(in_channels, out_channels, 1, bias = bias)
   },
 
   forward = function(x) {
@@ -453,16 +454,216 @@ compute_xvector_embedding <- function(model, audio, sr) {
 #'
 #' @param model CAMPPlus model
 #' @param state_dict Named list of tensors
+#' @param prefix Prefix for weight keys (default "speaker_encoder.")
 #' @return Model with loaded weights
 #' @export
-load_campplus_weights <- function(model, state_dict) {
-  # This function would map weight names from the Python model
-  # to our R implementation. The mapping is complex due to
-  # nested modules, so this is a placeholder for now.
+load_campplus_weights <- function(model, state_dict, prefix = "speaker_encoder.") {
+  # Helper to copy weight if exists
+  copy_if_exists <- function(r_param, key) {
+    full_key <- paste0(prefix, key)
+    if (full_key %in% names(state_dict)) {
+      tryCatch({
+        r_param$copy_(state_dict[[full_key]])
+        return(TRUE)
+      }, error = function(e) {
+        warning("Failed to copy ", key, ": ", e$message)
+        return(FALSE)
+      })
+    }
+    # Try without prefix
+    if (key %in% names(state_dict)) {
+      tryCatch({
+        r_param$copy_(state_dict[[key]])
+        return(TRUE)
+      }, error = function(e) FALSE)
+    }
+    FALSE
+  }
 
-  # In practice, weights would need to be loaded layer by layer
-  # with careful attention to naming conventions
+  # ========== FCM Head ==========
+  # head.conv1
+  copy_if_exists(model$head$conv1$weight, "head.conv1.weight")
+  # head.bn1
+  copy_if_exists(model$head$bn1$weight, "head.bn1.weight")
+  copy_if_exists(model$head$bn1$bias, "head.bn1.bias")
+  copy_if_exists(model$head$bn1$running_mean, "head.bn1.running_mean")
+  copy_if_exists(model$head$bn1$running_var, "head.bn1.running_var")
 
-  warning("CAMPPlus weight loading not fully implemented yet")
+  # head.layer1 (2 BasicResBlocks)
+  for (i in 0:1) {
+    block_key <- sprintf("head.layer1.%d.", i)
+    block <- model$head$layer1[[i + 1]]
+
+    copy_if_exists(block$conv1$weight, paste0(block_key, "conv1.weight"))
+    copy_if_exists(block$bn1$weight, paste0(block_key, "bn1.weight"))
+    copy_if_exists(block$bn1$bias, paste0(block_key, "bn1.bias"))
+    copy_if_exists(block$bn1$running_mean, paste0(block_key, "bn1.running_mean"))
+    copy_if_exists(block$bn1$running_var, paste0(block_key, "bn1.running_var"))
+
+    copy_if_exists(block$conv2$weight, paste0(block_key, "conv2.weight"))
+    copy_if_exists(block$bn2$weight, paste0(block_key, "bn2.weight"))
+    copy_if_exists(block$bn2$bias, paste0(block_key, "bn2.bias"))
+    copy_if_exists(block$bn2$running_mean, paste0(block_key, "bn2.running_mean"))
+    copy_if_exists(block$bn2$running_var, paste0(block_key, "bn2.running_var"))
+
+    # Shortcut (only first block has shortcut in layer1)
+    if (!is.null(block$shortcut)) {
+      copy_if_exists(block$shortcut[[1]]$weight, paste0(block_key, "shortcut.0.weight"))
+      copy_if_exists(block$shortcut[[2]]$weight, paste0(block_key, "shortcut.1.weight"))
+      copy_if_exists(block$shortcut[[2]]$bias, paste0(block_key, "shortcut.1.bias"))
+      copy_if_exists(block$shortcut[[2]]$running_mean, paste0(block_key, "shortcut.1.running_mean"))
+      copy_if_exists(block$shortcut[[2]]$running_var, paste0(block_key, "shortcut.1.running_var"))
+    }
+  }
+
+  # head.layer2 (2 BasicResBlocks)
+  for (i in 0:1) {
+    block_key <- sprintf("head.layer2.%d.", i)
+    block <- model$head$layer2[[i + 1]]
+
+    copy_if_exists(block$conv1$weight, paste0(block_key, "conv1.weight"))
+    copy_if_exists(block$bn1$weight, paste0(block_key, "bn1.weight"))
+    copy_if_exists(block$bn1$bias, paste0(block_key, "bn1.bias"))
+    copy_if_exists(block$bn1$running_mean, paste0(block_key, "bn1.running_mean"))
+    copy_if_exists(block$bn1$running_var, paste0(block_key, "bn1.running_var"))
+
+    copy_if_exists(block$conv2$weight, paste0(block_key, "conv2.weight"))
+    copy_if_exists(block$bn2$weight, paste0(block_key, "bn2.weight"))
+    copy_if_exists(block$bn2$bias, paste0(block_key, "bn2.bias"))
+    copy_if_exists(block$bn2$running_mean, paste0(block_key, "bn2.running_mean"))
+    copy_if_exists(block$bn2$running_var, paste0(block_key, "bn2.running_var"))
+
+    if (!is.null(block$shortcut)) {
+      copy_if_exists(block$shortcut[[1]]$weight, paste0(block_key, "shortcut.0.weight"))
+      copy_if_exists(block$shortcut[[2]]$weight, paste0(block_key, "shortcut.1.weight"))
+      copy_if_exists(block$shortcut[[2]]$bias, paste0(block_key, "shortcut.1.bias"))
+      copy_if_exists(block$shortcut[[2]]$running_mean, paste0(block_key, "shortcut.1.running_mean"))
+      copy_if_exists(block$shortcut[[2]]$running_var, paste0(block_key, "shortcut.1.running_var"))
+    }
+  }
+
+  # head.conv2
+  copy_if_exists(model$head$conv2$weight, "head.conv2.weight")
+  copy_if_exists(model$head$bn2$weight, "head.bn2.weight")
+  copy_if_exists(model$head$bn2$bias, "head.bn2.bias")
+  copy_if_exists(model$head$bn2$running_mean, "head.bn2.running_mean")
+  copy_if_exists(model$head$bn2$running_var, "head.bn2.running_var")
+
+  # ========== TDNN layer ==========
+  copy_if_exists(model$tdnn$conv$weight, "xvector.tdnn.linear.weight")
+  copy_if_exists(model$tdnn$bn$weight, "xvector.tdnn.nonlinear.batchnorm.weight")
+  copy_if_exists(model$tdnn$bn$bias, "xvector.tdnn.nonlinear.batchnorm.bias")
+  copy_if_exists(model$tdnn$bn$running_mean, "xvector.tdnn.nonlinear.batchnorm.running_mean")
+  copy_if_exists(model$tdnn$bn$running_var, "xvector.tdnn.nonlinear.batchnorm.running_var")
+
+  # ========== Dense Blocks ==========
+  # Block 1: 12 layers
+  for (i in 1:12) {
+    layer_key <- sprintf("xvector.block1.tdnnd%d.", i)
+    layer <- model$block1$layers[[i]]
+
+    # nonlinear1 (batchnorm)
+    copy_if_exists(layer$bn1$weight, paste0(layer_key, "nonlinear1.batchnorm.weight"))
+    copy_if_exists(layer$bn1$bias, paste0(layer_key, "nonlinear1.batchnorm.bias"))
+    copy_if_exists(layer$bn1$running_mean, paste0(layer_key, "nonlinear1.batchnorm.running_mean"))
+    copy_if_exists(layer$bn1$running_var, paste0(layer_key, "nonlinear1.batchnorm.running_var"))
+
+    # linear1
+    copy_if_exists(layer$linear1$weight, paste0(layer_key, "linear1.weight"))
+
+    # nonlinear2 (batchnorm)
+    copy_if_exists(layer$bn2$weight, paste0(layer_key, "nonlinear2.batchnorm.weight"))
+    copy_if_exists(layer$bn2$bias, paste0(layer_key, "nonlinear2.batchnorm.bias"))
+    copy_if_exists(layer$bn2$running_mean, paste0(layer_key, "nonlinear2.batchnorm.running_mean"))
+    copy_if_exists(layer$bn2$running_var, paste0(layer_key, "nonlinear2.batchnorm.running_var"))
+
+    # CAM layer
+    copy_if_exists(layer$cam$linear_local$weight, paste0(layer_key, "cam_layer.linear_local.weight"))
+    copy_if_exists(layer$cam$linear1$weight, paste0(layer_key, "cam_layer.linear1.weight"))
+    copy_if_exists(layer$cam$linear1$bias, paste0(layer_key, "cam_layer.linear1.bias"))
+    copy_if_exists(layer$cam$linear2$weight, paste0(layer_key, "cam_layer.linear2.weight"))
+    copy_if_exists(layer$cam$linear2$bias, paste0(layer_key, "cam_layer.linear2.bias"))
+  }
+
+  # Transit 1
+  copy_if_exists(model$transit1$bn$weight, "xvector.transit1.nonlinear.batchnorm.weight")
+  copy_if_exists(model$transit1$bn$bias, "xvector.transit1.nonlinear.batchnorm.bias")
+  copy_if_exists(model$transit1$bn$running_mean, "xvector.transit1.nonlinear.batchnorm.running_mean")
+  copy_if_exists(model$transit1$bn$running_var, "xvector.transit1.nonlinear.batchnorm.running_var")
+  copy_if_exists(model$transit1$conv$weight, "xvector.transit1.linear.weight")
+
+  # Block 2: 24 layers
+  for (i in 1:24) {
+    layer_key <- sprintf("xvector.block2.tdnnd%d.", i)
+    layer <- model$block2$layers[[i]]
+
+    copy_if_exists(layer$bn1$weight, paste0(layer_key, "nonlinear1.batchnorm.weight"))
+    copy_if_exists(layer$bn1$bias, paste0(layer_key, "nonlinear1.batchnorm.bias"))
+    copy_if_exists(layer$bn1$running_mean, paste0(layer_key, "nonlinear1.batchnorm.running_mean"))
+    copy_if_exists(layer$bn1$running_var, paste0(layer_key, "nonlinear1.batchnorm.running_var"))
+
+    copy_if_exists(layer$linear1$weight, paste0(layer_key, "linear1.weight"))
+
+    copy_if_exists(layer$bn2$weight, paste0(layer_key, "nonlinear2.batchnorm.weight"))
+    copy_if_exists(layer$bn2$bias, paste0(layer_key, "nonlinear2.batchnorm.bias"))
+    copy_if_exists(layer$bn2$running_mean, paste0(layer_key, "nonlinear2.batchnorm.running_mean"))
+    copy_if_exists(layer$bn2$running_var, paste0(layer_key, "nonlinear2.batchnorm.running_var"))
+
+    copy_if_exists(layer$cam$linear_local$weight, paste0(layer_key, "cam_layer.linear_local.weight"))
+    copy_if_exists(layer$cam$linear1$weight, paste0(layer_key, "cam_layer.linear1.weight"))
+    copy_if_exists(layer$cam$linear1$bias, paste0(layer_key, "cam_layer.linear1.bias"))
+    copy_if_exists(layer$cam$linear2$weight, paste0(layer_key, "cam_layer.linear2.weight"))
+    copy_if_exists(layer$cam$linear2$bias, paste0(layer_key, "cam_layer.linear2.bias"))
+  }
+
+  # Transit 2
+  copy_if_exists(model$transit2$bn$weight, "xvector.transit2.nonlinear.batchnorm.weight")
+  copy_if_exists(model$transit2$bn$bias, "xvector.transit2.nonlinear.batchnorm.bias")
+  copy_if_exists(model$transit2$bn$running_mean, "xvector.transit2.nonlinear.batchnorm.running_mean")
+  copy_if_exists(model$transit2$bn$running_var, "xvector.transit2.nonlinear.batchnorm.running_var")
+  copy_if_exists(model$transit2$conv$weight, "xvector.transit2.linear.weight")
+
+  # Block 3: 16 layers
+  for (i in 1:16) {
+    layer_key <- sprintf("xvector.block3.tdnnd%d.", i)
+    layer <- model$block3$layers[[i]]
+
+    copy_if_exists(layer$bn1$weight, paste0(layer_key, "nonlinear1.batchnorm.weight"))
+    copy_if_exists(layer$bn1$bias, paste0(layer_key, "nonlinear1.batchnorm.bias"))
+    copy_if_exists(layer$bn1$running_mean, paste0(layer_key, "nonlinear1.batchnorm.running_mean"))
+    copy_if_exists(layer$bn1$running_var, paste0(layer_key, "nonlinear1.batchnorm.running_var"))
+
+    copy_if_exists(layer$linear1$weight, paste0(layer_key, "linear1.weight"))
+
+    copy_if_exists(layer$bn2$weight, paste0(layer_key, "nonlinear2.batchnorm.weight"))
+    copy_if_exists(layer$bn2$bias, paste0(layer_key, "nonlinear2.batchnorm.bias"))
+    copy_if_exists(layer$bn2$running_mean, paste0(layer_key, "nonlinear2.batchnorm.running_mean"))
+    copy_if_exists(layer$bn2$running_var, paste0(layer_key, "nonlinear2.batchnorm.running_var"))
+
+    copy_if_exists(layer$cam$linear_local$weight, paste0(layer_key, "cam_layer.linear_local.weight"))
+    copy_if_exists(layer$cam$linear1$weight, paste0(layer_key, "cam_layer.linear1.weight"))
+    copy_if_exists(layer$cam$linear1$bias, paste0(layer_key, "cam_layer.linear1.bias"))
+    copy_if_exists(layer$cam$linear2$weight, paste0(layer_key, "cam_layer.linear2.weight"))
+    copy_if_exists(layer$cam$linear2$bias, paste0(layer_key, "cam_layer.linear2.bias"))
+  }
+
+  # Transit 3
+  copy_if_exists(model$transit3$bn$weight, "xvector.transit3.nonlinear.batchnorm.weight")
+  copy_if_exists(model$transit3$bn$bias, "xvector.transit3.nonlinear.batchnorm.bias")
+  copy_if_exists(model$transit3$bn$running_mean, "xvector.transit3.nonlinear.batchnorm.running_mean")
+  copy_if_exists(model$transit3$bn$running_var, "xvector.transit3.nonlinear.batchnorm.running_var")
+  copy_if_exists(model$transit3$conv$weight, "xvector.transit3.linear.weight")
+
+  # ========== Output ==========
+  # out_nonlinear (batchnorm)
+  copy_if_exists(model$out_bn$weight, "xvector.out_nonlinear.batchnorm.weight")
+  copy_if_exists(model$out_bn$bias, "xvector.out_nonlinear.batchnorm.bias")
+  copy_if_exists(model$out_bn$running_mean, "xvector.out_nonlinear.batchnorm.running_mean")
+  copy_if_exists(model$out_bn$running_var, "xvector.out_nonlinear.batchnorm.running_var")
+
+  # Dense layer
+  copy_if_exists(model$dense$conv$weight, "xvector.dense.linear.weight")
+  # Note: dense has batchnorm_ (no affine), so no weight/bias to load
+
   model
 }
