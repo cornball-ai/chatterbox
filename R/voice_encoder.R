@@ -115,7 +115,7 @@ voice_encoder <- torch::nn_module(
   # Inference for full utterance with overlapping partials
   inference = function(mels, overlap = 0.5, min_coverage = 0.8) {
     config <- self$config
-    device <- next(self$parameters())$device
+    device <- self$parameters[[1]]$device
 
     # Ensure mels is on device
     if (mels$device$type != device$type) {
@@ -188,7 +188,7 @@ voice_encoder <- torch::nn_module(
 #' @export
 compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
   config <- model$config
-  device <- next(model$parameters())$device
+  device <- model$parameters[[1]]$device
 
   # Convert to numeric if tensor
   if (inherits(audio, "torch_tensor")) {
@@ -218,43 +218,49 @@ compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
 #' @param state_dict Named list of tensors
 #' @return Model with loaded weights
 load_voice_encoder_weights <- function(model, state_dict) {
-  # LSTM weights
-  for (layer in 0:2) {
-    weight_ih_key <- paste0("lstm.weight_ih_l", layer)
-    weight_hh_key <- paste0("lstm.weight_hh_l", layer)
-    bias_ih_key <- paste0("lstm.bias_ih_l", layer)
-    bias_hh_key <- paste0("lstm.bias_hh_l", layer)
+  torch::with_no_grad({
+    # LSTM weights
+    # Note: Python uses 0-based indexing (l0, l1, l2), R torch uses 1-based (l1, l2, l3)
+    for (layer in 0:2) {
+      # Keys in the Python state_dict
+      weight_ih_key <- paste0("lstm.weight_ih_l", layer)
+      weight_hh_key <- paste0("lstm.weight_hh_l", layer)
+      bias_ih_key <- paste0("lstm.bias_ih_l", layer)
+      bias_hh_key <- paste0("lstm.bias_hh_l", layer)
 
-    if (weight_ih_key %in% names(state_dict)) {
-      # torch for R uses different parameter naming
-      model$lstm$parameters[[paste0("weight_ih_l", layer)]]$copy_(state_dict[[weight_ih_key]])
-    }
-    if (weight_hh_key %in% names(state_dict)) {
-      model$lstm$parameters[[paste0("weight_hh_l", layer)]]$copy_(state_dict[[weight_hh_key]])
-    }
-    if (bias_ih_key %in% names(state_dict)) {
-      model$lstm$parameters[[paste0("bias_ih_l", layer)]]$copy_(state_dict[[bias_ih_key]])
-    }
-    if (bias_hh_key %in% names(state_dict)) {
-      model$lstm$parameters[[paste0("bias_hh_l", layer)]]$copy_(state_dict[[bias_hh_key]])
-    }
-  }
+      # Keys in R torch (1-based indexing)
+      r_layer <- layer + 1
 
-  # Projection layer
-  if ("proj.weight" %in% names(state_dict)) {
-    model$proj$weight$copy_(state_dict[["proj.weight"]])
-  }
-  if ("proj.bias" %in% names(state_dict)) {
-    model$proj$bias$copy_(state_dict[["proj.bias"]])
-  }
+      if (weight_ih_key %in% names(state_dict)) {
+        model$lstm$parameters[[paste0("weight_ih_l", r_layer)]]$copy_(state_dict[[weight_ih_key]])
+      }
+      if (weight_hh_key %in% names(state_dict)) {
+        model$lstm$parameters[[paste0("weight_hh_l", r_layer)]]$copy_(state_dict[[weight_hh_key]])
+      }
+      if (bias_ih_key %in% names(state_dict)) {
+        model$lstm$parameters[[paste0("bias_ih_l", r_layer)]]$copy_(state_dict[[bias_ih_key]])
+      }
+      if (bias_hh_key %in% names(state_dict)) {
+        model$lstm$parameters[[paste0("bias_hh_l", r_layer)]]$copy_(state_dict[[bias_hh_key]])
+      }
+    }
 
-  # Similarity parameters
-  if ("similarity_weight" %in% names(state_dict)) {
-    model$similarity_weight$copy_(state_dict[["similarity_weight"]])
-  }
-  if ("similarity_bias" %in% names(state_dict)) {
-    model$similarity_bias$copy_(state_dict[["similarity_bias"]])
-  }
+    # Projection layer
+    if ("proj.weight" %in% names(state_dict)) {
+      model$proj$weight$copy_(state_dict[["proj.weight"]])
+    }
+    if ("proj.bias" %in% names(state_dict)) {
+      model$proj$bias$copy_(state_dict[["proj.bias"]])
+    }
+
+    # Similarity parameters
+    if ("similarity_weight" %in% names(state_dict)) {
+      model$similarity_weight$copy_(state_dict[["similarity_weight"]])
+    }
+    if ("similarity_bias" %in% names(state_dict)) {
+      model$similarity_bias$copy_(state_dict[["similarity_bias"]])
+    }
+  })
 
   model
 }

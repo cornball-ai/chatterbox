@@ -505,56 +505,58 @@ llama_model <- torch::nn_module(
 #' @param prefix Prefix to strip from weight names (default: "model.")
 #' @return Model with loaded weights
 load_llama_weights <- function(model, state_dict, prefix = "model.") {
-  # Map HuggingFace weight names to our model
-  for (name in names(state_dict)) {
-    # Strip prefix
-    key <- sub(paste0("^", prefix), "", name)
+  torch::with_no_grad({
+    # Map HuggingFace weight names to our model
+    for (name in names(state_dict)) {
+      # Strip prefix
+      key <- sub(paste0("^", prefix), "", name)
 
-    # Parse the key to find the parameter
-    param <- tryCatch({
-      parts <- strsplit(key, "\\.")[[1]]
+      # Parse the key to find the parameter
+      param <- tryCatch({
+        parts <- strsplit(key, "\\.")[[1]]
 
-      if (parts[1] == "embed_tokens") {
-        model$embed_tokens$weight
-      } else if (parts[1] == "norm") {
-        model$norm$weight
-      } else if (parts[1] == "layers") {
-        layer_idx <- as.integer(parts[2]) + 1  # R is 1-indexed
-        layer <- model$layers[[layer_idx]]
+        if (parts[1] == "embed_tokens") {
+          model$embed_tokens$weight
+        } else if (parts[1] == "norm") {
+          model$norm$weight
+        } else if (parts[1] == "layers") {
+          layer_idx <- as.integer(parts[2]) + 1  # R is 1-indexed
+          layer <- model$layers[[layer_idx]]
 
-        if (parts[3] == "self_attn") {
-          proj_name <- parts[4]
-          if (proj_name == "q_proj") {
-            layer$self_attn$q_proj$weight
-          } else if (proj_name == "k_proj") {
-            layer$self_attn$k_proj$weight
-          } else if (proj_name == "v_proj") {
-            layer$self_attn$v_proj$weight
-          } else if (proj_name == "o_proj") {
-            layer$self_attn$o_proj$weight
+          if (parts[3] == "self_attn") {
+            proj_name <- parts[4]
+            if (proj_name == "q_proj") {
+              layer$self_attn$q_proj$weight
+            } else if (proj_name == "k_proj") {
+              layer$self_attn$k_proj$weight
+            } else if (proj_name == "v_proj") {
+              layer$self_attn$v_proj$weight
+            } else if (proj_name == "o_proj") {
+              layer$self_attn$o_proj$weight
+            }
+          } else if (parts[3] == "mlp") {
+            proj_name <- parts[4]
+            if (proj_name == "gate_proj") {
+              layer$mlp$gate_proj$weight
+            } else if (proj_name == "up_proj") {
+              layer$mlp$up_proj$weight
+            } else if (proj_name == "down_proj") {
+              layer$mlp$down_proj$weight
+            }
+          } else if (parts[3] == "input_layernorm") {
+            layer$input_layernorm$weight
+          } else if (parts[3] == "post_attention_layernorm") {
+            layer$post_attention_layernorm$weight
           }
-        } else if (parts[3] == "mlp") {
-          proj_name <- parts[4]
-          if (proj_name == "gate_proj") {
-            layer$mlp$gate_proj$weight
-          } else if (proj_name == "up_proj") {
-            layer$mlp$up_proj$weight
-          } else if (proj_name == "down_proj") {
-            layer$mlp$down_proj$weight
-          }
-        } else if (parts[3] == "input_layernorm") {
-          layer$input_layernorm$weight
-        } else if (parts[3] == "post_attention_layernorm") {
-          layer$post_attention_layernorm$weight
         }
-      }
-    }, error = function(e) NULL)
+      }, error = function(e) NULL)
 
-    if (!is.null(param)) {
-      # Copy weights
-      param$copy_(state_dict[[name]])
+      if (!is.null(param)) {
+        # Copy weights
+        param$copy_(state_dict[[name]])
+      }
     }
-  }
+  })
 
   model
 }

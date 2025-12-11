@@ -3,6 +3,7 @@
 #' Get default cache directory
 #'
 #' @return Path to cache directory
+#' @keywords internal
 get_cache_dir <- function() {
   # Check for environment variable first
   cache_dir <- Sys.getenv("CHATTERBOX_CACHE")
@@ -20,9 +21,11 @@ get_cache_dir <- function() {
 #' @param filename Filename to download
 #' @param cache_dir Cache directory (default: ~/.cache/chatterbox)
 #' @param force Re-download even if file exists
+#' @param timeout Download timeout in seconds (default 600)
 #' @return Local path to downloaded file
+#' @importFrom utils download.file
 #' @export
-hf_download <- function(repo_id, filename, cache_dir = NULL, force = FALSE) {
+hf_download <- function(repo_id, filename, cache_dir = NULL, force = FALSE, timeout = 600) {
   if (is.null(cache_dir)) {
     cache_dir <- get_cache_dir()
   }
@@ -32,7 +35,7 @@ hf_download <- function(repo_id, filename, cache_dir = NULL, force = FALSE) {
   local_path <- file.path(repo_cache, filename)
 
   # Return existing file if present and not forcing
- if (file.exists(local_path) && !force) {
+  if (file.exists(local_path) && !force) {
     message("Using cached: ", filename)
     return(local_path)
   }
@@ -42,6 +45,12 @@ hf_download <- function(repo_id, filename, cache_dir = NULL, force = FALSE) {
 
   # Construct URL
   url <- sprintf("https://huggingface.co/%s/resolve/main/%s", repo_id, filename)
+
+  # Set longer timeout for large files
+
+  old_timeout <- getOption("timeout")
+  on.exit(options(timeout = old_timeout), add = TRUE)
+  options(timeout = timeout)
 
   message("Downloading: ", filename)
   tryCatch({

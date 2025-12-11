@@ -1,2 +1,11 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^\.Rhistory$
+^\.gitignore$
+^\.git$
+^\.claude$
+^\.\.Rcheck$
+^.*\.Rcheck$
+^reference$
+^CLAUDE\.md$
+^README\.md$

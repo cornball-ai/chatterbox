@@ -12,3 +12,4 @@ Path to cache directory
 \description{
 Get default cache directory
 }
+\keyword{internal}

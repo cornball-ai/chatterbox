@@ -50,7 +50,9 @@ learned_position_embeddings <- torch::nn_module(
   initialize = function(seq_len, model_dim, init_std = 0.02) {
     self$emb <- torch::nn_embedding(seq_len, model_dim)
     # GPT-2 style initialization
-    self$emb$weight$data$normal_(mean = 0.0, std = init_std)
+    torch::with_no_grad({
+      self$emb$weight$normal_(mean = 0.0, std = init_std)
+    })
   },
 
   forward = function(x) {
@@ -143,7 +145,9 @@ perceiver_resampler <- torch::nn_module(
     )
     # Xavier-like initialization
     query_var <- sqrt(3.0) * sqrt(2.0 / (num_query_tokens + num_query_tokens))
-    self$query$data$uniform_(-query_var, query_var)
+    torch::with_no_grad({
+      self$query$uniform_(-query_var, query_var)
+    })
 
     # Cross-attention layers
     self$norm1 <- torch::nn_layer_norm(embed_dim)
@@ -425,7 +429,7 @@ t3_inference <- function(model, cond, text_tokens,
                          repetition_penalty = 1.2) {
 
   config <- model$config
-  device <- next(model$parameters())$device
+  device <- model$parameters[[1]]$device
 
   # Ensure text_tokens is 2D
   if (text_tokens$dim() == 1) {
@@ -559,7 +563,7 @@ t3_inference <- function(model, cond, text_tokens,
 #' @param state_dict Named list of tensors
 #' @return Model with loaded weights
 load_t3_weights <- function(model, state_dict) {
-  # Load Llama backbone weights
+  # Load Llama backbone weights (already wrapped in with_no_grad)
   llama_weights <- list()
   for (name in names(state_dict)) {
     if (startsWith(name, "tfmr.")) {
@@ -569,86 +573,89 @@ load_t3_weights <- function(model, state_dict) {
   }
   load_llama_weights(model$tfmr, llama_weights, prefix = "")
 
-  # Load embedding weights
-  if ("text_emb.weight" %in% names(state_dict)) {
-    model$text_emb$weight$copy_(state_dict[["text_emb.weight"]])
-  }
-  if ("speech_emb.weight" %in% names(state_dict)) {
-    model$speech_emb$weight$copy_(state_dict[["speech_emb.weight"]])
-  }
-
-  # Load position embedding weights
-  if ("text_pos_emb.emb.weight" %in% names(state_dict)) {
-    model$text_pos_emb$emb$weight$copy_(state_dict[["text_pos_emb.emb.weight"]])
-  }
-  if ("speech_pos_emb.emb.weight" %in% names(state_dict)) {
-    model$speech_pos_emb$emb$weight$copy_(state_dict[["speech_pos_emb.emb.weight"]])
-  }
-
-  # Load output head weights
-  if ("text_head.weight" %in% names(state_dict)) {
-    model$text_head$weight$copy_(state_dict[["text_head.weight"]])
-  }
-  if ("speech_head.weight" %in% names(state_dict)) {
-    model$speech_head$weight$copy_(state_dict[["speech_head.weight"]])
-  }
-
-  # Load conditioning encoder weights
-  if ("cond_enc.spkr_enc.weight" %in% names(state_dict)) {
-    model$cond_enc$spkr_enc$weight$copy_(state_dict[["cond_enc.spkr_enc.weight"]])
-  }
-  if ("cond_enc.spkr_enc.bias" %in% names(state_dict)) {
-    model$cond_enc$spkr_enc$bias$copy_(state_dict[["cond_enc.spkr_enc.bias"]])
-  }
-  if ("cond_enc.emotion_adv_fc.weight" %in% names(state_dict)) {
-    model$cond_enc$emotion_adv_fc$weight$copy_(state_dict[["cond_enc.emotion_adv_fc.weight"]])
-  }
-
-  # Load perceiver weights
-  # Helper to copy if exists
-  copy_if_exists <- function(r_param, key) {
-    if (key %in% names(state_dict)) {
-      tryCatch({
-        r_param$copy_(state_dict[[key]])
-        return(TRUE)
-      }, error = function(e) {
-        warning("Failed to copy ", key, ": ", e$message)
-        return(FALSE)
-      })
+  # Load remaining weights with no_grad
+  torch::with_no_grad({
+    # Load embedding weights
+    if ("text_emb.weight" %in% names(state_dict)) {
+      model$text_emb$weight$copy_(state_dict[["text_emb.weight"]])
     }
-    FALSE
-  }
+    if ("speech_emb.weight" %in% names(state_dict)) {
+      model$speech_emb$weight$copy_(state_dict[["speech_emb.weight"]])
+    }
 
-  # Perceiver query tokens
-  copy_if_exists(model$cond_enc$perceiver$query, "cond_enc.perceiver.query")
+    # Load position embedding weights
+    if ("text_pos_emb.emb.weight" %in% names(state_dict)) {
+      model$text_pos_emb$emb$weight$copy_(state_dict[["text_pos_emb.emb.weight"]])
+    }
+    if ("speech_pos_emb.emb.weight" %in% names(state_dict)) {
+      model$speech_pos_emb$emb$weight$copy_(state_dict[["speech_pos_emb.emb.weight"]])
+    }
 
-  # Cross-attention layers
-  copy_if_exists(model$cond_enc$perceiver$norm1$weight, "cond_enc.perceiver.norm1.weight")
-  copy_if_exists(model$cond_enc$perceiver$norm1$bias, "cond_enc.perceiver.norm1.bias")
-  copy_if_exists(model$cond_enc$perceiver$norm2$weight, "cond_enc.perceiver.norm2.weight")
-  copy_if_exists(model$cond_enc$perceiver$norm2$bias, "cond_enc.perceiver.norm2.bias")
+    # Load output head weights
+    if ("text_head.weight" %in% names(state_dict)) {
+      model$text_head$weight$copy_(state_dict[["text_head.weight"]])
+    }
+    if ("speech_head.weight" %in% names(state_dict)) {
+      model$speech_head$weight$copy_(state_dict[["speech_head.weight"]])
+    }
 
-  copy_if_exists(model$cond_enc$perceiver$q_proj$weight, "cond_enc.perceiver.q_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$q_proj$bias, "cond_enc.perceiver.q_proj.bias")
-  copy_if_exists(model$cond_enc$perceiver$k_proj$weight, "cond_enc.perceiver.k_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$k_proj$bias, "cond_enc.perceiver.k_proj.bias")
-  copy_if_exists(model$cond_enc$perceiver$v_proj$weight, "cond_enc.perceiver.v_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$v_proj$bias, "cond_enc.perceiver.v_proj.bias")
-  copy_if_exists(model$cond_enc$perceiver$out_proj$weight, "cond_enc.perceiver.out_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$out_proj$bias, "cond_enc.perceiver.out_proj.bias")
+    # Load conditioning encoder weights
+    if ("cond_enc.spkr_enc.weight" %in% names(state_dict)) {
+      model$cond_enc$spkr_enc$weight$copy_(state_dict[["cond_enc.spkr_enc.weight"]])
+    }
+    if ("cond_enc.spkr_enc.bias" %in% names(state_dict)) {
+      model$cond_enc$spkr_enc$bias$copy_(state_dict[["cond_enc.spkr_enc.bias"]])
+    }
+    if ("cond_enc.emotion_adv_fc.weight" %in% names(state_dict)) {
+      model$cond_enc$emotion_adv_fc$weight$copy_(state_dict[["cond_enc.emotion_adv_fc.weight"]])
+    }
 
-  # Self-attention layers
-  copy_if_exists(model$cond_enc$perceiver$self_norm$weight, "cond_enc.perceiver.self_norm.weight")
-  copy_if_exists(model$cond_enc$perceiver$self_norm$bias, "cond_enc.perceiver.self_norm.bias")
+    # Load perceiver weights
+    # Helper to copy if exists
+    copy_if_exists <- function(r_param, key) {
+      if (key %in% names(state_dict)) {
+        tryCatch({
+          r_param$copy_(state_dict[[key]])
+          return(TRUE)
+        }, error = function(e) {
+          warning("Failed to copy ", key, ": ", e$message)
+          return(FALSE)
+        })
+      }
+      FALSE
+    }
 
-  copy_if_exists(model$cond_enc$perceiver$self_q_proj$weight, "cond_enc.perceiver.self_q_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$self_q_proj$bias, "cond_enc.perceiver.self_q_proj.bias")
-  copy_if_exists(model$cond_enc$perceiver$self_k_proj$weight, "cond_enc.perceiver.self_k_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$self_k_proj$bias, "cond_enc.perceiver.self_k_proj.bias")
-  copy_if_exists(model$cond_enc$perceiver$self_v_proj$weight, "cond_enc.perceiver.self_v_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$self_v_proj$bias, "cond_enc.perceiver.self_v_proj.bias")
-  copy_if_exists(model$cond_enc$perceiver$self_out_proj$weight, "cond_enc.perceiver.self_out_proj.weight")
-  copy_if_exists(model$cond_enc$perceiver$self_out_proj$bias, "cond_enc.perceiver.self_out_proj.bias")
+    # Perceiver query tokens
+    copy_if_exists(model$cond_enc$perceiver$query, "cond_enc.perceiver.query")
+
+    # Cross-attention layers
+    copy_if_exists(model$cond_enc$perceiver$norm1$weight, "cond_enc.perceiver.norm1.weight")
+    copy_if_exists(model$cond_enc$perceiver$norm1$bias, "cond_enc.perceiver.norm1.bias")
+    copy_if_exists(model$cond_enc$perceiver$norm2$weight, "cond_enc.perceiver.norm2.weight")
+    copy_if_exists(model$cond_enc$perceiver$norm2$bias, "cond_enc.perceiver.norm2.bias")
+
+    copy_if_exists(model$cond_enc$perceiver$q_proj$weight, "cond_enc.perceiver.q_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$q_proj$bias, "cond_enc.perceiver.q_proj.bias")
+    copy_if_exists(model$cond_enc$perceiver$k_proj$weight, "cond_enc.perceiver.k_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$k_proj$bias, "cond_enc.perceiver.k_proj.bias")
+    copy_if_exists(model$cond_enc$perceiver$v_proj$weight, "cond_enc.perceiver.v_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$v_proj$bias, "cond_enc.perceiver.v_proj.bias")
+    copy_if_exists(model$cond_enc$perceiver$out_proj$weight, "cond_enc.perceiver.out_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$out_proj$bias, "cond_enc.perceiver.out_proj.bias")
+
+    # Self-attention layers
+    copy_if_exists(model$cond_enc$perceiver$self_norm$weight, "cond_enc.perceiver.self_norm.weight")
+    copy_if_exists(model$cond_enc$perceiver$self_norm$bias, "cond_enc.perceiver.self_norm.bias")
+
+    copy_if_exists(model$cond_enc$perceiver$self_q_proj$weight, "cond_enc.perceiver.self_q_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$self_q_proj$bias, "cond_enc.perceiver.self_q_proj.bias")
+    copy_if_exists(model$cond_enc$perceiver$self_k_proj$weight, "cond_enc.perceiver.self_k_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$self_k_proj$bias, "cond_enc.perceiver.self_k_proj.bias")
+    copy_if_exists(model$cond_enc$perceiver$self_v_proj$weight, "cond_enc.perceiver.self_v_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$self_v_proj$bias, "cond_enc.perceiver.self_v_proj.bias")
+    copy_if_exists(model$cond_enc$perceiver$self_out_proj$weight, "cond_enc.perceiver.self_out_proj.weight")
+    copy_if_exists(model$cond_enc$perceiver$self_out_proj$bias, "cond_enc.perceiver.self_out_proj.bias")
+  })
 
   model
 }

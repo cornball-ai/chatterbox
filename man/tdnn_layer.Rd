@@ -23,6 +23,8 @@ tdnn_layer(
 \item{stride}{Stride}
 
 \item{dilation}{Dilation}
+
+\item{padding}{Padding (default: computed from kernel_size and dilation)}
 }
 \value{
 nn_module

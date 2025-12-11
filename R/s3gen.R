@@ -260,6 +260,8 @@ causal_cfm <- torch::nn_module(
 #' @param input_size Token embedding size
 #' @param output_size Mel bins
 #' @param spk_embed_dim Speaker embedding dimension
+#' @param input_frame_rate Input frame rate for audio processing
+#' @param token_mel_ratio Ratio of tokens to mel frames
 #' @return nn_module
 causal_masked_diff_xvec <- torch::nn_module(
   "CausalMaskedDiffWithXvec",

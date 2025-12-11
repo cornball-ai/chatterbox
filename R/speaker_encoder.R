@@ -120,6 +120,7 @@ fcm_module <- torch::nn_module(
 #' @param kernel_size Kernel size
 #' @param stride Stride
 #' @param dilation Dilation
+#' @param padding Padding (default: computed from kernel_size and dilation)
 #' @return nn_module
 tdnn_layer <- torch::nn_module(
   "TDNNLayer",
@@ -403,7 +404,7 @@ campplus <- torch::nn_module(
 #' @return Speaker embedding (1, 192)
 #' @export
 compute_xvector_embedding <- function(model, audio, sr) {
-  device <- next(model$parameters())$device
+  device <- model$parameters[[1]]$device
 
   # Convert to tensor if needed
   if (!inherits(audio, "torch_tensor")) {

@@ -21,6 +21,10 @@ causal_masked_diff_xvec(
 \item{output_size}{Mel bins}
 
 \item{spk_embed_dim}{Speaker embedding dimension}
+
+\item{input_frame_rate}{Input frame rate for audio processing}
+
+\item{token_mel_ratio}{Ratio of tokens to mel frames}
 }
 \value{
 nn_module
