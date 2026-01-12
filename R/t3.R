@@ -139,15 +139,11 @@ perceiver_resampler <- torch::nn_module(
     self$num_heads <- num_heads
     self$head_dim <- embed_dim %/% num_heads
 
-    # Learnable query tokens
-    self$query <- torch::nn_parameter(
-      torch::torch_empty(1, num_query_tokens, embed_dim)
-    )
-    # Xavier-like initialization
+    # Learnable query tokens with Xavier-like initialization
     query_var <- sqrt(3.0) * sqrt(2.0 / (num_query_tokens + num_query_tokens))
-    torch::with_no_grad({
-      self$query$uniform_(-query_var, query_var)
-    })
+    self$query <- torch::nn_parameter(
+      torch::torch_empty(1, num_query_tokens, embed_dim)$uniform_(-query_var, query_var)
+    )
 
     # Cross-attention layers
     self$norm1 <- torch::nn_layer_norm(embed_dim)
@@ -429,7 +425,7 @@ t3_inference <- function(model, cond, text_tokens,
                          repetition_penalty = 1.2) {
 
   config <- model$config
-  device <- model$parameters[[1]]$device
+  device <- next(model$parameters())$device
 
   # Ensure text_tokens is 2D
   if (text_tokens$dim() == 1) {

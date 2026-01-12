@@ -14,6 +14,26 @@ get_conv_padding <- function(kernel_size, dilation = 1) {
   as.integer((kernel_size * dilation - dilation) / 2)
 }
 
+#' Reflection padding for 1D (nn_reflection_pad1d equivalent)
+#'
+#' @param padding Integer vector c(left, right) for padding
+#' @return nn_module
+reflection_pad1d <- torch::nn_module(
+  "ReflectionPad1d",
+
+  initialize = function(padding) {
+    if (length(padding) == 1) {
+      self$padding <- c(padding, padding)
+    } else {
+      self$padding <- padding
+    }
+  },
+
+  forward = function(x) {
+    torch::nnf_pad(x, self$padding, mode = "reflect")
+  }
+)
+
 # ============================================================================
 # Snake Activation
 # ============================================================================
@@ -407,7 +427,7 @@ hift_generator <- torch::nn_module(
     self$conv_post <- torch::nn_conv1d(final_ch, istft_n_fft + 2, 7, stride = 1, padding = 3)
 
     # Reflection padding for alignment
-    self$reflection_pad <- torch::nn_reflection_pad1d(c(1, 0))
+    self$reflection_pad <- reflection_pad1d(c(1, 0))
 
     # STFT window (Hann)
     hann_window <- 0.5 * (1 - cos(2 * pi * (0:(istft_n_fft - 1)) / istft_n_fft))

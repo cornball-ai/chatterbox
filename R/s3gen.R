@@ -501,69 +501,71 @@ s3gen <- torch::nn_module(
 #' @return Model with loaded weights
 #' @export
 load_s3gen_weights <- function(model, state_dict) {
-  # Helper to copy weight if exists
-  copy_if_exists <- function(r_param, key) {
-    if (key %in% names(state_dict)) {
-      tryCatch({
-        r_param$copy_(state_dict[[key]])
-        return(TRUE)
-      }, error = function(e) {
-        warning("Failed to copy ", key, ": ", e$message)
-        return(FALSE)
-      })
+  torch::with_no_grad({
+    # Helper to copy weight if exists
+    copy_if_exists <- function(r_param, key) {
+      if (key %in% names(state_dict)) {
+        tryCatch({
+          r_param$copy_(state_dict[[key]])
+          return(TRUE)
+        }, error = function(e) {
+          warning("Failed to copy ", key, ": ", e$message)
+          return(FALSE)
+        })
+      }
+      FALSE
     }
-    FALSE
-  }
 
-  # ========== Speech Tokenizer ==========
-  # Load tokenizer weights (S3TokenizerV2)
-  load_s3tokenizer_weights(model$tokenizer, state_dict, prefix = "tokenizer.")
+    # ========== Speech Tokenizer ==========
+    # Load tokenizer weights (S3TokenizerV2)
+    load_s3tokenizer_weights(model$tokenizer, state_dict, prefix = "tokenizer.")
 
-  # ========== Speaker Encoder (CAMPPlus) ==========
-  load_campplus_weights(model$speaker_encoder, state_dict, prefix = "speaker_encoder.")
+    # ========== Speaker Encoder (CAMPPlus) ==========
+    load_campplus_weights(model$speaker_encoder, state_dict, prefix = "speaker_encoder.")
 
-  # ========== Flow Module ==========
-  # Input embedding
-  copy_if_exists(model$flow$input_embedding$weight, "flow.input_embedding.weight")
+    # ========== Flow Module ==========
+    # Input embedding
+    copy_if_exists(model$flow$input_embedding$weight, "flow.input_embedding.weight")
 
-  # Speaker embedding projection
-  copy_if_exists(model$flow$spk_embed_affine_layer$weight, "flow.spk_embed_affine_layer.weight")
-  copy_if_exists(model$flow$spk_embed_affine_layer$bias, "flow.spk_embed_affine_layer.bias")
+    # Speaker embedding projection
+    copy_if_exists(model$flow$spk_embed_affine_layer$weight, "flow.spk_embed_affine_layer.weight")
+    copy_if_exists(model$flow$spk_embed_affine_layer$bias, "flow.spk_embed_affine_layer.bias")
 
-  # Encoder projection
-  copy_if_exists(model$flow$encoder_proj$weight, "flow.encoder_proj.weight")
-  copy_if_exists(model$flow$encoder_proj$bias, "flow.encoder_proj.bias")
+    # Encoder projection
+    copy_if_exists(model$flow$encoder_proj$weight, "flow.encoder_proj.weight")
+    copy_if_exists(model$flow$encoder_proj$bias, "flow.encoder_proj.bias")
 
-  # Encoder - this is a conformer with complex structure
-  # For now, load what we can (the simplified transformer encoder)
-  copy_if_exists(model$flow$encoder$input_proj$weight, "flow.encoder.embed.weight")
-  copy_if_exists(model$flow$encoder$input_proj$bias, "flow.encoder.embed.bias")
+    # Encoder - this is a conformer with complex structure
+    # For now, load what we can (the simplified transformer encoder)
+    copy_if_exists(model$flow$encoder$input_proj$weight, "flow.encoder.embed.weight")
+    copy_if_exists(model$flow$encoder$input_proj$bias, "flow.encoder.embed.bias")
 
-  # Encoder upsample
-  copy_if_exists(model$flow$encoder$upsample$weight, "flow.encoder.upsample.weight")
-  copy_if_exists(model$flow$encoder$upsample$bias, "flow.encoder.upsample.bias")
+    # Encoder upsample
+    copy_if_exists(model$flow$encoder$upsample$weight, "flow.encoder.upsample.weight")
+    copy_if_exists(model$flow$encoder$upsample$bias, "flow.encoder.upsample.bias")
 
-  # CFM Decoder/Estimator - complex nested structure
-  # The Python decoder is ConditionalDecoder (UNet-style)
-  # We have simplified CFM estimator
-  # Load what maps...
+    # CFM Decoder/Estimator - complex nested structure
+    # The Python decoder is ConditionalDecoder (UNet-style)
+    # We have simplified CFM estimator
+    # Load what maps...
 
-  # Time embedding
-  copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$weight, "flow.decoder.estimator.time_embed.mlp.0.weight")
-  copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$bias, "flow.decoder.estimator.time_embed.mlp.0.bias")
-  copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$weight, "flow.decoder.estimator.time_embed.mlp.2.weight")
-  copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$bias, "flow.decoder.estimator.time_embed.mlp.2.bias")
+    # Time embedding
+    copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$weight, "flow.decoder.estimator.time_embed.mlp.0.weight")
+    copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$bias, "flow.decoder.estimator.time_embed.mlp.0.bias")
+    copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$weight, "flow.decoder.estimator.time_embed.mlp.2.weight")
+    copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$bias, "flow.decoder.estimator.time_embed.mlp.2.bias")
 
-  # Input/output projections
-  copy_if_exists(model$flow$decoder$estimator$input_proj$weight, "flow.decoder.estimator.input_projection.weight")
-  copy_if_exists(model$flow$decoder$estimator$input_proj$bias, "flow.decoder.estimator.input_projection.bias")
-  copy_if_exists(model$flow$decoder$estimator$output_proj$weight, "flow.decoder.estimator.output_projection.weight")
-  copy_if_exists(model$flow$decoder$estimator$output_proj$bias, "flow.decoder.estimator.output_projection.bias")
+    # Input/output projections
+    copy_if_exists(model$flow$decoder$estimator$input_proj$weight, "flow.decoder.estimator.input_projection.weight")
+    copy_if_exists(model$flow$decoder$estimator$input_proj$bias, "flow.decoder.estimator.input_projection.bias")
+    copy_if_exists(model$flow$decoder$estimator$output_proj$weight, "flow.decoder.estimator.output_projection.weight")
+    copy_if_exists(model$flow$decoder$estimator$output_proj$bias, "flow.decoder.estimator.output_projection.bias")
 
-  # ========== HiFiGAN Vocoder ==========
-  if (!is.null(model$mel2wav)) {
-    load_hifigan_weights(model$mel2wav, state_dict, prefix = "mel2wav.")
-  }
+    # ========== HiFiGAN Vocoder ==========
+    if (!is.null(model$mel2wav)) {
+      load_hifigan_weights(model$mel2wav, state_dict, prefix = "mel2wav.")
+    }
+  })
 
   model
 }

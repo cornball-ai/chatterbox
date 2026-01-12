@@ -115,7 +115,7 @@ voice_encoder <- torch::nn_module(
   # Inference for full utterance with overlapping partials
   inference = function(mels, overlap = 0.5, min_coverage = 0.8) {
     config <- self$config
-    device <- self$parameters[[1]]$device
+    device <- next(self$parameters())$device
 
     # Ensure mels is on device
     if (mels$device$type != device$type) {
@@ -188,7 +188,7 @@ voice_encoder <- torch::nn_module(
 #' @export
 compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
   config <- model$config
-  device <- model$parameters[[1]]$device
+  device <- next(model$parameters())$device
 
   # Convert to numeric if tensor
   if (inherits(audio, "torch_tensor")) {
@@ -220,28 +220,33 @@ compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
 load_voice_encoder_weights <- function(model, state_dict) {
   torch::with_no_grad({
     # LSTM weights
-    # Note: Python uses 0-based indexing (l0, l1, l2), R torch uses 1-based (l1, l2, l3)
-    for (layer in 0:2) {
-      # Keys in the Python state_dict
-      weight_ih_key <- paste0("lstm.weight_ih_l", layer)
-      weight_hh_key <- paste0("lstm.weight_hh_l", layer)
-      bias_ih_key <- paste0("lstm.bias_ih_l", layer)
-      bias_hh_key <- paste0("lstm.bias_hh_l", layer)
+    # PyTorch uses 0-indexed layer names (weight_ih_l0), R torch uses 1-indexed (weight_ih_l1)
+    for (py_layer in 0:2) {
+      r_layer <- py_layer + 1  # Convert to R torch 1-indexed
 
-      # Keys in R torch (1-based indexing)
-      r_layer <- layer + 1
+      # Keys in the safetensors file (PyTorch naming)
+      weight_ih_key <- paste0("lstm.weight_ih_l", py_layer)
+      weight_hh_key <- paste0("lstm.weight_hh_l", py_layer)
+      bias_ih_key <- paste0("lstm.bias_ih_l", py_layer)
+      bias_hh_key <- paste0("lstm.bias_hh_l", py_layer)
+
+      # R torch parameter names (1-indexed)
+      r_weight_ih <- paste0("weight_ih_l", r_layer)
+      r_weight_hh <- paste0("weight_hh_l", r_layer)
+      r_bias_ih <- paste0("bias_ih_l", r_layer)
+      r_bias_hh <- paste0("bias_hh_l", r_layer)
 
       if (weight_ih_key %in% names(state_dict)) {
-        model$lstm$parameters[[paste0("weight_ih_l", r_layer)]]$copy_(state_dict[[weight_ih_key]])
+        model$lstm$parameters[[r_weight_ih]]$copy_(state_dict[[weight_ih_key]])
       }
       if (weight_hh_key %in% names(state_dict)) {
-        model$lstm$parameters[[paste0("weight_hh_l", r_layer)]]$copy_(state_dict[[weight_hh_key]])
+        model$lstm$parameters[[r_weight_hh]]$copy_(state_dict[[weight_hh_key]])
       }
       if (bias_ih_key %in% names(state_dict)) {
-        model$lstm$parameters[[paste0("bias_ih_l", r_layer)]]$copy_(state_dict[[bias_ih_key]])
+        model$lstm$parameters[[r_bias_ih]]$copy_(state_dict[[bias_ih_key]])
       }
       if (bias_hh_key %in% names(state_dict)) {
-        model$lstm$parameters[[paste0("bias_hh_l", r_layer)]]$copy_(state_dict[[bias_hh_key]])
+        model$lstm$parameters[[r_bias_hh]]$copy_(state_dict[[bias_hh_key]])
       }
     }
 
