@@ -48,7 +48,6 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
-# claude stuff
+# claude reference folder (not needed in repo)
 /reference
-CLAUDE.md
 

@@ -10,8 +10,6 @@ Description: An R port of the Chatterbox text-to-speech engine using torch.
     Provides high-quality speech synthesis with voice cloning capabilities.
 License: MIT + file LICENSE
 Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Depends:
     R (>= 4.0.0)
 Imports:
@@ -19,8 +17,5 @@ Imports:
     tuneR,
     jsonlite
 Suggests:
-    testthat (>= 3.0.0),
-    av,
-    knitr,
-    rmarkdown
-Config/testthat/edition: 3
+    tinytest,
+    av
