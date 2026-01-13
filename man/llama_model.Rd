@@ -3,6 +3,9 @@
 \name{llama_model}
 \alias{llama_model}
 \title{Llama model (decoder only)}
+\usage{
+llama_model(config = NULL)
+}
 \arguments{
 \item{config}{Model configuration (default: 520M)}
 }

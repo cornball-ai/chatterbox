@@ -3,6 +3,9 @@
 \name{cfm_estimator}
 \alias{cfm_estimator}
 \title{CFM Estimator (UNet1D style)}
+\usage{
+cfm_estimator(in_channels = 320, out_channels = 80)
+}
 \arguments{
 \item{in_channels}{Input channels}
 

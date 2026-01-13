@@ -3,6 +3,9 @@
 \name{s3_audio_encoder}
 \alias{s3_audio_encoder}
 \title{S3 Audio Encoder V2}
+\usage{
+s3_audio_encoder(n_mels, n_state, n_head, n_layer, stride = 2L)
+}
 \arguments{
 \item{n_mels}{Number of mel bins}
 

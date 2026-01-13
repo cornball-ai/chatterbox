@@ -3,6 +3,9 @@
 \name{llama_attention}
 \alias{llama_attention}
 \title{Llama attention module}
+\usage{
+llama_attention(config, layer_idx)
+}
 \arguments{
 \item{config}{Model configuration}
 

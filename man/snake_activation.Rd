@@ -3,6 +3,9 @@
 \name{snake_activation}
 \alias{snake_activation}
 \title{Snake activation function}
+\usage{
+snake_activation(in_features, alpha_trainable = TRUE, alpha_logscale = FALSE)
+}
 \arguments{
 \item{in_features}{Number of input channels}
 

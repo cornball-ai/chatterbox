@@ -3,6 +3,9 @@
 \name{transit_layer}
 \alias{transit_layer}
 \title{Transit layer (channel reduction)}
+\usage{
+transit_layer(in_channels, out_channels, bias = FALSE)
+}
 \arguments{
 \item{in_channels}{Input channels}
 

@@ -58,6 +58,15 @@ Features:
 - Handles F16, BF16, F32, I8, I16, I32, I64, U8, BOOL
 - Manual IEEE 754 half-precision conversion
 - Direct loading to torch tensors
+- Handles empty string keys (CRAN safetensors v0.2.0 fails on these)
+
+**Note:** Empty string keys are common in PyTorch forward hook captures. Access by position:
+```r
+weights <- read_safetensors("model.safetensors")
+empty_idx <- which(names(weights) == "")
+weights[[empty_idx]]  # Works
+weights[[""]]         # Always NULL (R limitation)
+```
 
 ### R/t3.R - T3 Text-to-Speech Model
 

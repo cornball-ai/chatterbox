@@ -3,6 +3,9 @@
 \name{dense_layer}
 \alias{dense_layer}
 \title{Dense layer for final embedding}
+\usage{
+dense_layer(in_channels, out_channels)
+}
 \arguments{
 \item{in_channels}{Input channels}
 

@@ -3,6 +3,9 @@
 \name{s3_multi_head_attention}
 \alias{s3_multi_head_attention}
 \title{Multi-Head Attention base module}
+\usage{
+s3_multi_head_attention(n_state, n_head)
+}
 \arguments{
 \item{n_state}{Hidden dimension}
 

@@ -3,6 +3,9 @@
 \name{perceiver_resampler}
 \alias{perceiver_resampler}
 \title{Perceiver resampler for conditioning compression}
+\usage{
+perceiver_resampler(num_query_tokens = 32, embed_dim = 1024, num_heads = 4)
+}
 \arguments{
 \item{num_query_tokens}{Number of query tokens (default 32)}
 

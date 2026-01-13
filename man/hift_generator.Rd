@@ -3,6 +3,27 @@
 \name{hift_generator}
 \alias{hift_generator}
 \title{HiFTNet Generator}
+\usage{
+hift_generator(
+  in_channels = 80,
+  base_channels = 512,
+  nb_harmonics = 8,
+  sampling_rate = 22050,
+  nsf_alpha = 0.1,
+  nsf_sigma = 0.003,
+  nsf_voiced_threshold = 10,
+  upsample_rates = c(8, 8),
+  upsample_kernel_sizes = c(16, 16),
+  istft_n_fft = 16,
+  istft_hop_len = 4,
+  resblock_kernel_sizes = c(3, 7, 11),
+  resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5), c(1, 3, 5)),
+  source_resblock_kernel_sizes = c(7, 11),
+  source_resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5)),
+  lrelu_slope = 0.1,
+  audio_limit = 0.99
+)
+}
 \arguments{
 \item{in_channels}{Input mel channels}
 

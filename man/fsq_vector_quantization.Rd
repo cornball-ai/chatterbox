@@ -3,6 +3,9 @@
 \name{fsq_vector_quantization}
 \alias{fsq_vector_quantization}
 \title{FSQ Vector Quantization wrapper}
+\usage{
+fsq_vector_quantization(dim, codebook_size = 6561L)
+}
 \arguments{
 \item{dim}{Input dimension}
 

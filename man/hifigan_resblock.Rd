@@ -3,6 +3,9 @@
 \name{hifigan_resblock}
 \alias{hifigan_resblock}
 \title{HiFiGAN Residual Block}
+\usage{
+hifigan_resblock(channels = 512, kernel_size = 3, dilations = c(1, 3, 5))
+}
 \arguments{
 \item{channels}{Number of channels}
 

@@ -3,6 +3,9 @@
 \name{learned_position_embeddings}
 \alias{learned_position_embeddings}
 \title{Learned position embeddings module}
+\usage{
+learned_position_embeddings(seq_len, model_dim, init_std = 0.02)
+}
 \arguments{
 \item{seq_len}{Maximum sequence length}
 

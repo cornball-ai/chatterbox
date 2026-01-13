@@ -3,6 +3,16 @@
 \name{tdnn_layer}
 \alias{tdnn_layer}
 \title{TDNN Layer}
+\usage{
+tdnn_layer(
+  in_channels,
+  out_channels,
+  kernel_size,
+  stride = 1,
+  dilation = 1,
+  padding = NULL
+)
+}
 \arguments{
 \item{in_channels}{Input channels}
 

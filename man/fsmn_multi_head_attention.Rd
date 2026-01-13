@@ -3,6 +3,9 @@
 \name{fsmn_multi_head_attention}
 \alias{fsmn_multi_head_attention}
 \title{FSMN Multi-Head Attention}
+\usage{
+fsmn_multi_head_attention(n_state, n_head, kernel_size = 31L)
+}
 \arguments{
 \item{n_state}{Hidden dimension}
 

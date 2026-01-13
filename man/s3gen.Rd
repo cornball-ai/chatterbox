@@ -3,6 +3,9 @@
 \name{s3gen}
 \alias{s3gen}
 \title{S3Gen Token to Waveform}
+\usage{
+s3gen()
+}
 \value{
 nn_module
 }

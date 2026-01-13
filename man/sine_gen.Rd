@@ -3,6 +3,15 @@
 \name{sine_gen}
 \alias{sine_gen}
 \title{Sine Generator}
+\usage{
+sine_gen(
+  sample_rate,
+  harmonic_num = 0,
+  sine_amp = 0.1,
+  noise_std = 0.003,
+  voiced_threshold = 0
+)
+}
 \arguments{
 \item{sample_rate}{Sampling rate in Hz}
 

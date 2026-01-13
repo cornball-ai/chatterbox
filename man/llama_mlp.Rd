@@ -3,6 +3,9 @@
 \name{llama_mlp}
 \alias{llama_mlp}
 \title{Llama MLP module}
+\usage{
+llama_mlp(config)
+}
 \arguments{
 \item{config}{Model configuration}
 }

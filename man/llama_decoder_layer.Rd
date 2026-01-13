@@ -3,6 +3,9 @@
 \name{llama_decoder_layer}
 \alias{llama_decoder_layer}
 \title{Llama decoder layer}
+\usage{
+llama_decoder_layer(config, layer_idx)
+}
 \arguments{
 \item{config}{Model configuration}
 

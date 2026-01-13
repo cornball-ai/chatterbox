@@ -3,6 +3,14 @@
 \name{campplus}
 \alias{campplus}
 \title{CAMPPlus speaker encoder}
+\usage{
+campplus(
+  feat_dim = 80,
+  embedding_size = 192,
+  growth_rate = 32,
+  init_channels = 128
+)
+}
 \arguments{
 \item{feat_dim}{Input feature dimension (default 80)}
 

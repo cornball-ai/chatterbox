@@ -3,6 +3,9 @@
 \name{basic_res_block}
 \alias{basic_res_block}
 \title{Basic residual block for FCM}
+\usage{
+basic_res_block(in_planes, planes, stride = 1)
+}
 \arguments{
 \item{in_planes}{Input channels}
 

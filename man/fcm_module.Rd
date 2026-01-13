@@ -3,6 +3,9 @@
 \name{fcm_module}
 \alias{fcm_module}
 \title{Factorized Convolutional Module (FCM)}
+\usage{
+fcm_module(m_channels = 32, feat_dim = 80)
+}
 \arguments{
 \item{m_channels}{Number of channels}
 

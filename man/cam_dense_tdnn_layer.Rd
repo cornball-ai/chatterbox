@@ -3,6 +3,15 @@
 \name{cam_dense_tdnn_layer}
 \alias{cam_dense_tdnn_layer}
 \title{CAM Dense TDNN Layer}
+\usage{
+cam_dense_tdnn_layer(
+  in_channels,
+  out_channels,
+  bn_channels,
+  kernel_size,
+  dilation = 1
+)
+}
 \arguments{
 \item{in_channels}{Input channels}
 

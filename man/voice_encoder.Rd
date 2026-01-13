@@ -3,6 +3,9 @@
 \name{voice_encoder}
 \alias{voice_encoder}
 \title{Voice encoder module}
+\usage{
+voice_encoder(config = NULL)
+}
 \arguments{
 \item{config}{Voice encoder configuration}
 }

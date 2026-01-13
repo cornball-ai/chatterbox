@@ -22,6 +22,11 @@ read_safetensors <- function(path, device = "cpu") {
   # Remove metadata entry if present
   header[["__metadata__"]] <- NULL
 
+  # Filter out entries with empty names or NULL values
+  # (jsonlite parses empty string keys but returns NULL values)
+  valid_names <- names(header)[nchar(names(header)) > 0 & !sapply(header, is.null)]
+  header <- header[valid_names]
+
   # Read the entire data buffer
   data_buffer <- readBin(con, "raw", n = file.info(path)$size - 8 - header_size)
 

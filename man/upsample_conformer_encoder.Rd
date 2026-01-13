@@ -3,6 +3,9 @@
 \name{upsample_conformer_encoder}
 \alias{upsample_conformer_encoder}
 \title{Upsample Conformer Encoder}
+\usage{
+upsample_conformer_encoder(input_size = 512, output_size = 512, num_blocks = 6)
+}
 \arguments{
 \item{input_size}{Input dimension}
 
