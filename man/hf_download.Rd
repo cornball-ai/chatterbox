@@ -4,7 +4,7 @@
 \alias{hf_download}
 \title{Download file from HuggingFace Hub}
 \usage{
-hf_download(repo_id, filename, cache_dir = NULL, force = FALSE)
+hf_download(repo_id, filename, cache_dir = NULL, force = FALSE, timeout = 600)
 }
 \arguments{
 \item{repo_id}{Repository ID (e.g., "ResembleAI/chatterbox")}
@@ -14,6 +14,8 @@ hf_download(repo_id, filename, cache_dir = NULL, force = FALSE)
 \item{cache_dir}{Cache directory (default: ~/.cache/chatterbox)}
 
 \item{force}{Re-download even if file exists}
+
+\item{timeout}{Download timeout in seconds (default 600)}
 }
 \value{
 Local path to downloaded file

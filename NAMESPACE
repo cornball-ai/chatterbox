@@ -33,4 +33,5 @@ export(write_audio)
 
 S3method(print,chatterbox)
 S3method(print,voice_embedding)
+
 importFrom(utils,download.file)
