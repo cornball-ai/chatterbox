@@ -31,29 +31,76 @@ voice_encoder_config <- function() {
 
 #' Compute mel spectrogram for voice encoder
 #'
+#' Uses power spectrum (magnitude^2) without log compression,
+#' matching Python's mel_type="amp" and mel_power=2.0.
+#'
 #' @param wav Audio samples (numeric vector)
 #' @param config Voice encoder config
-#' @return Mel spectrogram (time, n_mels)
+#' @return Mel spectrogram (batch, time, n_mels)
 compute_ve_mel <- function(wav, config = voice_encoder_config()) {
   # Convert to torch tensor if needed
   if (!inherits(wav, "torch_tensor")) {
     wav <- torch::torch_tensor(wav, dtype = torch::torch_float32())
   }
 
-  # Use the S3Gen mel computation with VE parameters
-  mel <- compute_mel_spectrogram(
+  # Add batch dimension if needed
+  if (wav$dim() == 1) {
+    wav <- wav$unsqueeze(1)
+  }
+
+  device <- wav$device
+
+  # Get or create mel filterbank
+  mel_cache_key <- paste(config$sample_rate, config$n_fft, config$num_mels,
+                         config$fmin, config$fmax, device$type, sep = "_")
+  if (is.null(.mel_cache[[mel_cache_key]])) {
+    mel_fb <- create_mel_filterbank(config$sample_rate, config$n_fft,
+                                    config$num_mels, config$fmin, config$fmax)
+    .mel_cache[[mel_cache_key]] <- torch::torch_tensor(mel_fb, dtype = torch::torch_float32())$to(device = device)
+  }
+  mel_basis <- .mel_cache[[mel_cache_key]]
+
+  # Get or create Hann window
+  win_key <- paste("hann", config$win_size, device$type, sep = "_")
+  if (is.null(.mel_cache[[win_key]])) {
+    .mel_cache[[win_key]] <- torch::torch_hann_window(config$win_size)$to(device = device)
+  }
+  hann_window <- .mel_cache[[win_key]]
+
+  # Pad audio (reflect padding, centered STFT)
+  pad_amount <- as.integer((config$n_fft - config$hop_size) / 2)
+  wav <- wav$unsqueeze(2)  # Add channel dim for padding
+  wav <- torch::nnf_pad(wav, c(pad_amount, pad_amount), mode = "reflect")
+  wav <- wav$squeeze(2)
+
+  # Compute STFT
+  spec <- torch::torch_stft(
     wav,
     n_fft = config$n_fft,
-    n_mels = config$num_mels,
-    sr = config$sample_rate,
-    hop_size = config$hop_size,
-    win_size = config$win_size,
-    fmin = config$fmin,
-    fmax = config$fmax,
-    center = TRUE
+    hop_length = config$hop_size,
+    win_length = config$win_size,
+    window = hann_window,
+    center = FALSE,  # We padded manually
+    pad_mode = "reflect",
+    normalized = FALSE,
+    onesided = TRUE,
+    return_complex = TRUE
   )
 
-  # Transpose to (batch, time, mels)
+  # Convert to magnitude
+  spec <- torch::torch_view_as_real(spec)
+  spec <- torch::torch_sqrt(spec$pow(2)$sum(-1) + 1e-9)
+
+  # Apply power (mel_power = 2.0 in Python, so square the magnitude)
+  spec <- spec$pow(2)
+
+  # Apply mel filterbank
+  mel <- torch::torch_matmul(mel_basis, spec)
+
+  # Note: Python uses mel_type="amp", so NO log compression
+  # Also normalized_mels=False, so no normalization
+
+  # Transpose to (batch, time, mels) for LSTM input
   mel$transpose(2, 3)
 }
 

@@ -119,42 +119,72 @@ punc_norm <- function(text) {
   text
 }
 
-#' Encode text to token IDs (simple character-level fallback)
+#' Encode text to token IDs using BPE
 #'
-#' This is a simplified encoder. For full BPE support, would need
-#' to implement the merge algorithm.
+#' Implements proper BPE (Byte Pair Encoding) using the merge list.
+#' Merges are applied in priority order (first merge = highest priority).
 #'
 #' @param tokenizer Tokenizer object
 #' @param text Input text
 #' @return Integer vector of token IDs
 tokenize_text <- function(tokenizer, text) {
-  # Replace spaces with SPACE token
-  text <- gsub(" ", SPECIAL_TOKENS$SPACE, text)
+  # First, split text while preserving spaces as special tokens
+  # Don't replace spaces yet - handle them during initial tokenization
 
-  # Try to find tokens greedily (longest match first)
-  tokens <- character(0)
-  pos <- 1
-  text_len <- nchar(text)
+  # Start with characters, but treat spaces as [SPACE] tokens
+  chars <- strsplit(text, "")[[1]]
 
-  while (pos <= text_len) {
-    found <- FALSE
+  # Handle characters - map spaces to [SPACE], unknowns to UNK
+  tokens <- character(length(chars))
+  for (i in seq_along(chars)) {
+    if (chars[i] == " ") {
+      tokens[i] <- SPECIAL_TOKENS$SPACE
+    } else if (chars[i] %in% names(tokenizer$vocab)) {
+      tokens[i] <- chars[i]
+    } else {
+      tokens[i] <- SPECIAL_TOKENS$UNK
+    }
+  }
 
-    # Try decreasing lengths
-    for (len in min(20, text_len - pos + 1):1) {
-      substr_text <- substr(text, pos, pos + len - 1)
+  # Build merge priority map (lower index = higher priority)
+  merge_priority <- seq_along(tokenizer$merges)
+  names(merge_priority) <- tokenizer$merges
 
-      if (substr_text %in% names(tokenizer$vocab)) {
-        tokens <- c(tokens, substr_text)
-        pos <- pos + len
-        found <- TRUE
-        break
+  # Apply BPE merges iteratively
+  while (length(tokens) > 1) {
+    # Find the highest priority merge that can be applied
+    best_idx <- NULL
+    best_priority <- Inf
+
+    for (i in seq_len(length(tokens) - 1)) {
+      pair <- paste(tokens[i], tokens[i + 1])
+      if (pair %in% names(merge_priority)) {
+        if (merge_priority[[pair]] < best_priority) {
+          best_priority <- merge_priority[[pair]]
+          best_idx <- i
+        }
       }
     }
 
-    if (!found) {
-      # Use UNK token for unknown characters
-      tokens <- c(tokens, SPECIAL_TOKENS$UNK)
-      pos <- pos + 1
+    # No more merges possible
+    if (is.null(best_idx)) break
+
+    # Apply the merge
+    merged_token <- paste0(tokens[best_idx], tokens[best_idx + 1])
+
+    # Check if merged token is in vocabulary
+    if (merged_token %in% names(tokenizer$vocab)) {
+      # Replace the pair with merged token
+      if (best_idx == 1) {
+        tokens <- c(merged_token, tokens[(best_idx + 2):length(tokens)])
+      } else if (best_idx + 1 == length(tokens)) {
+        tokens <- c(tokens[1:(best_idx - 1)], merged_token)
+      } else {
+        tokens <- c(tokens[1:(best_idx - 1)], merged_token, tokens[(best_idx + 2):length(tokens)])
+      }
+    } else {
+      # Merged token not in vocab, skip this merge
+      break
     }
   }
 

@@ -86,12 +86,12 @@ resample_audio <- function(samples, from_sr, to_sr) {
 #' @param fmin Minimum frequency
 #' @param fmax Maximum frequency
 #' @return Mel filterbank matrix (n_mels x (n_fft/2 + 1))
-create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL) {
+create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL, norm = "slaney") {
   if (is.null(fmax)) {
     fmax <- sr / 2
   }
 
-  # Convert Hz to mel scale
+  # Convert Hz to mel scale (HTK formula)
   hz_to_mel <- function(hz) {
     2595 * log10(1 + hz / 700)
   }
@@ -131,6 +131,14 @@ create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL) {
     filterbank[i, ] <- pmax(rising, 0) + pmax(falling, 0)
     filterbank[i, fft_freqs >= center] <- pmax(falling[fft_freqs >= center], 0)
     filterbank[i, fft_freqs < center] <- pmax(rising[fft_freqs < center], 0)
+  }
+
+  # Apply Slaney normalization (divide by bandwidth in mel)
+  # This matches librosa's default norm="slaney"
+  if (norm == "slaney") {
+    # enorm = 2.0 / (mel_f[2:n_mels+2] - mel_f[:n_mels])
+    enorm <- 2.0 / (mel_points[3:(n_mels + 2)] - mel_points[1:n_mels])
+    filterbank <- filterbank * enorm
   }
 
   filterbank

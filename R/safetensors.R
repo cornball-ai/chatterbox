@@ -64,17 +64,17 @@ bytes_to_tensor <- function(bytes, dtype, shape, device) {
   n_elements <- prod(shape)
   if (length(shape) == 0) n_elements <- 1
 
-  values <- readBin(bytes, what = type_info$r_type, n = n_elements,
-                    size = type_info$size, endian = "little")
-
-  # Handle bfloat16 specially
+  # Handle special dtypes
   if (dtype == "BF16") {
     values <- bfloat16_to_float32(bytes)
-  }
-
-  # Handle float16 specially
-  if (dtype == "F16") {
+  } else if (dtype == "F16") {
     values <- float16_to_float32(bytes)
+  } else if (dtype == "I64") {
+    # R doesn't have native int64, read as two 32-bit integers and combine
+    values <- int64_bytes_to_numeric(bytes, n_elements)
+  } else {
+    values <- readBin(bytes, what = type_info$r_type, n = n_elements,
+                      size = type_info$size, endian = "little")
   }
 
   # Create tensor with appropriate shape
@@ -106,6 +106,41 @@ get_dtype_info <- function(dtype) {
     "BOOL" = list(r_type = "logical", size = 1, torch_dtype = torch::torch_bool()),
     stop("Unsupported dtype: ", dtype)
   )
+}
+
+#' Convert int64 bytes to numeric values
+#'
+#' R doesn't have native int64 support, so we read as two int32s and combine.
+#' This works correctly for values up to 2^53 (R's numeric precision limit).
+#'
+#' @param bytes Raw vector of int64 bytes
+#' @param n_elements Number of int64 values
+#' @return Numeric vector
+int64_bytes_to_numeric <- function(bytes, n_elements) {
+  values <- numeric(n_elements)
+
+  for (i in seq_len(n_elements)) {
+    # Read 8 bytes as two 32-bit unsigned integers (little-endian)
+    idx <- (i - 1) * 8
+    lo_bytes <- bytes[(idx + 1):(idx + 4)]
+    hi_bytes <- bytes[(idx + 5):(idx + 8)]
+
+    # Convert to unsigned 32-bit values
+    lo <- sum(as.numeric(lo_bytes) * (256^(0:3)))
+    hi <- sum(as.numeric(hi_bytes) * (256^(0:3)))
+
+    # Combine: value = hi * 2^32 + lo
+    # Note: this handles signed int64 correctly for positive values
+    # For negative values (hi >= 2^31), we need to handle two's complement
+    if (hi >= 2147483648) {  # 2^31, means negative in signed int64
+      # Two's complement: subtract 2^64
+      values[i] <- (hi * 4294967296 + lo) - 18446744073709551616
+    } else {
+      values[i] <- hi * 4294967296 + lo
+    }
+  }
+
+  values
 }
 
 #' Convert bfloat16 bytes to float32 values
