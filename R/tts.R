@@ -123,9 +123,10 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL) {
   device <- model$device
   audio_tensor <- torch::torch_tensor(samples, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
 
-  # Get voice encoder embedding
+  # Get voice encoder embedding using compute_speaker_embedding
+  # (handles mel spectrogram computation internally)
   torch::with_no_grad({
-    ve_embedding <- model$voice_encoder$inference(audio_tensor, sample_rate)
+    ve_embedding <- compute_speaker_embedding(model$voice_encoder, audio_tensor, sample_rate)
   })
 
   # Create reference dict for S3Gen
@@ -186,10 +187,11 @@ tts <- function(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
   # Generate speech tokens with T3
   message("Generating speech tokens...")
   torch::with_no_grad({
-    speech_tokens <- model$t3$inference(
-      text_tokens = text_tokens,
+    speech_tokens <- t3_inference(
+      model = model$t3,
       cond = cond,
-      cfg_scale = cfg_weight,
+      text_tokens = text_tokens,
+      cfg_weight = cfg_weight,
       temperature = temperature,
       top_p = top_p
     )

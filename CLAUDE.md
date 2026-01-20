@@ -111,11 +111,69 @@ This package is a complete PyTorch → R torch migration example:
 2. **Attention patterns**: Self-attention, cross-attention, perceiver
 3. **KV cache inference**: Autoregressive generation
 4. **Float16/BF16 handling**: Manual conversion in R
+5. **Conditional Flow Matching (CFM)**: Euler solver for mel generation
+6. **HiFi-GAN vocoder**: Conv transpose with various stride/kernel configs
 
-Key lessons:
-- Use `torch::with_no_grad()` for inference (not `local_no_grad()`)
-- Dimension indexing: PyTorch 0-indexed → R torch 1-indexed
-- `$view()` requires contiguous memory, use `$reshape()` when unsure
+### Critical R torch Differences
+
+**Module callable pattern**: Use `self$submodule$forward(x)` not `self$submodule(x)`:
+```r
+# WRONG - returns the module object, not output
+h <- self$encoder(x)
+
+# CORRECT
+h <- self$encoder$forward(x)
+```
+
+**torch_arange is inclusive**: R includes both endpoints:
+```r
+# Python: torch.arange(0, 10) gives [0..9]
+# R: torch_arange(0, 10) gives [0..10] - 11 elements!
+torch::torch_arange(0, 10 - 1)  # Use this to match Python
+```
+
+**torch_clamp may change dtype**: Cast back explicitly:
+```r
+token <- torch::torch_clamp(token, min = 0L, max = vocab_size - 1L)
+token <- token$to(dtype = torch::torch_long())  # Ensure Long for embeddings
+```
+
+**R scalar arithmetic promotes dtype**: Use tensor methods:
+```r
+# WRONG - promotes float16 to float32
+y <- x * 0.5
+
+# CORRECT
+y <- x$mul(0.5)
+```
+
+**conv_transpose1d padding when kernel < stride**:
+```r
+# Standard: padding = (kernel - stride) / 2
+# When kernel=7, stride=8: -0.5 -> Error!
+
+# Fix: use output_padding
+if (kernel >= stride) {
+  padding <- (kernel - stride) %/% 2
+  output_padding <- 0L
+} else {
+  padding <- 0L
+  output_padding <- stride - kernel
+}
+```
+
+### Flow Matching Implementation
+
+The S3Gen decoder uses Conditional Flow Matching (CFM):
+- `solve_euler()` integrates ODE from t=0 to t=1
+- CFM estimator predicts velocity field at each timestep
+- Classifier-free guidance with batch doubling (cond + uncond)
+
+### HiFi-GAN Vocoder Notes
+
+- Source excitation signal must match mel spectrogram length
+- When lengths mismatch, truncate to minimum (may affect quality)
+- Multi-period and multi-receptive-field fusion for high quality
 
 ## Dependencies
 

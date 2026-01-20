@@ -21,8 +21,9 @@ make_pad_mask <- function(lengths, max_len = NULL) {
   batch_size <- lengths$size(1)
   device <- lengths$device
 
-  # Create range tensor
-  range_tensor <- torch::torch_arange(0, max_len, device = device)$unsqueeze(1)
+  # Create range tensor (0 to max_len-1)
+  # R torch_arange(0, n) is inclusive, so 0 to n-1 gives n values
+  range_tensor <- torch::torch_arange(0, max_len - 1, device = device, dtype = torch::torch_long())$unsqueeze(1)
 
   # Compare with lengths
   lengths <- lengths$view(c(1, batch_size))
@@ -70,14 +71,14 @@ upsample_conformer_encoder <- torch::nn_module(
 
   forward = function(x, x_len) {
     # x: (batch, time, features)
-    x <- self$input_proj(x)
+    x <- self$input_proj$forward(x)
 
     # Transformer encoding
-    x <- self$encoder(x)
+    x <- self$encoder$forward(x)
 
     # Upsample: (batch, time, features) -> (batch, features, time) -> upsample -> back
     x <- x$transpose(2, 3)
-    x <- self$upsample(x)
+    x <- self$upsample$forward(x)
     x <- x$transpose(2, 3)
 
     # Update lengths (2x)
@@ -141,21 +142,22 @@ cfm_estimator <- torch::nn_module(
 
     # Concatenate inputs: x + mu + spks + cond
     h <- torch::torch_cat(list(x, mu, spks_expanded, cond), dim = 2)
-    h <- self$input_proj(h)
+    h <- self$input_proj$forward(h)
 
     # Time embedding
-    t_emb <- self$time_emb(t$view(c(-1, 1)))$unsqueeze(3)
+    t_emb <- self$time_emb$forward(t$view(c(-1, 1)))$unsqueeze(3)
 
     # Residual blocks with time conditioning
-    for (block in self$blocks) {
+    for (i in seq_along(self$blocks)) {
+      block <- self$blocks[[i]]
       residual <- h
-      h <- block(h)
+      h <- block$forward(h)
       h <- h + t_emb  # Add time embedding
       h <- h + residual  # Residual connection
     }
 
     # Output
-    self$output_proj(h) * mask
+    self$output_proj$forward(h) * mask
   }
 )
 
@@ -230,7 +232,7 @@ causal_cfm <- torch::nn_module(
       # cond_in[2] stays zero
 
       # Forward through estimator
-      dphi_dt <- self$estimator(x_in, mask_in, mu_in, t_in, spks_in, cond_in)
+      dphi_dt <- self$estimator$forward(x_in, mask_in, mu_in, t_in, spks_in, cond_in)
 
       # CFG combination
       dphi_cond <- dphi_dt[1, , ]$unsqueeze(1)
@@ -297,7 +299,7 @@ causal_masked_diff_xvec <- torch::nn_module(
 
     # Normalize and project speaker embedding
     embedding <- torch::nnf_normalize(embedding, dim = 2)
-    embedding <- self$spk_embed_affine_layer(embedding)
+    embedding <- self$spk_embed_affine_layer$forward(embedding)
 
     # Concatenate prompt and speech tokens
     token <- torch::torch_cat(list(prompt_token, token), dim = 2)
@@ -306,14 +308,14 @@ causal_masked_diff_xvec <- torch::nn_module(
     # Create mask
     mask <- (!make_pad_mask(token_len))$unsqueeze(3)$to(dtype = embedding$dtype, device = device)
 
-    # Clamp tokens to valid range
-    token <- torch::torch_clamp(token, min = 0, max = self$vocab_size - 1)
+    # Clamp tokens to valid range (ensure Long dtype preserved)
+    token <- torch::torch_clamp(token, min = 0L, max = as.integer(self$vocab_size - 1))$to(dtype = torch::torch_long())
 
     # Embed tokens
-    token <- self$input_embedding(token + 1) * mask  # +1 for R indexing
+    token <- self$input_embedding$forward(token$add(1L)) * mask  # +1 for R indexing
 
     # Encode
-    enc_result <- self$encoder(token, token_len)
+    enc_result <- self$encoder$forward(token, token_len)
     h <- enc_result[[1]]
     h_lengths <- enc_result[[2]]
 
@@ -322,16 +324,24 @@ causal_masked_diff_xvec <- torch::nn_module(
       h <- h[, 1:(h$size(2) - self$pre_lookahead_len * self$token_mel_ratio), ]
     }
 
-    mel_len1 <- prompt_feat$size(2)
-    mel_len2 <- h$size(2) - mel_len1
+    # Calculate mel lengths based on token counts (encoder upsamples by token_mel_ratio)
+    prompt_token_len_scalar <- as.integer(prompt_token_len$cpu())
+    mel_len1 <- prompt_token_len_scalar * self$token_mel_ratio
+    mel_len2 <- as.integer(h$size(2)) - mel_len1
 
     # Project encoder output
-    h <- self$encoder_proj(h)
+    h <- self$encoder_proj$forward(h)
 
-    # Prepare conditioning
+    # Prepare conditioning (resize prompt_feat to match expected mel_len1)
     conds <- torch::torch_zeros(c(1, mel_len1 + mel_len2, self$output_size),
                                 device = device, dtype = h$dtype)
-    conds[1, 1:mel_len1, ] <- prompt_feat
+    # Truncate or pad prompt_feat to mel_len1
+    prompt_feat_len <- prompt_feat$size(2)
+    if (prompt_feat_len >= mel_len1) {
+      conds[1, 1:mel_len1, ] <- prompt_feat[1, 1:mel_len1, ]
+    } else {
+      conds[1, 1:prompt_feat_len, ] <- prompt_feat
+    }
     conds <- conds$transpose(2, 3)
 
     # Create mask for decoder
@@ -339,7 +349,7 @@ causal_masked_diff_xvec <- torch::nn_module(
 
     # Run decoder
     h <- h$transpose(2, 3)
-    result <- self$decoder(
+    result <- self$decoder$forward(
       mu = h,
       mask = dec_mask,
       spks = embedding$squeeze(2),
@@ -428,7 +438,7 @@ s3gen <- torch::nn_module(
     xvector <- compute_xvector_embedding(self$speaker_encoder, ref_wav_16, 16000)
 
     # Tokenize reference
-    tok_result <- self$tokenizer(ref_wav_16)
+    tok_result <- self$tokenizer$forward(ref_wav_16)
     ref_tokens <- tok_result$tokens
     ref_token_lens <- tok_result$lens
 
@@ -462,7 +472,7 @@ s3gen <- torch::nn_module(
     speech_token_len <- torch::torch_tensor(speech_tokens$size(2), device = device)
 
     # Flow inference (tokens -> mel)
-    result <- self$flow(
+    result <- self$flow$forward(
       token = speech_tokens,
       token_len = speech_token_len,
       prompt_token = ref_dict$prompt_token,
@@ -476,7 +486,8 @@ s3gen <- torch::nn_module(
 
     # Vocoder (mel -> audio)
     if (!is.null(self$mel2wav)) {
-      output_wavs <- self$mel2wav$inference(output_mels)
+      vocoder_result <- self$mel2wav$inference(output_mels)
+      output_wavs <- vocoder_result$audio
 
       # Apply fade-in
       fade_len <- length(self$trim_fade)

@@ -94,14 +94,14 @@ voice_encoder <- torch::nn_module(
     # mels: (B, T, M) where T is partial_frames
 
     # Pass through LSTM
-    lstm_out <- self$lstm(mels)
+    lstm_out <- self$lstm$forward(mels)
     hidden <- lstm_out[[2]][[1]]  # hidden states from all layers
 
     # Get final layer hidden state
     final_hidden <- hidden[3, , ]  # (B, hidden_size)
 
     # Project to embedding
-    raw_embeds <- self$proj(final_hidden)
+    raw_embeds <- self$proj$forward(final_hidden)
 
     # Apply ReLU if configured
     if (self$config$ve_final_relu) {
@@ -115,7 +115,7 @@ voice_encoder <- torch::nn_module(
   # Inference for full utterance with overlapping partials
   inference = function(mels, overlap = 0.5, min_coverage = 0.8) {
     config <- self$config
-    device <- next(self$parameters())$device
+    device <- self$proj$weight$device
 
     # Ensure mels is on device
     if (mels$device$type != device$type) {
@@ -156,7 +156,7 @@ voice_encoder <- torch::nn_module(
 
     # Stack and forward through network
     partials_tensor <- torch::torch_cat(all_partials, dim = 1)
-    partial_embeds <- self(partials_tensor)
+    partial_embeds <- self$forward(partials_tensor)
 
     # Average partial embeddings per utterance
     embeds <- list()
@@ -188,7 +188,7 @@ voice_encoder <- torch::nn_module(
 #' @export
 compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
   config <- model$config
-  device <- next(model$parameters())$device
+  device <- model$proj$weight$device
 
   # Convert to numeric if tensor
   if (inherits(audio, "torch_tensor")) {

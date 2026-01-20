@@ -47,7 +47,8 @@ make_non_pad_mask_s3 <- function(lengths, max_len) {
   device <- lengths$device
 
   # Create range tensor (0 to max_len-1)
-  range_tensor <- torch::torch_arange(0, max_len, device = device)
+  # Note: R torch_arange(0, n) is inclusive on both ends, so use 0 to n-1
+  range_tensor <- torch::torch_arange(0, max_len - 1, device = device, dtype = torch::torch_long())
 
   # Broadcast comparison: range < lengths
   lengths <- lengths$view(c(-1, 1))
@@ -74,10 +75,12 @@ mask_to_bias <- function(mask, dtype) {
 #' @return Complex frequency tensor
 precompute_freqs_cis <- function(dim, end, theta = 10000.0) {
   # Compute inverse frequencies
-  freqs <- 1.0 / (theta ^ (torch::torch_arange(0, dim, 2, dtype = torch::torch_float32())[1:(dim %/% 2)] / dim))
+  # R torch_arange is inclusive, so use end= or subtract 1
+  # torch_arange(start=0, end=dim, step=2) gives 0,2,4,...,dim in R vs 0,2,4,...,dim-2 in Python
+  freqs <- 1.0 / (theta ^ (torch::torch_arange(start = 0, end = dim - 1, step = 2, dtype = torch::torch_float32())[1:(dim %/% 2)] / dim))
 
-  # Compute position indices
-  t <- torch::torch_arange(0, end, dtype = torch::torch_float32())
+  # Compute position indices (0 to end-1)
+  t <- torch::torch_arange(0, end - 1, dtype = torch::torch_float32())
 
   # Outer product
   freqs <- torch::torch_outer(t, freqs)
@@ -192,7 +195,7 @@ fsq_codebook <- torch::nn_module(
     x <- x$view(c(-1, x_shape[length(x_shape)]))
 
     # Project down to 8 dimensions
-    h <- self$project_down(x)$to(dtype = torch::torch_float32())
+    h <- self$project_down$forward(x)$to(dtype = torch::torch_float32())
 
     # Quantize with tanh
     h <- h$tanh()
@@ -201,9 +204,10 @@ fsq_codebook <- torch::nn_module(
 
     # Compute indices using powers of level
     device <- x$device
+    # R torch_arange(0, 8) is inclusive (0-8); use 0 to 7 for 8 values
     powers <- torch::torch_pow(
       self$level,
-      torch::torch_arange(0, 8, device = device, dtype = h$dtype)
+      torch::torch_arange(0, 7, device = device, dtype = h$dtype)
     )
 
     # Sum weighted by powers: gives unique index for each combination
@@ -257,12 +261,12 @@ s3_multi_head_attention <- torch::nn_module(
   },
 
   forward = function(x, mask = NULL) {
-    q <- self$query(x)
-    k <- self$key(x)
-    v <- self$value(x)
+    q <- self$query$forward(x)
+    k <- self$key$forward(x)
+    v <- self$value$forward(x)
 
     wv <- self$qkv_attention(q, k, v, mask)
-    self$out(wv)
+    self$out$forward(wv)
   },
 
   qkv_attention = function(q, k, v, mask = NULL) {
@@ -341,7 +345,7 @@ fsmn_multi_head_attention <- torch::nn_module(
     x <- torch::nnf_pad(x, c(self$left_padding, self$right_padding))
 
     # Apply depthwise conv
-    x <- self$fsmn_block(x)
+    x <- self$fsmn_block$forward(x)
     x <- x$transpose(2, 3)
 
     # Residual connection
@@ -394,12 +398,12 @@ fsmn_multi_head_attention <- torch::nn_module(
   },
 
   forward = function(x, mask = NULL, mask_pad = NULL, freqs_cis = NULL) {
-    q <- self$query(x)
-    k <- self$key(x)
-    v <- self$value(x)
+    q <- self$query$forward(x)
+    k <- self$key$forward(x)
+    v <- self$value$forward(x)
 
     result <- self$qkv_attention(q, k, v, mask, mask_pad, freqs_cis)
-    self$out(result$out) + result$fsm_memory
+    self$out$forward(result$out) + result$fsm_memory
   }
 )
 
@@ -431,10 +435,10 @@ s3_residual_attention_block <- torch::nn_module(
 
   forward = function(x, mask = NULL, mask_pad = NULL, freqs_cis = NULL) {
     # Attention with pre-norm
-    x <- x + self$attn(self$attn_ln(x), mask, mask_pad, freqs_cis)
+    x <- x + self$attn$forward(self$attn_ln$forward(x), mask, mask_pad, freqs_cis)
 
     # MLP with pre-norm
-    x <- x + self$mlp(self$mlp_ln(x))
+    x <- x + self$mlp$forward(self$mlp_ln$forward(x))
 
     x
   }
@@ -514,8 +518,9 @@ s3_audio_encoder <- torch::nn_module(
 
     # Process through transformer blocks
     seq_len <- x$size(2)
-    for (block in self$blocks) {
-      x <- block(x, attn_mask$unsqueeze(2), mask_pad, freqs_cis[1:seq_len, ])
+    for (i in seq_along(self$blocks)) {
+      block <- self$blocks[[i]]
+      x <- block$forward(x, attn_mask$unsqueeze(2), mask_pad, freqs_cis[1:seq_len, ])
     }
 
     list(hidden = x, lengths = x_len)
@@ -588,7 +593,7 @@ s3_tokenizer <- torch::nn_module(
     # mel_len: (batch,)
 
     # Encode
-    enc_result <- self$encoder(mel, mel_len)
+    enc_result <- self$encoder$forward(mel, mel_len)
     hidden <- enc_result$hidden
     code_len <- enc_result$lengths
 

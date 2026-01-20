@@ -75,15 +75,16 @@ llama_rms_norm <- torch::nn_module(
 compute_rope_frequencies <- function(dim, max_seq_len, theta = 500000.0,
                                       scaling = NULL, device = "cpu") {
   # Compute inverse frequencies
-  inv_freq <- 1.0 / (theta ^ (torch::torch_arange(0, dim, 2, device = device)$to(dtype = torch::torch_float32()) / dim))
+  # R torch_arange is inclusive; use end= - 1 for Python-like behavior
+  inv_freq <- 1.0 / (theta ^ (torch::torch_arange(start = 0, end = dim - 1, step = 2, device = device)$to(dtype = torch::torch_float32()) / dim))
 
   # Apply Llama3-style scaling if specified
   if (!is.null(scaling) && scaling$rope_type == "llama3") {
     inv_freq <- apply_llama3_rope_scaling(inv_freq, scaling, dim)
   }
 
-  # Compute position indices
-  t <- torch::torch_arange(0, max_seq_len, device = device)$to(dtype = torch::torch_float32())
+  # Compute position indices (0 to max_seq_len-1)
+  t <- torch::torch_arange(0, max_seq_len - 1, device = device)$to(dtype = torch::torch_float32())
 
   # Outer product: (seq_len, dim/2)
   freqs <- torch::torch_outer(t, inv_freq)
@@ -156,10 +157,11 @@ rotate_half <- function(x) {
 #' @return List with rotated q and k
 apply_rotary_pos_emb <- function(q, k, cos, sin, position_ids) {
   # Gather cos/sin for positions
-  cos <- cos[position_ids + 1, ]$unsqueeze(2)  # (batch, seq, 1, dim)
-  sin <- sin[position_ids + 1, ]$unsqueeze(2)
+  # R torch uses 1-based indexing for unsqueeze, so unsqueeze(3) inserts at position 3
+  cos <- cos[position_ids$add(1L), ]$unsqueeze(3)  # (batch, seq, 1, dim)
+  sin <- sin[position_ids$add(1L), ]$unsqueeze(3)
 
-  # Transpose to match q, k layout
+  # Transpose to match q, k layout: (batch, seq, 1, dim) -> (batch, 1, seq, dim)
   cos <- cos$transpose(2, 3)  # (batch, 1, seq, dim)
   sin <- sin$transpose(2, 3)
 
@@ -204,9 +206,9 @@ llama_attention <- torch::nn_module(
     q_len <- hidden_states$size(2)
 
     # Project Q, K, V
-    query_states <- self$q_proj(hidden_states)
-    key_states <- self$k_proj(hidden_states)
-    value_states <- self$v_proj(hidden_states)
+    query_states <- self$q_proj$forward(hidden_states)
+    key_states <- self$k_proj$forward(hidden_states)
+    value_states <- self$v_proj$forward(hidden_states)
 
     # Reshape: (batch, seq, heads, head_dim) -> (batch, heads, seq, head_dim)
     query_states <- query_states$view(c(bsz, q_len, self$num_heads, self$head_dim))$transpose(2, 3)
@@ -255,7 +257,7 @@ llama_attention <- torch::nn_module(
     attn_output <- attn_output$view(c(bsz, q_len, self$hidden_size))
 
     # Output projection
-    attn_output <- self$o_proj(attn_output)
+    attn_output <- self$o_proj$forward(attn_output)
 
     list(
       hidden_states = attn_output,
@@ -290,7 +292,7 @@ llama_mlp <- torch::nn_module(
 
   forward = function(x) {
     # SwiGLU: down(silu(gate(x)) * up(x))
-    self$down_proj(self$act_fn(self$gate_proj(x)) * self$up_proj(x))
+    self$down_proj$forward(self$act_fn(self$gate_proj$forward(x)) * self$up_proj$forward(x))
   }
 )
 
@@ -318,10 +320,10 @@ llama_decoder_layer <- torch::nn_module(
     residual <- hidden_states
 
     # Pre-norm
-    hidden_states <- self$input_layernorm(hidden_states)
+    hidden_states <- self$input_layernorm$forward(hidden_states)
 
     # Self attention
-    attn_out <- self$self_attn(
+    attn_out <- self$self_attn$forward(
       hidden_states,
       position_ids,
       rope_cos,
@@ -333,8 +335,8 @@ llama_decoder_layer <- torch::nn_module(
 
     # MLP
     residual <- hidden_states
-    hidden_states <- self$post_attention_layernorm(hidden_states)
-    hidden_states <- residual + self$mlp(hidden_states)
+    hidden_states <- self$post_attention_layernorm$forward(hidden_states)
+    hidden_states <- residual + self$mlp$forward(hidden_states)
 
     list(
       hidden_states = hidden_states,
@@ -403,7 +405,7 @@ llama_model <- torch::nn_module(
     if (!is.null(inputs_embeds)) {
       hidden_states <- inputs_embeds
     } else if (!is.null(input_ids)) {
-      hidden_states <- self$embed_tokens(input_ids)
+      hidden_states <- self$embed_tokens$forward(input_ids)
     } else {
       stop("Either input_ids or inputs_embeds must be provided")
     }
@@ -415,7 +417,8 @@ llama_model <- torch::nn_module(
     # Handle position IDs
     if (is.null(position_ids)) {
       past_length <- if (!is.null(past_key_values)) past_key_values[[1]]$k$size(3) else 0
-      position_ids <- torch::torch_arange(past_length, past_length + seq_length, device = device)
+      # R torch_arange is inclusive, so use seq_length - 1 for end to get seq_length values
+      position_ids <- torch::torch_arange(past_length, past_length + seq_length - 1, device = device, dtype = torch::torch_long())
       position_ids <- position_ids$unsqueeze(1)$expand(c(batch_size, -1))
     }
 
@@ -458,7 +461,7 @@ llama_model <- torch::nn_module(
 
       past_kv <- if (!is.null(past_key_values)) past_key_values[[i]] else NULL
 
-      layer_out <- layer(
+      layer_out <- layer$forward(
         hidden_states,
         position_ids,
         rope_cache$cos,
@@ -479,7 +482,7 @@ llama_model <- torch::nn_module(
     }
 
     # Final norm
-    hidden_states <- self$norm(hidden_states)
+    hidden_states <- self$norm$forward(hidden_states)
 
     if (output_hidden_states) {
       all_hidden_states[[length(all_hidden_states) + 1]] <- hidden_states

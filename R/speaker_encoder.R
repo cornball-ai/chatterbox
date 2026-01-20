@@ -49,11 +49,11 @@ basic_res_block <- torch::nn_module(
   },
 
   forward = function(x) {
-    out <- torch::nnf_relu(self$bn1(self$conv1(x)))
-    out <- self$bn2(self$conv2(out))
+    out <- torch::nnf_relu(self$bn1$forward(self$conv1$forward(x)))
+    out <- self$bn2$forward(self$conv2$forward(out))
 
     if (!is.null(self$shortcut)) {
-      out <- out + self$shortcut(x)
+      out <- out + self$shortcut$forward(x)
     } else {
       out <- out + x
     }
@@ -102,10 +102,10 @@ fcm_module <- torch::nn_module(
 
   forward = function(x) {
     x <- x$unsqueeze(2)  # Add channel dim
-    out <- torch::nnf_relu(self$bn1(self$conv1(x)))
-    out <- self$layer1(out)
-    out <- self$layer2(out)
-    out <- torch::nnf_relu(self$bn2(self$conv2(out)))
+    out <- torch::nnf_relu(self$bn1$forward(self$conv1$forward(x)))
+    out <- self$layer1$forward(out)
+    out <- self$layer2$forward(out)
+    out <- torch::nnf_relu(self$bn2$forward(self$conv2$forward(out)))
 
     # Reshape: (B, C, H, W) -> (B, C*H, W)
     shape <- out$shape
@@ -138,7 +138,7 @@ tdnn_layer <- torch::nn_module(
   },
 
   forward = function(x) {
-    torch::nnf_relu(self$bn(self$conv(x)))
+    torch::nnf_relu(self$bn$forward(self$conv$forward(x)))
   }
 )
 
@@ -181,12 +181,12 @@ cam_layer <- torch::nn_module(
   },
 
   forward = function(x) {
-    y <- self$linear_local(x)
+    y <- self$linear_local$forward(x)
 
     # Global context + segment context
     context <- x$mean(dim = 3, keepdim = TRUE) + self$.seg_pooling(x)
-    context <- self$relu(self$linear1(context))
-    m <- self$sigmoid(self$linear2(context))
+    context <- self$relu$forward(self$linear1$forward(context))
+    m <- self$sigmoid$forward(self$linear2$forward(context))
 
     y * m
   }
@@ -215,10 +215,10 @@ cam_dense_tdnn_layer <- torch::nn_module(
   },
 
   forward = function(x) {
-    out <- torch::nnf_relu(self$bn1(x))
-    out <- self$linear1(out)
-    out <- torch::nnf_relu(self$bn2(out))
-    self$cam(out)
+    out <- torch::nnf_relu(self$bn1$forward(x))
+    out <- self$linear1$forward(out)
+    out <- torch::nnf_relu(self$bn2$forward(out))
+    self$cam$forward(out)
   }
 )
 
@@ -247,8 +247,9 @@ cam_dense_tdnn_block <- torch::nn_module(
   },
 
   forward = function(x) {
-    for (layer in self$layers) {
-      out <- layer(x)
+    for (i in seq_along(self$layers)) {
+      layer <- self$layers[[i]]
+      out <- layer$forward(x)
       x <- torch::torch_cat(list(x, out), dim = 2)
     }
     x
@@ -270,7 +271,7 @@ transit_layer <- torch::nn_module(
   },
 
   forward = function(x) {
-    self$conv(torch::nnf_relu(self$bn(x)))
+    self$conv$forward(torch::nnf_relu(self$bn$forward(x)))
   }
 )
 
@@ -290,9 +291,9 @@ dense_layer <- torch::nn_module(
   forward = function(x) {
     if (x$dim() == 2) {
       x <- x$unsqueeze(3)
-      x <- self$bn(self$conv(x))$squeeze(3)
+      x <- self$bn$forward(self$conv$forward(x))$squeeze(3)
     } else {
-      x <- self$bn(self$conv(x))
+      x <- self$bn$forward(self$conv$forward(x))
     }
     x
   }
@@ -358,29 +359,29 @@ campplus <- torch::nn_module(
     x <- x$permute(c(1, 3, 2))
 
     # FCM head
-    x <- self$head(x)
+    x <- self$head$forward(x)
 
     # TDNN
-    x <- self$tdnn(x)
+    x <- self$tdnn$forward(x)
 
     # Dense blocks with transit
-    x <- self$block1(x)
-    x <- self$transit1(x)
+    x <- self$block1$forward(x)
+    x <- self$transit1$forward(x)
 
-    x <- self$block2(x)
-    x <- self$transit2(x)
+    x <- self$block2$forward(x)
+    x <- self$transit2$forward(x)
 
-    x <- self$block3(x)
-    x <- self$transit3(x)
+    x <- self$block3$forward(x)
+    x <- self$transit3$forward(x)
 
     # Output norm
-    x <- torch::nnf_relu(self$out_bn(x))
+    x <- torch::nnf_relu(self$out_bn$forward(x))
 
     # Statistics pooling
     x <- statistics_pooling(x)
 
     # Final embedding
-    self$dense(x)
+    self$dense$forward(x)
   },
 
   inference = function(audio) {
@@ -388,7 +389,7 @@ campplus <- torch::nn_module(
     # This would normally use torchaudio kaldi features
     # For now, we use our mel spectrogram computation
 
-    self(audio$to(dtype = torch::torch_float32()))
+    self$forward(audio$to(dtype = torch::torch_float32()))
   }
 )
 
@@ -447,7 +448,7 @@ compute_xvector_embedding <- function(model, audio, sr) {
   mel <- mel$to(device = device)
 
   torch::with_no_grad({
-    model(mel)
+    model$forward(mel)
   })
 }
 

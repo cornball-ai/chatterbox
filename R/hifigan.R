@@ -163,9 +163,9 @@ conv_rnn_f0_predictor <- torch::nn_module(
 
   forward = function(x) {
     # x: (B, mel_bins, T)
-    x <- self$condnet(x)
+    x <- self$condnet$forward(x)
     x <- x$transpose(2, 3)  # (B, T, C)
-    torch::torch_abs(self$classifier(x)$squeeze(3))  # (B, T)
+    torch::torch_abs(self$classifier$forward(x)$squeeze(3))  # (B, T)
   }
 )
 
@@ -276,12 +276,12 @@ source_module_hn_nsf <- torch::nn_module(
     # x: (B, T, 1) F0 in Hz
 
     # Generate sine source
-    result <- self$l_sin_gen(x$transpose(2, 3))
+    result <- self$l_sin_gen$forward(x$transpose(2, 3))
     sine_wavs <- result$sine_waves$transpose(2, 3)  # (B, T, H+1)
     uv <- result$uv$transpose(2, 3)
 
     # Merge harmonics
-    sine_merge <- self$l_tanh(self$l_linear(sine_wavs))  # (B, T, 1)
+    sine_merge <- self$l_tanh$forward(self$l_linear$forward(sine_wavs))  # (B, T, 1)
 
     # Noise source
     noise <- torch::torch_randn_like(uv) * self$sine_amp / 3
@@ -378,9 +378,19 @@ hift_generator <- torch::nn_module(
       in_ch <- base_channels %/% (2^(i - 1))
       out_ch <- base_channels %/% (2^i)
 
+      # For conv_transpose1d: output = (input - 1) * stride - 2*padding + kernel + output_padding
+      # When kernel >= stride: padding = (kernel - stride) / 2, output_padding = 0
+      # When kernel < stride: padding = 0, output_padding = stride - kernel
+      if (k >= u) {
+        padding <- (k - u) %/% 2
+        output_padding <- 0L
+      } else {
+        padding <- 0L
+        output_padding <- u - k
+      }
       self$ups$append(
         torch::nn_conv_transpose1d(in_ch, out_ch, k, stride = u,
-                                    padding = (k - u) %/% 2)
+                                    padding = padding, output_padding = output_padding)
       )
     }
 
@@ -388,7 +398,7 @@ hift_generator <- torch::nn_module(
     self$source_downs <- torch::nn_module_list()
     self$source_resblocks <- torch::nn_module_list()
 
-    # Compute downsample rates
+    # Compute downsample rates (original formula for weight compatibility)
     downsample_rates <- c(1, rev(upsample_rates[-length(upsample_rates)]))
     downsample_cum <- cumprod(downsample_rates)
 
@@ -493,21 +503,31 @@ hift_generator <- torch::nn_module(
     }
 
     # Initial conv
-    x <- self$conv_pre(x)
+    x <- self$conv_pre$forward(x)
 
     # Upsampling with source fusion
     for (i in seq_len(self$num_upsamples)) {
       x <- torch::nnf_leaky_relu(x, self$lrelu_slope)
-      x <- self$ups[[i]](x)
+      x <- self$ups[[i]]$forward(x)
 
       # Reflection pad for last upsample
       if (i == self$num_upsamples) {
-        x <- self$reflection_pad(x)
+        x <- self$reflection_pad$forward(x)
       }
 
       # Source fusion
-      si <- self$source_downs[[i]](s_stft)
-      si <- self$source_resblocks[[i]](si)
+      si <- self$source_downs[[i]]$forward(s_stft)
+      si <- self$source_resblocks[[i]]$forward(si)
+
+      # Handle length mismatch by truncating to minimum length
+      x_len <- x$size(3)
+      si_len <- si$size(3)
+      if (si_len > x_len) {
+        si <- si[, , 1:x_len]
+      } else if (x_len > si_len) {
+        x <- x[, , 1:si_len]
+      }
+
       x <- x + si
 
       # ResBlocks
@@ -515,9 +535,9 @@ hift_generator <- torch::nn_module(
       for (j in seq_len(self$num_kernels)) {
         idx <- (i - 1) * self$num_kernels + j
         if (is.null(xs)) {
-          xs <- self$resblocks[[idx]](x)
+          xs <- self$resblocks[[idx]]$forward(x)
         } else {
-          xs <- xs + self$resblocks[[idx]](x)
+          xs <- xs + self$resblocks[[idx]]$forward(x)
         }
       }
       x <- xs / self$num_kernels
@@ -525,7 +545,7 @@ hift_generator <- torch::nn_module(
 
     # Output
     x <- torch::nnf_leaky_relu(x)
-    x <- self$conv_post(x)
+    x <- self$conv_post$forward(x)
 
     # Split magnitude and phase
     n_freq <- self$istft_n_fft %/% 2 + 1
@@ -544,13 +564,13 @@ hift_generator <- torch::nn_module(
     speech_feat <- speech_feat$transpose(2, 3)
 
     # Predict F0 from mel
-    f0 <- self$f0_predictor(speech_feat)  # (B, T)
+    f0 <- self$f0_predictor$forward(speech_feat)  # (B, T)
 
     # Upsample F0 to sample rate
-    s <- self$f0_upsamp(f0$unsqueeze(2))$transpose(2, 3)  # (B, T_wav, 1)
+    s <- self$f0_upsamp$forward(f0$unsqueeze(2))$transpose(2, 3)  # (B, T_wav, 1)
 
     # Generate source signal
-    source_result <- self$m_source(s)
+    source_result <- self$m_source$forward(s)
     s <- source_result$sine_merge$transpose(2, 3)  # (B, 1, T_wav)
 
     # Decode mel + source -> audio
@@ -564,13 +584,13 @@ hift_generator <- torch::nn_module(
     device <- speech_feat$device
 
     # Predict F0
-    f0 <- self$f0_predictor(speech_feat)
+    f0 <- self$f0_predictor$forward(speech_feat)
 
     # Upsample F0
-    s <- self$f0_upsamp(f0$unsqueeze(2))$transpose(2, 3)
+    s <- self$f0_upsamp$forward(f0$unsqueeze(2))$transpose(2, 3)
 
     # Generate source
-    source_result <- self$m_source(s)
+    source_result <- self$m_source$forward(s)
     s <- source_result$sine_merge$transpose(2, 3)
 
     # Use cached source to avoid glitches at boundaries
@@ -700,6 +720,9 @@ load_hifigan_weights <- function(model, state_dict, prefix = "mel2wav.") {
 #' @export
 create_s3gen_vocoder <- function(device = "cpu") {
   # S3Gen uses specific HiFiGAN configuration
+  # Config derived from s3gen.safetensors weight shapes:
+  # - source_downs kernels: 30, 6, 1 -> requires upsample_rates c(5, 3, 8)
+  # - ups kernels: 16, 11, 7 -> upsample_kernel_sizes c(16, 11, 7)
   model <- hift_generator(
     in_channels = 80,
     base_channels = 512,
@@ -708,8 +731,8 @@ create_s3gen_vocoder <- function(device = "cpu") {
     nsf_alpha = 0.1,
     nsf_sigma = 0.003,
     nsf_voiced_threshold = 10,
-    upsample_rates = c(8, 5, 3),  # 8*5*3 = 120, with hop_len 4 gives ~480x
-    upsample_kernel_sizes = c(16, 10, 6),
+    upsample_rates = c(5, 3, 8),  # 5*3*8 = 120, with hop_len 4 gives ~480x
+    upsample_kernel_sizes = c(16, 11, 7),
     istft_n_fft = 16,
     istft_hop_len = 4,
     resblock_kernel_sizes = c(3, 7, 11),

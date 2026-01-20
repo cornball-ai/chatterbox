@@ -167,16 +167,16 @@ compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
 
   device <- y$device
 
-  # Get or create mel filterbank
-  cache_key <- paste(fmax, device$type, sep = "_")
-  if (is.null(.mel_cache[[cache_key]])) {
+  # Get or create mel filterbank (key includes all parameters that affect shape)
+  mel_cache_key <- paste(sr, n_fft, n_mels, fmin, fmax, device$type, sep = "_")
+  if (is.null(.mel_cache[[mel_cache_key]])) {
     mel_fb <- create_mel_filterbank(sr, n_fft, n_mels, fmin, fmax)
-    .mel_cache[[cache_key]] <- torch::torch_tensor(mel_fb, dtype = torch::torch_float32())$to(device = device)
+    .mel_cache[[mel_cache_key]] <- torch::torch_tensor(mel_fb, dtype = torch::torch_float32())$to(device = device)
   }
-  mel_basis <- .mel_cache[[cache_key]]
+  mel_basis <- .mel_cache[[mel_cache_key]]
 
-  # Get or create Hann window
-  win_key <- paste("hann", device$type, sep = "_")
+  # Get or create Hann window (key includes win_size)
+  win_key <- paste("hann", win_size, device$type, sep = "_")
   if (is.null(.mel_cache[[win_key]])) {
     .mel_cache[[win_key]] <- torch::torch_hann_window(win_size)$to(device = device)
   }

@@ -59,8 +59,9 @@ learned_position_embeddings <- torch::nn_module(
     # Returns positional embeddings for indices 0 to length of x
     sl <- x$size(2)
     device <- x$device
-    indices <- torch::torch_arange(0, sl, device = device)
-    self$emb(indices + 1)  # R/torch is 1-indexed for embeddings
+    # R torch_arange(0, n) is inclusive, so 0 to sl-1 gives sl values
+    indices <- torch::torch_arange(0, sl - 1, device = device, dtype = torch::torch_long())
+    self$emb$forward(indices$add(1L))  # R/torch is 1-indexed for embeddings
   },
 
   get_fixed_embedding = function(idx) {
@@ -80,7 +81,7 @@ learned_position_embeddings <- torch::nn_module(
       idx <- idx$unsqueeze(1)
     }
 
-    self$emb(idx + 1)  # (B, T, dim)
+    self$emb$forward(idx$add(1L))  # (B, T, dim)
   }
 )
 
@@ -190,19 +191,19 @@ perceiver_resampler <- torch::nn_module(
     query <- self$query$expand(c(batch_size, -1, -1))
 
     # Cross-attention: query attends to input
-    q <- self$q_proj(self$norm1(query))
-    k <- self$k_proj(self$norm2(x))
-    v <- self$v_proj(self$norm2(x))
+    q <- self$q_proj$forward(self$norm1$forward(query))
+    k <- self$k_proj$forward(self$norm2$forward(x))
+    v <- self$v_proj$forward(self$norm2$forward(x))
     cross_out <- query + self$.attention(q, k, v)
-    cross_out <- self$out_proj(cross_out)
+    cross_out <- self$out_proj$forward(cross_out)
 
     # Self-attention
-    norm_out <- self$self_norm(cross_out)
-    q <- self$self_q_proj(norm_out)
-    k <- self$self_k_proj(norm_out)
-    v <- self$self_v_proj(norm_out)
+    norm_out <- self$self_norm$forward(cross_out)
+    q <- self$self_q_proj$forward(norm_out)
+    k <- self$self_k_proj$forward(norm_out)
+    v <- self$self_v_proj$forward(norm_out)
     self_out <- cross_out + self$.attention(q, k, v)
-    self$self_out_proj(self_out)
+    self$self_out_proj$forward(self_out)
   }
 )
 
@@ -245,7 +246,7 @@ t3_cond_enc <- torch::nn_module(
     batch_size <- cond$speaker_emb$size(1)
 
     # Speaker embedding projection: (B, 256) -> (B, 1, 1024)
-    cond_spkr <- self$spkr_enc(cond$speaker_emb$view(c(-1, self$config$speaker_embed_size)))
+    cond_spkr <- self$spkr_enc$forward(cond$speaker_emb$view(c(-1, self$config$speaker_embed_size)))
     cond_spkr <- cond_spkr$unsqueeze(2)
 
     # Empty tensor for unused conditioning
@@ -259,7 +260,7 @@ t3_cond_enc <- torch::nn_module(
     if (is.null(cond_prompt_speech_emb)) {
       cond_prompt_speech_emb <- empty
     } else if (!is.null(self$perceiver)) {
-      cond_prompt_speech_emb <- self$perceiver(cond_prompt_speech_emb)
+      cond_prompt_speech_emb <- self$perceiver$forward(cond_prompt_speech_emb)
     }
 
     # Emotion control
@@ -270,7 +271,7 @@ t3_cond_enc <- torch::nn_module(
         emotion_val <- torch::torch_tensor(emotion_val, device = device)
       }
       emotion_val <- emotion_val$view(c(-1, 1, 1))
-      cond_emotion_adv <- self$emotion_adv_fc(emotion_val)
+      cond_emotion_adv <- self$emotion_adv_fc$forward(emotion_val)
     }
 
     # Concatenate all conditioning
@@ -324,10 +325,10 @@ t3_model <- torch::nn_module(
     # Embed speech tokens if provided but not yet embedded
     if (!is.null(cond$cond_prompt_speech_tokens) && is.null(cond$cond_prompt_speech_emb)) {
       tokens <- cond$cond_prompt_speech_tokens
-      emb <- self$speech_emb(tokens + 1) + self$speech_pos_emb(tokens)
+      emb <- self$speech_emb$forward(tokens$add(1L)) + self$speech_pos_emb$forward(tokens)
       cond$cond_prompt_speech_emb <- emb
     }
-    self$cond_enc(cond)
+    self$cond_enc$forward(cond)
   },
 
   prepare_input_embeds = function(cond, text_tokens, speech_tokens, cfg_weight = 0.0) {
@@ -335,8 +336,8 @@ t3_model <- torch::nn_module(
     cond_emb <- self$prepare_conditioning(cond)  # (B, len_cond, dim)
 
     # Text embeddings with position
-    text_emb <- self$text_emb(text_tokens + 1)  # +1 for R indexing
-    text_emb <- text_emb + self$text_pos_emb(text_tokens)
+    text_emb <- self$text_emb$forward(text_tokens$add(1L))  # +1 for R indexing
+    text_emb <- text_emb + self$text_pos_emb$forward(text_tokens)
 
     # Zero out text for CFG unconditional path
     if (cfg_weight > 0.0 && text_emb$size(1) > 1) {
@@ -345,8 +346,8 @@ t3_model <- torch::nn_module(
     }
 
     # Speech embeddings with position
-    speech_emb <- self$speech_emb(speech_tokens + 1)
-    speech_emb <- speech_emb + self$speech_pos_emb(speech_tokens)
+    speech_emb <- self$speech_emb$forward(speech_tokens$add(1L))
+    speech_emb <- speech_emb + self$speech_pos_emb$forward(speech_tokens)
 
     len_cond <- cond_emb$size(2)
 
@@ -368,8 +369,8 @@ t3_model <- torch::nn_module(
     len_cond <- prep$len_cond
 
     # Forward through Llama
-    output <- self$tfmr(inputs_embeds = embeds, use_cache = FALSE,
-                        output_hidden_states = TRUE)
+    output <- self$tfmr$forward(inputs_embeds = embeds, use_cache = FALSE,
+                                output_hidden_states = TRUE)
 
     hidden_states <- output$last_hidden_state
 
@@ -386,8 +387,8 @@ t3_model <- torch::nn_module(
     speech_latents <- hidden_states[, speech_start:speech_end, ]
 
     # Project to logits
-    text_logits <- self$text_head(text_latents)
-    speech_logits <- self$speech_head(speech_latents)
+    text_logits <- self$text_head$forward(text_latents)
+    speech_logits <- self$speech_head$forward(speech_latents)
 
     list(
       text_logits = text_logits,
@@ -425,7 +426,7 @@ t3_inference <- function(model, cond, text_tokens,
                          repetition_penalty = 1.2) {
 
   config <- model$config
-  device <- next(model$parameters())$device
+  device <- model$text_emb$weight$device
 
   # Ensure text_tokens is 2D
   if (text_tokens$dim() == 1) {
@@ -447,29 +448,34 @@ t3_inference <- function(model, cond, text_tokens,
   bos_token <- torch::torch_tensor(matrix(config$start_speech_token, nrow = 1),
                                    device = device, dtype = torch::torch_long())
 
+  # Double BOS token for CFG
+  if (cfg_weight > 0.0) {
+    bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1)
+  }
+
   # Prepare initial embeddings
   prep <- model$prepare_input_embeds(cond, text_tokens, bos_token, cfg_weight)
   embeds <- prep$embeds
 
   # Double BOS embedding for CFG
   if (cfg_weight > 0.0) {
-    bos_emb <- model$speech_emb(bos_token + 1) + model$speech_pos_emb$get_fixed_embedding(0)
+    bos_emb <- model$speech_emb$forward(bos_token$add(1L)) + model$speech_pos_emb$get_fixed_embedding(0)
     bos_emb <- torch::torch_cat(list(bos_emb, bos_emb), dim = 1)
   }
 
   # Initial forward pass
   torch::with_no_grad({
-    output <- model$tfmr(inputs_embeds = embeds, use_cache = TRUE)
+    output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
     past_key_values <- output$past_key_values
 
-    # Track generated tokens
-    generated_ids <- bos_token$clone()
+    # Track generated tokens (only conditional path for CFG)
+    generated_ids <- bos_token[1, , drop=FALSE]$clone()
     predicted <- list()
 
     # Generation loop
     for (i in seq_len(max_new_tokens)) {
       logits <- output$last_hidden_state[, -1, ]
-      logits <- model$speech_head(logits)  # (B, vocab_size)
+      logits <- model$speech_head$forward(logits)  # (B, vocab_size)
 
       # CFG combination
       if (cfg_weight > 0.0) {
@@ -527,7 +533,7 @@ t3_inference <- function(model, cond, text_tokens,
       }
 
       # Get embedding for next token
-      next_emb <- model$speech_emb(next_token + 1) + model$speech_pos_emb$get_fixed_embedding(i)
+      next_emb <- model$speech_emb$forward(next_token$add(1L)) + model$speech_pos_emb$get_fixed_embedding(i)
 
       # Double for CFG
       if (cfg_weight > 0.0) {
@@ -535,7 +541,7 @@ t3_inference <- function(model, cond, text_tokens,
       }
 
       # Forward with KV cache
-      output <- model$tfmr(inputs_embeds = next_emb, past_key_values = past_key_values,
+      output <- model$tfmr$forward(inputs_embeds = next_emb, past_key_values = past_key_values,
                            use_cache = TRUE)
       past_key_values <- output$past_key_values
     }
