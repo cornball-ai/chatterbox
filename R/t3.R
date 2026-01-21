@@ -562,8 +562,11 @@ t3_inference <- function(
         min_threshold <- min_p * max_prob
         logits[probs < min_threshold] <- - Inf
 
+        # Recompute probs after min-p filtering
+        probs_filtered <- torch::nnf_softmax(logits, dim = - 1)
+
         # Top-p (nucleus) sampling
-        sorted_result <- torch::torch_sort(probs, descending = TRUE)
+        sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
         sorted_probs <- sorted_result[[1]]
         sorted_indices <- sorted_result[[2]]
         cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = - 1)
@@ -585,13 +588,16 @@ t3_inference <- function(
         generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2)
 
         # Check for EOS
-        if (as.integer(next_token$cpu()) == config$stop_speech_token) {
+        # Note: sorted_indices returns R 1-indexed values, subtract 1 to get 0-indexed token ID
+        token_id <- as.integer(next_token$cpu()) - 1L
+        if (token_id == config$stop_speech_token) {
           message("EOS detected at step ", i)
           break
         }
 
         # Get embedding for next token
-        next_emb <- model$speech_emb$forward(next_token$add(1L)) + model$speech_pos_emb$get_fixed_embedding(i)
+        # sorted_indices returns R 1-indexed values, which nn_embedding expects (no +1 needed)
+        next_emb <- model$speech_emb$forward(next_token) + model$speech_pos_emb$get_fixed_embedding(i)
 
         # Double for CFG
         if (cfg_weight > 0.0) {
@@ -605,9 +611,11 @@ t3_inference <- function(
       }
     })
 
-  # Concatenate predicted tokens
+  # Concatenate predicted tokens and convert to 0-indexed token IDs
+  # (sorted_indices returns R 1-indexed positions)
   if (length(predicted) > 0) {
-    torch::torch_cat(predicted, dim = 2)$squeeze(1)
+    tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
+    tokens$sub(1L) # Convert to 0-indexed token IDs
   } else {
     torch::torch_tensor(integer(0), device = device)
   }

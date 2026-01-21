@@ -256,22 +256,44 @@ cond_enc.perceiver.attn.proj_out.weight → $perceiver$attn$proj_out$weight
 
 **Result after fix**: Perceiver output std matched (R=0.564 vs Python=0.567).
 
-### Llama Backbone Hidden State Variance (Ongoing)
+### Llama Backbone Hidden State Variance (FIXED)
 
-**Status**: Perceiver and conditioning now match Python. Remaining issue in Llama backbone.
+**Status**: RESOLVED. TTS now generates audio with correct EOS detection.
 
-**Symptoms**:
-- Hidden state std: R=0.88 vs Python=1.16
-- Logits mean: R=-2.92 vs Python=-4.32
-- Logits std: R=3.04 vs Python=5.25
-- Result: Flatter probability distribution, EOS token not hit early enough
-- Audio duration: R ~31s vs Python ~1s for same input
+**Root causes found**:
 
-**Debugging approach**:
-1. Extract intermediate outputs at each Llama layer
-2. Compare conditioning embeddings (should match now)
-3. Compare after first transformer block
-4. Binary search to find divergence point
+1. **torch_sort returns 1-indexed values in R torch**: When sampling tokens, `torch_sort` returns 1-indexed positions (e.g., 6563 for token 6562). This caused:
+   - EOS never detected: comparing 1-indexed (6563) against 0-indexed stop_token (6562)
+   - Wrong embeddings: adding +1 to already 1-indexed values
+
+2. **Min-p filtering not recomputing softmax**: After setting `logits[probs < threshold] <- -Inf`, code was sorting original probs instead of recomputing via `nnf_softmax(logits)`.
+
+**Fixes applied**:
+
+```r
+# Token sampling fix (R/t3.R)
+next_token <- sorted_indices$gather(2L, next_token_idx)
+
+# EOS check - convert 1-indexed to 0-indexed
+token_id <- as.integer(next_token$item()) - 1L
+if (token_id == config$stop_speech_token) break
+
+# Embedding lookup - sorted_indices already 1-indexed for nn_embedding
+next_emb <- model$speech_emb$forward(next_token)  # No $add(1L)
+
+# Return tokens as 0-indexed for downstream
+tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)$sub(1L)
+```
+
+```r
+# Min-p filtering fix (R/t3.R)
+probs <- torch::nnf_softmax(logits, dim = -1L)
+logits[probs < min_p * max_prob] <- -Inf
+probs_filtered <- torch::nnf_softmax(logits, dim = -1L)  # RECOMPUTE!
+sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
+```
+
+**Result**: TTS now generates appropriate audio lengths (4-8 seconds for "Hello world").
 
 **Python comparison using chatterbox container**:
 ```bash
