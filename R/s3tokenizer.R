@@ -803,6 +803,7 @@ load_s3tokenizer_weights <- function(
     FALSE
   }
 
+  torch::with_no_grad({
   # Load mel filters and window (buffers)
   if (paste0(prefix, "_mel_filters") %in% names(state_dict)) {
     model$mel_filters$copy_(state_dict[[paste0(prefix, "_mel_filters")]])
@@ -850,6 +851,7 @@ load_s3tokenizer_weights <- function(
   # Load quantizer
   copy_if_exists(model$quantizer$codebook$project_down$weight, "quantizer._codebook.project_down.weight")
   copy_if_exists(model$quantizer$codebook$project_down$bias, "quantizer._codebook.project_down.bias")
+  })
 
   model
 }

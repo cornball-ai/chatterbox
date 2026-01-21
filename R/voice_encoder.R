@@ -71,7 +71,8 @@ compute_ve_mel <- function(
   hann_window <- .mel_cache[[win_key]]
 
   # Pad audio (reflect padding, centered STFT)
-  pad_amount <- as.integer((config$n_fft - config$hop_size) / 2)
+  # librosa.stft with center=True pads n_fft // 2 on each side
+  pad_amount <- as.integer(config$n_fft %/% 2)
   wav <- wav$unsqueeze(2) # Add channel dim for padding
   wav <- torch::nnf_pad(wav, c(pad_amount, pad_amount), mode = "reflect")
   wav <- wav$squeeze(2)

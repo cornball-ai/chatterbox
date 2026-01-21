@@ -100,19 +100,39 @@ create_mel_filterbank <- function(
   n_mels,
   fmin = 0,
   fmax = NULL,
-  norm = "slaney"
+  norm = "slaney",
+  htk = FALSE
 ) {
   if (is.null(fmax)) {
     fmax <- sr / 2
   }
 
-  # Convert Hz to mel scale (HTK formula)
-  hz_to_mel <- function(hz) {
-    2595 * log10(1 + hz / 700)
-  }
+  if (htk) {
+    # HTK formula (not used by librosa default)
+    hz_to_mel <- function(hz) {
+      2595 * log10(1 + hz / 700)
+    }
+    mel_to_hz <- function(mel) {
+      700 * (10 ^ (mel / 2595) - 1)
+    }
+  } else {
+    # Slaney/librosa formula (default)
+    # Linear below 1000 Hz, log above
+    f_sp <- 200.0 / 3  # 66.67 Hz per mel below 1000 Hz
+    min_log_hz <- 1000.0
+    min_log_mel <- (min_log_hz - 0) / f_sp  # 15.0
+    logstep <- log(6.4) / 27.0  # step size for log region
 
-  mel_to_hz <- function(mel) {
-    700 * (10 ^ (mel / 2595) - 1)
+    hz_to_mel <- function(hz) {
+      ifelse(hz < min_log_hz,
+             hz / f_sp,
+             min_log_mel + log(hz / min_log_hz) / logstep)
+    }
+    mel_to_hz <- function(mel) {
+      ifelse(mel < min_log_mel,
+             mel * f_sp,
+             min_log_hz * exp(logstep * (mel - min_log_mel)))
+    }
   }
 
   # Create mel points
@@ -148,11 +168,12 @@ create_mel_filterbank <- function(
     filterbank[i, fft_freqs < center] <- pmax(rising[fft_freqs < center], 0)
   }
 
-  # Apply Slaney normalization (divide by bandwidth in mel)
+  # Apply Slaney normalization (divide by bandwidth in Hz)
   # This matches librosa's default norm="slaney"
   if (norm == "slaney") {
-    # enorm = 2.0 / (mel_f[2:n_mels+2] - mel_f[:n_mels])
-    enorm <- 2.0 / (mel_points[3:(n_mels + 2)] - mel_points[1:n_mels])
+    # enorm = 2.0 / (hz_points[2:n_mels+2] - hz_points[:n_mels])
+    # Bandwidth is the difference between upper and lower Hz for each filter
+    enorm <- 2.0 / (hz_points[3:(n_mels + 2)] - hz_points[1:n_mels])
     filterbank <- filterbank * enorm
   }
 

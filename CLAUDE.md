@@ -2,6 +2,23 @@
 
 Pure R port of [Chatterbox TTS](https://github.com/resemble-ai/chatterbox) using torch. No Python dependencies - runs entirely in R.
 
+## Python Reference
+
+**Target version**: chatterbox-tts 0.1.4 (PyPI)
+**Reference container**: `chatterbox-tts:blackwell` (cornball-ai/chatterbox-tts-api)
+- Built: Dec 5, 2025
+- CUDA: 12.8.1 (Blackwell-compatible)
+- Python: 3.11 with venv at `/app/.venv`
+
+Use this container for validation/comparison:
+```bash
+docker run --rm --gpus all \
+  -v ~/chatterbox/scripts:/scripts \
+  -v ~/chatterbox/outputs:/outputs \
+  chatterbox-tts:blackwell \
+  python /scripts/your_script.py
+```
+
 ## Architecture
 
 ```
@@ -300,6 +317,171 @@ sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
 # Run comparison script inside existing chatterbox container
 docker exec -it chatterbox python /tmp/check_hidden.py
 ```
+
+## Validation Status (January 2026)
+
+Systematic component-by-component validation against Python reference.
+
+### Summary
+
+| Component | Status | Max Diff | Test Script |
+|-----------|--------|----------|-------------|
+| Mel Spectrogram | ✅ Validated | < 0.000001 | `scripts/test_voice_encoder.R` |
+| Voice Encoder | ✅ Validated | < 0.000256 | `scripts/test_voice_encoder.R` |
+| S3 Tokenizer | ✅ Validated | 100% match | `scripts/test_s3tokenizer.R` |
+| T3 Conditioning | ✅ Validated | < 0.000002 | `scripts/test_t3_cond.R` |
+| T3 Llama Backbone | ✅ Validated | < 0.00003 | `scripts/test_t3_llama.R` |
+| T3 Token Generation | ✅ Fixed | N/A | See debugging notes |
+| S3Gen (CFM + Vocoder) | 🔄 Pending | - | `scripts/save_s3gen_steps.py` |
+
+**Current state**: T3 (text → speech tokens) is fully validated. S3Gen (speech tokens → audio) architecture is understood but R implementation is pending.
+
+### ✅ Mel Spectrogram (Voice Encoder)
+
+**Validated**: R matches Python with max diff < 0.000001
+
+**Parameters** (voice encoder mel):
+- n_mels: 40
+- sample_rate: 16000 Hz
+- n_fft: 400
+- hop_length: 160
+- fmin: 0, fmax: 8000
+- mel_type: "amp" (power spectrum, no log)
+- mel_power: 2.0
+
+**Fixes applied**:
+1. **Mel filterbank formula**: Changed from HTK to Slaney (librosa default)
+   - Slaney: linear below 1000 Hz, log above
+   - HTK: `2595 * log10(1 + hz/700)` everywhere
+2. **STFT padding**: Changed from `(n_fft - hop_size) / 2 = 120` to `n_fft // 2 = 200`
+   - librosa `center=True` pads `n_fft // 2` on each side
+3. **Filterbank normalization**: Use Hz bandwidth, not mel bandwidth
+
+### ✅ Voice Encoder (Speaker Embedding)
+
+**Validated**: R matches Python with max diff < 0.000256
+
+**Architecture**:
+- 3-layer LSTM (input: 40 mels, hidden: 256)
+- Linear projection (256 → 256)
+- ReLU activation
+- L2 normalization
+
+**Process**:
+1. Compute mel spectrogram (40 mels, 16kHz)
+2. Split into overlapping 160-frame partials (50% overlap, frame_step=80)
+3. LSTM forward on all partials
+4. Take final hidden state from layer 3
+5. Project → ReLU → L2 normalize each partial
+6. Average all partial embeddings
+7. L2 normalize final embedding
+
+**Test script**: `scripts/test_voice_encoder.R`
+
+### ✅ T3 Conditioning (Embeddings & Perceiver)
+
+**Validated**: R matches Python with max diff < 0.000002
+
+**Components validated**:
+- Text token embedding: 0.000000 diff
+- Text position embedding: 0.000000 diff
+- Speech start embedding: 0.000000 diff
+- Speaker projection: 0.000000 diff
+- Perceiver resampler: 0.000002 diff (32 query tokens)
+- Emotion projection: 0.000000 diff
+- Full conditioning: 0.000002 diff
+- Full input embeddings: 0.000002 diff
+
+**Architecture**:
+- Conditioning: 34 positions (1 speaker + 32 perceiver + 1 emotion)
+- Text vocab: 704 tokens
+- Speech vocab: 8194 tokens
+- Embedding dim: 1024
+- start_speech_token: 6561
+- stop_speech_token: 6562
+- Llama backbone: 520M parameters
+
+**Test script**: `scripts/test_t3_cond.R`
+
+### ✅ T3 Llama Backbone (Transformer Forward)
+
+**Validated**: R matches Python with max diff < 0.00003
+
+**Components validated**:
+- Hidden states: [1, 43, 1024] - max diff 0.000029
+- Speech logits: [1, 1, 8194] - max diff 0.000027
+
+**Statistics comparison**:
+| Metric | Python | R |
+|--------|--------|---|
+| Hidden mean | 0.023360 | 0.023360 |
+| Hidden std | 1.170491 | 1.170491 |
+| Logits mean | -3.105268 | -3.105261 |
+| Logits std | 4.000566 | 4.000564 |
+
+**Test script**: `scripts/test_t3_llama.R`
+
+### ✅ T3 Token Generation (Sampling + EOS)
+
+**Status**: Fixed and working
+
+The T3 autoregressive token generation loop was debugged and fixed. Key issues resolved:
+
+1. **R torch 1-indexing for torch_sort**: `sorted_indices` returns 1-indexed values
+2. **Min-p filtering**: Must recompute softmax after setting logits to -Inf
+3. **EOS detection**: Convert 1-indexed token back to 0-indexed for comparison
+
+**Result**: TTS generates appropriate audio lengths (4-8 seconds for "Hello world")
+
+See "Llama Backbone Hidden State Variance (FIXED)" in Debugging Notes for details.
+
+### 🔄 S3Gen (Speech Tokens → Audio)
+
+**Status**: Architecture understood, implementation pending
+
+**Architecture** (from Python tracing):
+```
+S3Token2Wav
+├── tokenizer: S3Tokenizer (✅ validated 100% match)
+├── speaker_encoder: CAMPPlus
+├── flow: CausalMaskedDiffWithXvec (CFM decoder)
+└── mel2wav: HiFTGenerator (HiFi-GAN vocoder)
+```
+
+**API**:
+```python
+s3gen.forward(speech_tokens, ref_wav, ref_sr, ref_dict=None, finalize=False)
+# speech_tokens: [batch, seq_len] - 0-indexed tokens (0-6560)
+# ref_wav: [batch, samples] - reference audio at ref_sr
+# ref_sr: int - sample rate (16000)
+# Returns: [batch, audio_samples] at 24kHz
+```
+
+**Known parameters**:
+- Output sample rate: 24kHz
+- Uses Conditional Flow Matching (CFM) with Euler solver
+- HiFi-GAN based vocoder (HiFTGenerator)
+
+**Test script**: `scripts/save_s3gen_steps.py`
+
+### ✅ S3 Tokenizer
+
+**Validated**: R matches Python with 100% token match (150/150)
+
+**Parameters** (CORRECTED from PseudoCode.md):
+- n_mels: 128 (not 80)
+- sample_rate: 16000 Hz (not 24kHz)
+- n_fft: 400
+- hop_length: 160
+- output: 25 tokens/second
+- codebook_size: 6561 (3^8 FSQ)
+
+**Architecture**:
+- AudioEncoderV2 (Whisper-style, 6 layers, 20 heads, 1280 dim)
+- FSQVectorQuantization (Finite Scalar Quantization)
+- FSMN attention blocks (depthwise conv for temporal context)
+
+**Test script**: `scripts/test_s3tokenizer.R`
 
 ## Related
 
