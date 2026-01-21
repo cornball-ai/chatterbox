@@ -4,7 +4,7 @@
 \alias{print.voice_embedding}
 \title{Print method for voice_embedding}
 \usage{
-print.voice_embedding(x, ...)
+\method{print}{voice_embedding}(x, ...)
 }
 \arguments{
 \item{x}{Voice embedding}

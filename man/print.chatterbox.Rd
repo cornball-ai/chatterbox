@@ -4,7 +4,7 @@
 \alias{print.chatterbox}
 \title{Print method for chatterbox}
 \usage{
-print.chatterbox(x, ...)
+\method{print}{chatterbox}(x, ...)
 }
 \arguments{
 \item{x}{Chatterbox model}
