@@ -15,6 +15,6 @@ read_torch_pt(path, device = "cpu")
 Loaded object (typically a list/dict structure)
 }
 \description{
-This is a simplified loader for the specific structure of conds.pt Full
-pickle parsing is complex; this handles the common case
+This is a simplified loader for the specific structure of conds.pt
+Full pickle parsing is complex; this handles the common case
 }

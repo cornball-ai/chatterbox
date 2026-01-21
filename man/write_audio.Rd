@@ -7,7 +7,7 @@
 write_audio(samples, sr, path)
 }
 \arguments{
-\item{samples}{Numeric vector of audio samples (normalized to \\[-1, 1\\])}
+\item{samples}{Numeric vector of audio samples (normalized to \[-1, 1\])}
 
 \item{sr}{Sample rate}
 

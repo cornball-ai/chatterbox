@@ -4,7 +4,7 @@
 rhydrogen::load_all()
 
 # Load Python reference
-ref_path <- "/home/troy/chatteRbox/outputs/t3_reference.safetensors"
+ref_path <- "/home/troy/chatterbox/outputs/t3_reference.safetensors"
 message("Loading Python reference from: ", ref_path)
 ref <- read_safetensors(ref_path, device = "cpu")
 

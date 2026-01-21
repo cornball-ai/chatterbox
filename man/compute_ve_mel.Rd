@@ -12,8 +12,9 @@ compute_ve_mel(wav, config = voice_encoder_config())
 \item{config}{Voice encoder config}
 }
 \value{
-Mel spectrogram (time, n_mels)
+Mel spectrogram (batch, time, n_mels)
 }
 \description{
-Compute mel spectrogram for voice encoder
+Uses power spectrum (magnitude^2) without log compression,
+matching Python's mel_type="amp" and mel_power=2.0.
 }

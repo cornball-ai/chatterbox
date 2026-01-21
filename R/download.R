@@ -1,4 +1,4 @@
-# HuggingFace model download utilities for chatteRbox
+# HuggingFace model download utilities for chatterbox
 
 #' Get default cache directory
 #'
@@ -12,7 +12,7 @@ get_cache_dir <- function() {
   }
 
   # Default to ~/.cache/chatterbox
- file.path(Sys.getenv("HOME"), ".cache", "chatterbox")
+  file.path(Sys.getenv("HOME"), ".cache", "chatterbox")
 }
 
 #' Download file from HuggingFace Hub
@@ -25,7 +25,13 @@ get_cache_dir <- function() {
 #' @return Local path to downloaded file
 #' @importFrom utils download.file
 #' @export
-hf_download <- function(repo_id, filename, cache_dir = NULL, force = FALSE, timeout = 600) {
+hf_download <- function(
+  repo_id,
+  filename,
+  cache_dir = NULL,
+  force = FALSE,
+  timeout = 600
+) {
   if (is.null(cache_dir)) {
     cache_dir <- get_cache_dir()
   }
@@ -54,11 +60,11 @@ hf_download <- function(repo_id, filename, cache_dir = NULL, force = FALSE, time
 
   message("Downloading: ", filename)
   tryCatch({
-    download.file(url, local_path, mode = "wb", quiet = FALSE)
-    local_path
-  }, error = function(e) {
-    stop("Failed to download ", filename, " from ", repo_id, ": ", e$message)
-  })
+      download.file(url, local_path, mode = "wb", quiet = FALSE)
+      local_path
+    }, error = function(e) {
+      stop("Failed to download ", filename, " from ", repo_id, ": ", e$message)
+    })
 }
 
 #' Download all chatterbox model files
@@ -67,7 +73,10 @@ hf_download <- function(repo_id, filename, cache_dir = NULL, force = FALSE, time
 #' @param force Re-download all files
 #' @return Named list of local file paths
 #' @export
-download_chatterbox_models <- function(cache_dir = NULL, force = FALSE) {
+download_chatterbox_models <- function(
+  cache_dir = NULL,
+  force = FALSE
+) {
   repo_id <- "ResembleAI/chatterbox"
 
   files <- c(
@@ -109,3 +118,4 @@ models_available <- function(cache_dir = NULL) {
 
   all(file.exists(file.path(repo_cache, files)))
 }
+

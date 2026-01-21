@@ -1,4 +1,4 @@
-# Voice Encoder for chatteRbox
+# Voice Encoder for chatterbox
 # LSTM-based speaker embedding model
 
 # ============================================================================
@@ -37,7 +37,10 @@ voice_encoder_config <- function() {
 #' @param wav Audio samples (numeric vector)
 #' @param config Voice encoder config
 #' @return Mel spectrogram (batch, time, n_mels)
-compute_ve_mel <- function(wav, config = voice_encoder_config()) {
+compute_ve_mel <- function(
+  wav,
+  config = voice_encoder_config()
+) {
   # Convert to torch tensor if needed
   if (!inherits(wav, "torch_tensor")) {
     wav <- torch::torch_tensor(wav, dtype = torch::torch_float32())
@@ -52,10 +55,10 @@ compute_ve_mel <- function(wav, config = voice_encoder_config()) {
 
   # Get or create mel filterbank
   mel_cache_key <- paste(config$sample_rate, config$n_fft, config$num_mels,
-                         config$fmin, config$fmax, device$type, sep = "_")
+    config$fmin, config$fmax, device$type, sep = "_")
   if (is.null(.mel_cache[[mel_cache_key]])) {
     mel_fb <- create_mel_filterbank(config$sample_rate, config$n_fft,
-                                    config$num_mels, config$fmin, config$fmax)
+      config$num_mels, config$fmin, config$fmax)
     .mel_cache[[mel_cache_key]] <- torch::torch_tensor(mel_fb, dtype = torch::torch_float32())$to(device = device)
   }
   mel_basis <- .mel_cache[[mel_cache_key]]
@@ -69,7 +72,7 @@ compute_ve_mel <- function(wav, config = voice_encoder_config()) {
 
   # Pad audio (reflect padding, centered STFT)
   pad_amount <- as.integer((config$n_fft - config$hop_size) / 2)
-  wav <- wav$unsqueeze(2)  # Add channel dim for padding
+  wav <- wav$unsqueeze(2) # Add channel dim for padding
   wav <- torch::nnf_pad(wav, c(pad_amount, pad_amount), mode = "reflect")
   wav <- wav$squeeze(2)
 
@@ -80,7 +83,7 @@ compute_ve_mel <- function(wav, config = voice_encoder_config()) {
     hop_length = config$hop_size,
     win_length = config$win_size,
     window = hann_window,
-    center = FALSE,  # We padded manually
+    center = FALSE, # We padded manually
     pad_mode = "reflect",
     normalized = FALSE,
     onesided = TRUE,
@@ -89,7 +92,7 @@ compute_ve_mel <- function(wav, config = voice_encoder_config()) {
 
   # Convert to magnitude
   spec <- torch::torch_view_as_real(spec)
-  spec <- torch::torch_sqrt(spec$pow(2)$sum(-1) + 1e-9)
+  spec <- torch::torch_sqrt(spec$pow(2)$sum(- 1) + 1e-9)
 
   # Apply power (mel_power = 2.0 in Python, so square the magnitude)
   spec <- spec$pow(2)
@@ -134,7 +137,7 @@ voice_encoder <- torch::nn_module(
 
     # Cosine similarity scaling parameters
     self$similarity_weight <- torch::nn_parameter(torch::torch_tensor(10.0))
-    self$similarity_bias <- torch::nn_parameter(torch::torch_tensor(-5.0))
+    self$similarity_bias <- torch::nn_parameter(torch::torch_tensor(- 5.0))
   },
 
   forward = function(mels) {
@@ -142,10 +145,10 @@ voice_encoder <- torch::nn_module(
 
     # Pass through LSTM
     lstm_out <- self$lstm$forward(mels)
-    hidden <- lstm_out[[2]][[1]]  # hidden states from all layers
+    hidden <- lstm_out[[2]][[1]]# hidden states from all layers
 
     # Get final layer hidden state
-    final_hidden <- hidden[3, , ]  # (B, hidden_size)
+    final_hidden <- hidden[3,,]# (B, hidden_size)
 
     # Project to embedding
     raw_embeds <- self$proj$forward(final_hidden)
@@ -160,7 +163,11 @@ voice_encoder <- torch::nn_module(
   },
 
   # Inference for full utterance with overlapping partials
-  inference = function(mels, overlap = 0.5, min_coverage = 0.8) {
+  inference = function(
+    mels,
+    overlap = 0.5,
+    min_coverage = 0.8
+  ) {
     config <- self$config
     device <- self$proj$weight$device
 
@@ -191,11 +198,11 @@ voice_encoder <- torch::nn_module(
         # Handle short partials
         if (end_idx - start_idx + 1 < config$ve_partial_frames) {
           partial <- torch::torch_zeros(c(1, config$ve_partial_frames, config$num_mels),
-                                        device = device)
+            device = device)
           actual_len <- end_idx - start_idx + 1
-          partial[1, 1:actual_len, ] <- mels[b, start_idx:end_idx, ]
+          partial[1, 1:actual_len,] <- mels[b, start_idx:end_idx,]
         } else {
-          partial <- mels[b, start_idx:end_idx, ]$unsqueeze(1)
+          partial <- mels[b, start_idx:end_idx,]$unsqueeze(1)
         }
         all_partials[[length(all_partials) + 1]] <- partial
       }
@@ -209,7 +216,7 @@ voice_encoder <- torch::nn_module(
     embeds <- list()
     idx <- 1
     for (b in seq_len(batch_size)) {
-      batch_embeds <- partial_embeds[idx:(idx + n_partials - 1), ]
+      batch_embeds <- partial_embeds[idx:(idx + n_partials - 1),]
       mean_embed <- torch::torch_mean(batch_embeds, dim = 1, keepdim = TRUE)
       # L2 normalize
       mean_embed <- mean_embed / torch::torch_norm(mean_embed, dim = 2, keepdim = TRUE)
@@ -233,7 +240,12 @@ voice_encoder <- torch::nn_module(
 #' @param overlap Overlap between partials (default 0.5)
 #' @return Speaker embedding tensor (1, 256)
 #' @export
-compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
+compute_speaker_embedding <- function(
+  model,
+  audio,
+  sr,
+  overlap = 0.5
+) {
   config <- model$config
   device <- model$proj$weight$device
 
@@ -253,8 +265,8 @@ compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
 
   # Run inference
   torch::with_no_grad({
-    embed <- model$inference(mel, overlap = overlap)
-  })
+      embed <- model$inference(mel, overlap = overlap)
+    })
 
   embed
 }
@@ -264,55 +276,59 @@ compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
 #' @param model Voice encoder model
 #' @param state_dict Named list of tensors
 #' @return Model with loaded weights
-load_voice_encoder_weights <- function(model, state_dict) {
+load_voice_encoder_weights <- function(
+  model,
+  state_dict
+) {
   torch::with_no_grad({
-    # LSTM weights
-    # PyTorch uses 0-indexed layer names (weight_ih_l0), R torch uses 1-indexed (weight_ih_l1)
-    for (py_layer in 0:2) {
-      r_layer <- py_layer + 1  # Convert to R torch 1-indexed
+      # LSTM weights
+      # PyTorch uses 0-indexed layer names (weight_ih_l0), R torch uses 1-indexed (weight_ih_l1)
+      for (py_layer in 0:2) {
+        r_layer <- py_layer + 1# Convert to R torch 1-indexed
 
-      # Keys in the safetensors file (PyTorch naming)
-      weight_ih_key <- paste0("lstm.weight_ih_l", py_layer)
-      weight_hh_key <- paste0("lstm.weight_hh_l", py_layer)
-      bias_ih_key <- paste0("lstm.bias_ih_l", py_layer)
-      bias_hh_key <- paste0("lstm.bias_hh_l", py_layer)
+        # Keys in the safetensors file (PyTorch naming)
+        weight_ih_key <- paste0("lstm.weight_ih_l", py_layer)
+        weight_hh_key <- paste0("lstm.weight_hh_l", py_layer)
+        bias_ih_key <- paste0("lstm.bias_ih_l", py_layer)
+        bias_hh_key <- paste0("lstm.bias_hh_l", py_layer)
 
-      # R torch parameter names (1-indexed)
-      r_weight_ih <- paste0("weight_ih_l", r_layer)
-      r_weight_hh <- paste0("weight_hh_l", r_layer)
-      r_bias_ih <- paste0("bias_ih_l", r_layer)
-      r_bias_hh <- paste0("bias_hh_l", r_layer)
+        # R torch parameter names (1-indexed)
+        r_weight_ih <- paste0("weight_ih_l", r_layer)
+        r_weight_hh <- paste0("weight_hh_l", r_layer)
+        r_bias_ih <- paste0("bias_ih_l", r_layer)
+        r_bias_hh <- paste0("bias_hh_l", r_layer)
 
-      if (weight_ih_key %in% names(state_dict)) {
-        model$lstm$parameters[[r_weight_ih]]$copy_(state_dict[[weight_ih_key]])
+        if (weight_ih_key %in% names(state_dict)) {
+          model$lstm$parameters[[r_weight_ih]]$copy_(state_dict[[weight_ih_key]])
+        }
+        if (weight_hh_key %in% names(state_dict)) {
+          model$lstm$parameters[[r_weight_hh]]$copy_(state_dict[[weight_hh_key]])
+        }
+        if (bias_ih_key %in% names(state_dict)) {
+          model$lstm$parameters[[r_bias_ih]]$copy_(state_dict[[bias_ih_key]])
+        }
+        if (bias_hh_key %in% names(state_dict)) {
+          model$lstm$parameters[[r_bias_hh]]$copy_(state_dict[[bias_hh_key]])
+        }
       }
-      if (weight_hh_key %in% names(state_dict)) {
-        model$lstm$parameters[[r_weight_hh]]$copy_(state_dict[[weight_hh_key]])
-      }
-      if (bias_ih_key %in% names(state_dict)) {
-        model$lstm$parameters[[r_bias_ih]]$copy_(state_dict[[bias_ih_key]])
-      }
-      if (bias_hh_key %in% names(state_dict)) {
-        model$lstm$parameters[[r_bias_hh]]$copy_(state_dict[[bias_hh_key]])
-      }
-    }
 
-    # Projection layer
-    if ("proj.weight" %in% names(state_dict)) {
-      model$proj$weight$copy_(state_dict[["proj.weight"]])
-    }
-    if ("proj.bias" %in% names(state_dict)) {
-      model$proj$bias$copy_(state_dict[["proj.bias"]])
-    }
+      # Projection layer
+      if ("proj.weight" %in% names(state_dict)) {
+        model$proj$weight$copy_(state_dict[["proj.weight"]])
+      }
+      if ("proj.bias" %in% names(state_dict)) {
+        model$proj$bias$copy_(state_dict[["proj.bias"]])
+      }
 
-    # Similarity parameters
-    if ("similarity_weight" %in% names(state_dict)) {
-      model$similarity_weight$copy_(state_dict[["similarity_weight"]])
-    }
-    if ("similarity_bias" %in% names(state_dict)) {
-      model$similarity_bias$copy_(state_dict[["similarity_bias"]])
-    }
-  })
+      # Similarity parameters
+      if ("similarity_weight" %in% names(state_dict)) {
+        model$similarity_weight$copy_(state_dict[["similarity_weight"]])
+      }
+      if ("similarity_bias" %in% names(state_dict)) {
+        model$similarity_bias$copy_(state_dict[["similarity_bias"]])
+      }
+    })
 
   model
 }
+

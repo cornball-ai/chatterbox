@@ -1,12 +1,12 @@
-# chatteRbox
+# chatterbox
 
-chatteRbox is an R package is an R port of [resemble AI's chatterbox library](https://github.com/resemble-ai/chatterbox). It is written entirely in R using torch and has no Python dependencies!
+chatterbox is an R package that is an R port of [resemble AI's chatterbox library](https://github.com/resemble-ai/chatterbox). It is written entirely in R using torch and has no Python dependencies.
 
 ## Installation
 
-You can install the development version of chatteRbox from GitHub with:
+You can install the development version of chatterbox from GitHub with:
 ```
-remotes::install_github("cornball-ai/chatteRbox")
+remotes::install_github("cornball-ai/chatterbox")
 ```
 
 # Usage
@@ -15,7 +15,7 @@ remotes::install_github("cornball-ai/chatteRbox")
 # Set timeout to 10 minutes to allow model download
 options(timeout = 600)
 
-library(chatteRbox)
+library(chatterbox)
 
 # Load model
 model <- chatterbox("cuda")

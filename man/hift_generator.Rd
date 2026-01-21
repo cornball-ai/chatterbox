@@ -63,6 +63,6 @@ hift_generator(
 nn_module
 }
 \description{
-Neural Source Filter + ISTFTNet Reference:
-https://arxiv.org/abs/2309.09493
+Neural Source Filter + ISTFTNet
+Reference: https://arxiv.org/abs/2309.09493
 }

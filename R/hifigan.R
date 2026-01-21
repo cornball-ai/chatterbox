@@ -1,4 +1,4 @@
-# HiFiGAN Vocoder for chatteRbox
+# HiFiGAN Vocoder for chatterbox
 # Neural Source Filter + ISTFTNet for mel-to-waveform conversion
 
 # ============================================================================
@@ -10,7 +10,10 @@
 #' @param kernel_size Kernel size
 #' @param dilation Dilation rate
 #' @return Padding size
-get_conv_padding <- function(kernel_size, dilation = 1) {
+get_conv_padding <- function(
+  kernel_size,
+  dilation = 1
+) {
   as.integer((kernel_size * dilation - dilation) / 2)
 }
 
@@ -50,7 +53,11 @@ reflection_pad1d <- torch::nn_module(
 snake_activation <- torch::nn_module(
   "Snake",
 
-  initialize = function(in_features, alpha_trainable = TRUE, alpha_logscale = FALSE) {
+  initialize = function(
+    in_features,
+    alpha_trainable = TRUE,
+    alpha_logscale = FALSE
+  ) {
     self$in_features <- in_features
     self$alpha_logscale <- alpha_logscale
     self$no_div_by_zero <- 1e-9
@@ -69,7 +76,7 @@ snake_activation <- torch::nn_module(
 
   forward = function(x) {
     # x: (B, C, T)
-    alpha <- self$alpha$unsqueeze(1)$unsqueeze(3)  # (1, C, 1)
+    alpha <- self$alpha$unsqueeze(1)$unsqueeze(3) # (1, C, 1)
 
     if (self$alpha_logscale) {
       alpha <- torch::torch_exp(alpha)
@@ -93,7 +100,11 @@ snake_activation <- torch::nn_module(
 hifigan_resblock <- torch::nn_module(
   "HiFiGANResBlock",
 
-  initialize = function(channels = 512, kernel_size = 3, dilations = c(1, 3, 5)) {
+  initialize = function(
+    channels = 512,
+    kernel_size = 3,
+    dilations = c(1, 3, 5)
+  ) {
     self$convs1 <- torch::nn_module_list()
     self$convs2 <- torch::nn_module_list()
     self$activations1 <- torch::nn_module_list()
@@ -103,16 +114,16 @@ hifigan_resblock <- torch::nn_module(
       # First conv with dilation
       self$convs1$append(
         torch::nn_conv1d(channels, channels, kernel_size, stride = 1,
-                         dilation = dilation,
-                         padding = get_conv_padding(kernel_size, dilation))
+          dilation = dilation,
+          padding = get_conv_padding(kernel_size, dilation))
       )
       self$activations1$append(snake_activation(channels))
 
       # Second conv without dilation
       self$convs2$append(
         torch::nn_conv1d(channels, channels, kernel_size, stride = 1,
-                         dilation = 1,
-                         padding = get_conv_padding(kernel_size, 1))
+          dilation = 1,
+          padding = get_conv_padding(kernel_size, 1))
       )
       self$activations2$append(snake_activation(channels))
     }
@@ -124,7 +135,7 @@ hifigan_resblock <- torch::nn_module(
       xt <- self$convs1[[i]](xt)
       xt <- self$activations2[[i]](xt)
       xt <- self$convs2[[i]](xt)
-      x <- xt + x  # Residual
+      x <- xt + x# Residual
     }
     x
   }
@@ -142,7 +153,10 @@ hifigan_resblock <- torch::nn_module(
 conv_rnn_f0_predictor <- torch::nn_module(
   "ConvRNNF0Predictor",
 
-  initialize = function(in_channels = 80, cond_channels = 512) {
+  initialize = function(
+    in_channels = 80,
+    cond_channels = 512
+  ) {
     # 5-layer convnet
     self$condnet <- torch::nn_sequential(
       torch::nn_conv1d(in_channels, cond_channels, kernel_size = 3, padding = 1),
@@ -164,8 +178,8 @@ conv_rnn_f0_predictor <- torch::nn_module(
   forward = function(x) {
     # x: (B, mel_bins, T)
     x <- self$condnet$forward(x)
-    x <- x$transpose(2, 3)  # (B, T, C)
-    torch::torch_abs(self$classifier$forward(x)$squeeze(3))  # (B, T)
+    x <- x$transpose(2, 3) # (B, T, C)
+    torch::torch_abs(self$classifier$forward(x)$squeeze(3)) # (B, T)
   }
 )
 
@@ -186,8 +200,13 @@ conv_rnn_f0_predictor <- torch::nn_module(
 sine_gen <- torch::nn_module(
   "SineGen",
 
-  initialize = function(sample_rate, harmonic_num = 0, sine_amp = 0.1,
-                        noise_std = 0.003, voiced_threshold = 0) {
+  initialize = function(
+    sample_rate,
+    harmonic_num = 0,
+    sine_amp = 0.1,
+    noise_std = 0.003,
+    voiced_threshold = 0
+  ) {
     self$sine_amp <- sine_amp
     self$noise_std <- noise_std
     self$harmonic_num <- harmonic_num
@@ -204,39 +223,39 @@ sine_gen <- torch::nn_module(
     # f0: (B, 1, T) in Hz
 
     torch::with_no_grad({
-      batch_size <- f0$size(1)
-      seq_len <- f0$size(3)
-      device <- f0$device
+        batch_size <- f0$size(1)
+        seq_len <- f0$size(3)
+        device <- f0$device
 
-      # Frequency matrix for all harmonics
-      F_mat <- torch::torch_zeros(c(batch_size, self$harmonic_num + 1, seq_len),
-                                   device = device)
+        # Frequency matrix for all harmonics
+        F_mat <- torch::torch_zeros(c(batch_size, self$harmonic_num + 1, seq_len),
+          device = device)
 
-      for (i in 0:self$harmonic_num) {
-        F_mat[, i + 1, ] <- f0$squeeze(2) * (i + 1) / self$sampling_rate
-      }
+        for (i in 0:self$harmonic_num) {
+          F_mat[, i + 1,] <- f0$squeeze(2) * (i + 1) / self$sampling_rate
+        }
 
-      # Phase accumulation (cumsum)
-      theta_mat <- 2 * pi * (torch::torch_cumsum(F_mat, dim = 3) %% 1)
+        # Phase accumulation (cumsum)
+        theta_mat <- 2 * pi * (torch::torch_cumsum(F_mat, dim = 3) %% 1)
 
-      # Random initial phase (except fundamental)
-      phase_vec <- torch::torch_empty(c(batch_size, self$harmonic_num + 1, 1),
-                                       device = device)$uniform_(-pi, pi)
-      phase_vec[, 1, ] <- 0  # Fundamental starts at 0
+        # Random initial phase (except fundamental)
+        phase_vec <- torch::torch_empty(c(batch_size, self$harmonic_num + 1, 1),
+          device = device)$uniform_(- pi, pi)
+        phase_vec[, 1,] <- 0# Fundamental starts at 0
 
-      # Generate sine waves
-      sine_waves <- self$sine_amp * torch::torch_sin(theta_mat + phase_vec)
+        # Generate sine waves
+        sine_waves <- self$sine_amp * torch::torch_sin(theta_mat + phase_vec)
 
-      # Voiced/unvoiced mask
-      uv <- self$.f02uv(f0)
+        # Voiced/unvoiced mask
+        uv <- self$.f02uv(f0)
 
-      # Noise amplitude: voiced = noise_std, unvoiced = sine_amp/3
-      noise_amp <- uv * self$noise_std + (1 - uv) * self$sine_amp / 3
-      noise <- noise_amp * torch::torch_randn_like(sine_waves)
+        # Noise amplitude: voiced = noise_std, unvoiced = sine_amp/3
+        noise_amp <- uv * self$noise_std + (1 - uv) * self$sine_amp / 3
+        noise <- noise_amp * torch::torch_randn_like(sine_waves)
 
-      # Zero unvoiced regions and add noise
-      sine_waves <- sine_waves * uv + noise
-    })
+        # Zero unvoiced regions and add noise
+        sine_waves <- sine_waves * uv + noise
+      })
 
     list(sine_waves = sine_waves, uv = uv, noise = noise)
   }
@@ -258,14 +277,20 @@ sine_gen <- torch::nn_module(
 source_module_hn_nsf <- torch::nn_module(
   "SourceModuleHnNSF",
 
-  initialize = function(sample_rate, upsample_scale, harmonic_num = 0,
-                        sine_amp = 0.1, add_noise_std = 0.003, voiced_threshold = 0) {
+  initialize = function(
+    sample_rate,
+    upsample_scale,
+    harmonic_num = 0,
+    sine_amp = 0.1,
+    add_noise_std = 0.003,
+    voiced_threshold = 0
+  ) {
     self$sine_amp <- sine_amp
     self$noise_std <- add_noise_std
 
     # Sine generator
     self$l_sin_gen <- sine_gen(sample_rate, harmonic_num, sine_amp,
-                               add_noise_std, voiced_threshold)
+      add_noise_std, voiced_threshold)
 
     # Linear combination of harmonics
     self$l_linear <- torch::nn_linear(harmonic_num + 1, 1)
@@ -277,11 +302,11 @@ source_module_hn_nsf <- torch::nn_module(
 
     # Generate sine source
     result <- self$l_sin_gen$forward(x$transpose(2, 3))
-    sine_wavs <- result$sine_waves$transpose(2, 3)  # (B, T, H+1)
+    sine_wavs <- result$sine_waves$transpose(2, 3) # (B, T, H+1)
     uv <- result$uv$transpose(2, 3)
 
     # Merge harmonics
-    sine_merge <- self$l_tanh$forward(self$l_linear$forward(sine_wavs))  # (B, T, 1)
+    sine_merge <- self$l_tanh$forward(self$l_linear$forward(sine_wavs)) # (B, T, 1)
 
     # Noise source
     noise <- torch::torch_randn_like(uv) * self$sine_amp / 3
@@ -320,23 +345,25 @@ source_module_hn_nsf <- torch::nn_module(
 hift_generator <- torch::nn_module(
   "HiFTGenerator",
 
-  initialize = function(in_channels = 80,
-                        base_channels = 512,
-                        nb_harmonics = 8,
-                        sampling_rate = 22050,
-                        nsf_alpha = 0.1,
-                        nsf_sigma = 0.003,
-                        nsf_voiced_threshold = 10,
-                        upsample_rates = c(8, 8),
-                        upsample_kernel_sizes = c(16, 16),
-                        istft_n_fft = 16,
-                        istft_hop_len = 4,
-                        resblock_kernel_sizes = c(3, 7, 11),
-                        resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5), c(1, 3, 5)),
-                        source_resblock_kernel_sizes = c(7, 11),
-                        source_resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5)),
-                        lrelu_slope = 0.1,
-                        audio_limit = 0.99) {
+  initialize = function(
+    in_channels = 80,
+    base_channels = 512,
+    nb_harmonics = 8,
+    sampling_rate = 22050,
+    nsf_alpha = 0.1,
+    nsf_sigma = 0.003,
+    nsf_voiced_threshold = 10,
+    upsample_rates = c(8, 8),
+    upsample_kernel_sizes = c(16, 16),
+    istft_n_fft = 16,
+    istft_hop_len = 4,
+    resblock_kernel_sizes = c(3, 7, 11),
+    resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5), c(1, 3, 5)),
+    source_resblock_kernel_sizes = c(7, 11),
+    source_resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5)),
+    lrelu_slope = 0.1,
+    audio_limit = 0.99
+  ) {
 
     self$out_channels <- 1
     self$nb_harmonics <- nb_harmonics
@@ -375,8 +402,8 @@ hift_generator <- torch::nn_module(
     for (i in seq_along(upsample_rates)) {
       u <- upsample_rates[i]
       k <- upsample_kernel_sizes[i]
-      in_ch <- base_channels %/% (2^(i - 1))
-      out_ch <- base_channels %/% (2^i)
+      in_ch <- base_channels %/% (2 ^ (i - 1))
+      out_ch <- base_channels %/% (2 ^ i)
 
       # For conv_transpose1d: output = (input - 1) * stride - 2*padding + kernel + output_padding
       # When kernel >= stride: padding = (kernel - stride) / 2, output_padding = 0
@@ -390,7 +417,7 @@ hift_generator <- torch::nn_module(
       }
       self$ups$append(
         torch::nn_conv_transpose1d(in_ch, out_ch, k, stride = u,
-                                    padding = padding, output_padding = output_padding)
+          padding = padding, output_padding = output_padding)
       )
     }
 
@@ -399,14 +426,14 @@ hift_generator <- torch::nn_module(
     self$source_resblocks <- torch::nn_module_list()
 
     # Compute downsample rates (original formula for weight compatibility)
-    downsample_rates <- c(1, rev(upsample_rates[-length(upsample_rates)]))
+    downsample_rates <- c(1, rev(upsample_rates[- length(upsample_rates)]))
     downsample_cum <- cumprod(downsample_rates)
 
     for (i in seq_along(source_resblock_kernel_sizes)) {
       u <- rev(downsample_cum)[i]
       k <- source_resblock_kernel_sizes[i]
       d <- source_resblock_dilation_sizes[[i]]
-      out_ch <- base_channels %/% (2^i)
+      out_ch <- base_channels %/% (2 ^ i)
 
       if (u == 1) {
         self$source_downs$append(
@@ -424,7 +451,7 @@ hift_generator <- torch::nn_module(
     # Main resblocks
     self$resblocks <- torch::nn_module_list()
     for (i in seq_along(self$ups)) {
-      ch <- base_channels %/% (2^i)
+      ch <- base_channels %/% (2 ^ i)
       for (j in seq_along(resblock_kernel_sizes)) {
         k <- resblock_kernel_sizes[j]
         d <- resblock_dilation_sizes[[j]]
@@ -433,7 +460,7 @@ hift_generator <- torch::nn_module(
     }
 
     # Output convolution
-    final_ch <- base_channels %/% (2^length(upsample_rates))
+    final_ch <- base_channels %/% (2 ^ length(upsample_rates))
     self$conv_post <- torch::nn_conv1d(final_ch, istft_n_fft + 2, 7, stride = 1, padding = 3)
 
     # Reflection padding for alignment
@@ -464,7 +491,10 @@ hift_generator <- torch::nn_module(
     list(real = spec_real, imag = spec_imag)
   },
 
-  .istft = function(magnitude, phase) {
+  .istft = function(
+    magnitude,
+    phase
+  ) {
     # Clip magnitude
     magnitude <- torch::torch_clamp(magnitude, max = 100)
 
@@ -483,7 +513,10 @@ hift_generator <- torch::nn_module(
     )
   },
 
-  decode = function(x, s = NULL) {
+  decode = function(
+    x,
+    s = NULL
+  ) {
     # x: (B, mel, T) mel spectrogram
     # s: (B, 1, T_wav) source signal
 
@@ -523,9 +556,9 @@ hift_generator <- torch::nn_module(
       x_len <- x$size(3)
       si_len <- si$size(3)
       if (si_len > x_len) {
-        si <- si[, , 1:x_len]
+        si <- si[,, 1:x_len]
       } else if (x_len > si_len) {
-        x <- x[, , 1:si_len]
+        x <- x[,, 1:si_len]
       }
 
       x <- x + si
@@ -549,14 +582,14 @@ hift_generator <- torch::nn_module(
 
     # Split magnitude and phase
     n_freq <- self$istft_n_fft %/% 2 + 1
-    magnitude <- torch::torch_exp(x[, 1:n_freq, ])
-    phase <- torch::torch_sin(x[, (n_freq + 1):(self$istft_n_fft + 2), ])
+    magnitude <- torch::torch_exp(x[, 1:n_freq,])
+    phase <- torch::torch_sin(x[, (n_freq + 1) :(self$istft_n_fft + 2),])
 
     # ISTFT synthesis
     audio <- self$.istft(magnitude, phase)
 
     # Clip output
-    torch::torch_clamp(audio, -self$audio_limit, self$audio_limit)
+    torch::torch_clamp(audio, - self$audio_limit, self$audio_limit)
   },
 
   forward = function(speech_feat) {
@@ -564,14 +597,14 @@ hift_generator <- torch::nn_module(
     speech_feat <- speech_feat$transpose(2, 3)
 
     # Predict F0 from mel
-    f0 <- self$f0_predictor$forward(speech_feat)  # (B, T)
+    f0 <- self$f0_predictor$forward(speech_feat) # (B, T)
 
     # Upsample F0 to sample rate
-    s <- self$f0_upsamp$forward(f0$unsqueeze(2))$transpose(2, 3)  # (B, T_wav, 1)
+    s <- self$f0_upsamp$forward(f0$unsqueeze(2))$transpose(2, 3) # (B, T_wav, 1)
 
     # Generate source signal
     source_result <- self$m_source$forward(s)
-    s <- source_result$sine_merge$transpose(2, 3)  # (B, 1, T_wav)
+    s <- source_result$sine_merge$transpose(2, 3) # (B, 1, T_wav)
 
     # Decode mel + source -> audio
     generated_speech <- self$decode(speech_feat, s)
@@ -579,7 +612,10 @@ hift_generator <- torch::nn_module(
     list(audio = generated_speech, f0 = f0)
   },
 
-  inference = function(speech_feat, cache_source = NULL) {
+  inference = function(
+    speech_feat,
+    cache_source = NULL
+  ) {
     # speech_feat: (B, mel, T)
     device <- speech_feat$device
 
@@ -596,7 +632,7 @@ hift_generator <- torch::nn_module(
     # Use cached source to avoid glitches at boundaries
     if (!is.null(cache_source) && cache_source$size(3) > 0) {
       cache_len <- cache_source$size(3)
-      s[, , 1:cache_len] <- cache_source
+      s[,, 1:cache_len] <- cache_source
     }
 
     # Decode
@@ -617,12 +653,19 @@ hift_generator <- torch::nn_module(
 #' @param prefix Prefix for weight keys (default "mel2wav.")
 #' @return Model with loaded weights
 #' @export
-load_hifigan_weights <- function(model, state_dict, prefix = "mel2wav.") {
+load_hifigan_weights <- function(
+  model,
+  state_dict,
+  prefix = "mel2wav."
+) {
   # Map weights from Python model to R implementation
   # This requires careful attention to naming conventions
 
   # Helper to copy weight if exists
-  copy_if_exists <- function(r_param, key) {
+  copy_if_exists <- function(
+    r_param,
+    key
+  ) {
     full_key <- paste0(prefix, key)
     if (full_key %in% names(state_dict)) {
       r_param$copy_(state_dict[[full_key]])
@@ -731,7 +774,7 @@ create_s3gen_vocoder <- function(device = "cpu") {
     nsf_alpha = 0.1,
     nsf_sigma = 0.003,
     nsf_voiced_threshold = 10,
-    upsample_rates = c(5, 3, 8),  # 5*3*8 = 120, with hop_len 4 gives ~480x
+    upsample_rates = c(5, 3, 8), # 5*3*8 = 120, with hop_len 4 gives ~480x
     upsample_kernel_sizes = c(16, 11, 7),
     istft_n_fft = 16,
     istft_hop_len = 4,
@@ -745,3 +788,4 @@ create_s3gen_vocoder <- function(device = "cpu") {
 
   model$to(device = device)
 }
+

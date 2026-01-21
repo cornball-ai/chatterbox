@@ -1,4 +1,4 @@
-# Safetensors file reader for chatteRbox
+# Safetensors file reader for chatterbox
 # Parses the safetensors format and loads tensors into torch
 
 #' Read safetensors file
@@ -7,13 +7,16 @@
 #' @param device Device to load tensors to ("cpu", "cuda", etc.)
 #' @return Named list of torch tensors
 #' @export
-read_safetensors <- function(path, device = "cpu") {
+read_safetensors <- function(
+  path,
+  device = "cpu"
+) {
   con <- file(path, "rb")
   on.exit(close(con))
 
   # Read header size (8 bytes, little-endian uint64)
   header_size_bytes <- readBin(con, "raw", n = 8)
-  header_size <- sum(as.numeric(header_size_bytes) * (256^(0:7)))
+  header_size <- sum(as.numeric(header_size_bytes) * (256 ^ (0:7)))
 
   # Read and parse JSON header
   header_json <- readChar(con, header_size, useBytes = TRUE)
@@ -39,7 +42,7 @@ read_safetensors <- function(path, device = "cpu") {
     shape <- as.integer(unlist(tensor_info$shape))
     offsets <- as.numeric(unlist(tensor_info$data_offsets))
 
-    start_byte <- offsets[1] + 1  # R is 1-indexed
+    start_byte <- offsets[1] + 1# R is 1-indexed
     end_byte <- offsets[2]
 
     tensor_bytes <- data_buffer[start_byte:end_byte]
@@ -56,7 +59,12 @@ read_safetensors <- function(path, device = "cpu") {
 #' @param shape Integer vector of tensor dimensions
 #' @param device Target device
 #' @return torch tensor
-bytes_to_tensor <- function(bytes, dtype, shape, device) {
+bytes_to_tensor <- function(
+  bytes,
+  dtype,
+  shape,
+  device
+) {
   # Determine R type and torch dtype
   type_info <- get_dtype_info(dtype)
 
@@ -74,7 +82,7 @@ bytes_to_tensor <- function(bytes, dtype, shape, device) {
     values <- int64_bytes_to_numeric(bytes, n_elements)
   } else {
     values <- readBin(bytes, what = type_info$r_type, n = n_elements,
-                      size = type_info$size, endian = "little")
+      size = type_info$size, endian = "little")
   }
 
   # Create tensor with appropriate shape
@@ -96,7 +104,7 @@ get_dtype_info <- function(dtype) {
   switch(dtype,
     "F32" = list(r_type = "double", size = 4, torch_dtype = torch::torch_float32()),
     "F64" = list(r_type = "double", size = 8, torch_dtype = torch::torch_float64()),
-    "F16" = list(r_type = "raw", size = 2, torch_dtype = torch::torch_float32()),  # Convert to f32
+    "F16" = list(r_type = "raw", size = 2, torch_dtype = torch::torch_float32()), # Convert to f32
     "BF16" = list(r_type = "raw", size = 2, torch_dtype = torch::torch_float32()), # Convert to f32
     "I8" = list(r_type = "integer", size = 1, torch_dtype = torch::torch_int8()),
     "I16" = list(r_type = "integer", size = 2, torch_dtype = torch::torch_int16()),
@@ -116,23 +124,26 @@ get_dtype_info <- function(dtype) {
 #' @param bytes Raw vector of int64 bytes
 #' @param n_elements Number of int64 values
 #' @return Numeric vector
-int64_bytes_to_numeric <- function(bytes, n_elements) {
+int64_bytes_to_numeric <- function(
+  bytes,
+  n_elements
+) {
   values <- numeric(n_elements)
 
   for (i in seq_len(n_elements)) {
     # Read 8 bytes as two 32-bit unsigned integers (little-endian)
     idx <- (i - 1) * 8
-    lo_bytes <- bytes[(idx + 1):(idx + 4)]
-    hi_bytes <- bytes[(idx + 5):(idx + 8)]
+    lo_bytes <- bytes[(idx + 1) :(idx + 4)]
+    hi_bytes <- bytes[(idx + 5) :(idx + 8)]
 
     # Convert to unsigned 32-bit values
-    lo <- sum(as.numeric(lo_bytes) * (256^(0:3)))
-    hi <- sum(as.numeric(hi_bytes) * (256^(0:3)))
+    lo <- sum(as.numeric(lo_bytes) * (256 ^ (0:3)))
+    hi <- sum(as.numeric(hi_bytes) * (256 ^ (0:3)))
 
     # Combine: value = hi * 2^32 + lo
     # Note: this handles signed int64 correctly for positive values
     # For negative values (hi >= 2^31), we need to handle two's complement
-    if (hi >= 2147483648) {  # 2^31, means negative in signed int64
+    if (hi >= 2147483648) { # 2^31, means negative in signed int64
       # Two's complement: subtract 2^64
       values[i] <- (hi * 4294967296 + lo) - 18446744073709551616
     } else {
@@ -153,7 +164,7 @@ bfloat16_to_float32 <- function(bytes) {
 
   for (i in seq_len(n_elements)) {
     # Read 2 bytes as bfloat16
-    bf16_bytes <- bytes[((i - 1) * 2 + 1):(i * 2)]
+    bf16_bytes <- bytes[((i - 1) * 2 + 1) :(i * 2)]
 
     # bfloat16 is the upper 16 bits of float32
     # So we just pad with zeros on the right
@@ -186,21 +197,29 @@ float16_to_float32 <- function(bytes) {
     if (exponent == 0) {
       # Subnormal or zero
       if (mantissa == 0) {
-        values[i] <- if (sign == 1) -0.0 else 0.0
+        if (sign == 1) {
+          values[i] <- - 0.0
+        } else {
+          values[i] <- 0.0
+        }
       } else {
         # Subnormal: denormalized number
-        values[i] <- ((-1)^sign) * (mantissa / 1024) * (2^(-14))
+        values[i] <- ((- 1) ^ sign) * (mantissa / 1024) * (2 ^ (- 14))
       }
     } else if (exponent == 31) {
       # Inf or NaN
       if (mantissa == 0) {
-        values[i] <- if (sign == 1) -Inf else Inf
+        if (sign == 1) {
+          values[i] <- - Inf
+        } else {
+          values[i] <- Inf
+        }
       } else {
         values[i] <- NaN
       }
     } else {
       # Normalized number
-      values[i] <- ((-1)^sign) * (1 + mantissa / 1024) * (2^(exponent - 15))
+      values[i] <- ((- 1) ^ sign) * (1 + mantissa / 1024) * (2 ^ (exponent - 15))
     }
   }
 
@@ -216,14 +235,18 @@ float16_to_float32 <- function(bytes) {
 #' @param device Device to load to
 #' @return Loaded object (typically a list/dict structure)
 #' @export
-read_torch_pt <- function(path, device = "cpu") {
+read_torch_pt <- function(
+  path,
+  device = "cpu"
+) {
   # For now, use torch's built-in loader if available
   # This requires torch to be built with the loader
   tryCatch({
-    torch::torch_load(path, device = device)
-  }, error = function(e) {
-    warning("Could not load .pt file directly. ",
-            "Consider converting to safetensors format.")
-    NULL
-  })
+      torch::torch_load(path, device = device)
+    }, error = function(e) {
+      warning("Could not load .pt file directly. ",
+        "Consider converting to safetensors format.")
+      NULL
+    })
 }
+

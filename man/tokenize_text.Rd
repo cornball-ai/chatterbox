@@ -2,7 +2,7 @@
 % Please edit documentation in R/tokenizer.R
 \name{tokenize_text}
 \alias{tokenize_text}
-\title{Encode text to token IDs (simple character-level fallback)}
+\title{Encode text to token IDs using BPE}
 \usage{
 tokenize_text(tokenizer, text)
 }
@@ -15,6 +15,6 @@ tokenize_text(tokenizer, text)
 Integer vector of token IDs
 }
 \description{
-This is a simplified encoder. For full BPE support, would need to
-implement the merge algorithm.
+Implements proper BPE (Byte Pair Encoding) using the merge list.
+Merges are applied in priority order (first merge = highest priority).
 }

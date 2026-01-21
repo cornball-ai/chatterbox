@@ -10,7 +10,7 @@ read_audio(path)
 \item{path}{Path to audio file (WAV format)}
 }
 \value{
-List with samples (numeric vector normalized to \\[-1, 1\\]) and sr (sample rate)
+List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
 }
 \description{
 Read audio file

@@ -1,4 +1,4 @@
-# chatteRbox - High-level Text-to-Speech API
+# chatterbox - High-level Text-to-Speech API
 # Provides simple interface for TTS generation using the Chatterbox engine
 
 # ============================================================================
@@ -33,7 +33,11 @@ chatterbox <- function(device = "cpu") {
 #' @param force Force re-download of model files
 #' @return Chatterbox model with loaded weights
 #' @export
-load_chatterbox <- function(model, cache_dir = NULL, force = FALSE) {
+load_chatterbox <- function(
+  model,
+  cache_dir = NULL,
+  force = FALSE
+) {
   if (!inherits(model, "chatterbox")) {
     stop("model must be a chatterbox object")
   }
@@ -60,7 +64,7 @@ load_chatterbox <- function(model, cache_dir = NULL, force = FALSE) {
   # Load T3 model
   message("Loading T3 text-to-speech model...")
   t3_weights <- read_safetensors(paths$t3_cfg, device)
-  model$t3 <- t3_model()  # Creates T3Model instance
+  model$t3 <- t3_model() # Creates T3Model instance
   model$t3 <- load_t3_weights(model$t3, t3_weights)
   model$t3$to(device = device)
   model$t3$eval()
@@ -94,7 +98,11 @@ is_loaded <- function(model) {
 #' @param sample_rate Sample rate of audio (if not a file)
 #' @return Voice embedding that can be used for synthesis
 #' @export
-create_voice_embedding <- function(model, audio, sample_rate = NULL) {
+create_voice_embedding <- function(
+  model,
+  audio,
+  sample_rate = NULL
+) {
   if (!is_loaded(model)) {
     stop("Model not loaded. Call load_chatterbox() first.")
   }
@@ -119,15 +127,32 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL) {
     stop("audio must be a file path, numeric vector, or torch tensor")
   }
 
-  # Convert to tensor
   device <- model$device
+
+  # Resample to 16kHz for voice encoder and tokenizer
+  if (sample_rate != 16000) {
+    samples_16k <- resample_audio(samples, sample_rate, 16000)
+  } else {
+    samples_16k <- samples
+  }
+
+  # Convert to tensor
   audio_tensor <- torch::torch_tensor(samples, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
+  audio_16k <- torch::torch_tensor(samples_16k, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
 
   # Get voice encoder embedding using compute_speaker_embedding
   # (handles mel spectrogram computation internally)
   torch::with_no_grad({
-    ve_embedding <- compute_speaker_embedding(model$voice_encoder, audio_tensor, sample_rate)
-  })
+      ve_embedding <- compute_speaker_embedding(model$voice_encoder, audio_16k, 16000)
+    })
+
+  # Get conditioning prompt speech tokens from S3 tokenizer
+  # Python uses speech_cond_prompt_len = 150 tokens max
+  cond_prompt_len <- model$t3$config$speech_cond_prompt_len# 150
+  torch::with_no_grad({
+      tok_result <- model$s3gen$tokenizer$forward(audio_16k, max_len = cond_prompt_len)
+      cond_prompt_tokens <- tok_result$tokens$to(device = device)
+    })
 
   # Create reference dict for S3Gen
   ref_dict <- model$s3gen$embed_ref(audio_tensor$squeeze(1), sample_rate, device)
@@ -136,6 +161,7 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL) {
   structure(
     list(
       ve_embedding = ve_embedding,
+      cond_prompt_speech_tokens = cond_prompt_tokens,
       ref_dict = ref_dict,
       sample_rate = sample_rate
     ),
@@ -158,8 +184,15 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL) {
 #' @param top_p Top-p (nucleus) sampling threshold (default 0.9)
 #' @return List with audio (numeric vector) and sample_rate
 #' @export
-tts <- function(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
-                temperature = 0.8, top_p = 0.9) {
+tts <- function(
+  model,
+  text,
+  voice,
+  exaggeration = 0.5,
+  cfg_weight = 0.5,
+  temperature = 0.8,
+  top_p = 0.9
+) {
   if (!is_loaded(model)) {
     stop("Model not loaded. Call load_chatterbox() first.")
   }
@@ -178,24 +211,25 @@ tts <- function(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
   text_tokens <- tokenize_text(model$tokenizer, text)
   text_tokens <- torch::torch_tensor(text_tokens, dtype = torch::torch_long())$unsqueeze(1)$to(device = device)
 
-  # Create T3 conditioning
+  # Create T3 conditioning with cond_prompt_speech_tokens
   cond <- t3_cond(
     speaker_emb = voice$ve_embedding,
+    cond_prompt_speech_tokens = voice$cond_prompt_speech_tokens,
     emotion_adv = exaggeration
   )
 
   # Generate speech tokens with T3
   message("Generating speech tokens...")
   torch::with_no_grad({
-    speech_tokens <- t3_inference(
-      model = model$t3,
-      cond = cond,
-      text_tokens = text_tokens,
-      cfg_weight = cfg_weight,
-      temperature = temperature,
-      top_p = top_p
-    )
-  })
+      speech_tokens <- t3_inference(
+        model = model$t3,
+        cond = cond,
+        text_tokens = text_tokens,
+        cfg_weight = cfg_weight,
+        temperature = temperature,
+        top_p = top_p
+      )
+    })
 
   # Drop any invalid tokens
   speech_tokens <- drop_invalid_tokens(speech_tokens)
@@ -214,13 +248,13 @@ tts <- function(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
   # Generate waveform with S3Gen
   message("Synthesizing waveform...")
   torch::with_no_grad({
-    result <- model$s3gen$inference(
-      speech_tokens = speech_tokens,
-      ref_dict = voice$ref_dict,
-      finalize = TRUE
-    )
-    audio <- result[[1]]
-  })
+      result <- model$s3gen$inference(
+        speech_tokens = speech_tokens,
+        ref_dict = voice$ref_dict,
+        finalize = TRUE
+      )
+      audio <- result[[1]]
+    })
 
   # Convert to numeric
   audio_samples <- as.numeric(audio$squeeze()$cpu())
@@ -242,7 +276,13 @@ tts <- function(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 #' @param ... Additional arguments passed to tts()
 #' @return Invisibly returns the output path
 #' @export
-tts_to_file <- function(model, text, voice, output_path, ...) {
+tts_to_file <- function(
+  model,
+  text,
+  voice,
+  output_path,
+  ...
+) {
   result <- tts(model, text, voice, ...)
   write_audio(result$audio, result$sample_rate, output_path)
   invisible(output_path)
@@ -261,21 +301,27 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param ... Additional arguments passed to tts()
 #' @return List with audio and sample_rate
 #' @export
-tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
+tts_chunked <- function(
+  model,
+  text,
+  voice,
+  chunk_size = 200,
+  ...
+) {
   if (!is_loaded(model)) {
     stop("Model not loaded. Call load_chatterbox() first.")
   }
 
   # Split text into sentences
-  sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
+  sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE) [[1]]
 
   all_audio <- numeric(0)
 
   for (i in seq_along(sentences)) {
     sentence <- sentences[i]
     message(sprintf("Processing chunk %d/%d: %s...",
-                    i, length(sentences),
-                    substr(sentence, 1, 50)))
+        i, length(sentences),
+        substr(sentence, 1, 50)))
 
     result <- tts(model, sentence, voice, ...)
     all_audio <- c(all_audio, result$audio)
@@ -296,7 +342,10 @@ tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
 #' @param x Chatterbox model
 #' @param ... Ignored
 #' @export
-print.chatterbox <- function(x, ...) {
+print.chatterbox <- function(
+  x,
+  ...
+) {
   cat("Chatterbox TTS Model\n")
   cat("  Device:", x$device, "\n")
   cat("  Loaded:", x$loaded, "\n")
@@ -315,7 +364,10 @@ print.chatterbox <- function(x, ...) {
 #' @param x Voice embedding
 #' @param ... Ignored
 #' @export
-print.voice_embedding <- function(x, ...) {
+print.voice_embedding <- function(
+  x,
+  ...
+) {
   cat("Voice Embedding\n")
   cat("  Speaker embedding shape:", paste(dim(x$ve_embedding), collapse = " x "), "\n")
   cat("  Reference sample rate:", x$sample_rate, "Hz\n")
@@ -337,7 +389,12 @@ print.voice_embedding <- function(x, ...) {
 #' @return If output_path is NULL, returns list with audio and sample_rate.
 #'         Otherwise writes to file and returns path invisibly.
 #' @export
-quick_tts <- function(text, reference_audio, output_path = NULL, device = "cpu") {
+quick_tts <- function(
+  text,
+  reference_audio,
+  output_path = NULL,
+  device = "cpu"
+) {
   # Create and load model (caches after first load)
   model <- chatterbox(device)
   model <- load_chatterbox(model)
@@ -349,3 +406,4 @@ quick_tts <- function(text, reference_audio, output_path = NULL, device = "cpu")
     tts_to_file(model, text, reference_audio, output_path)
   }
 }
+

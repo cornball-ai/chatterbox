@@ -1,11 +1,11 @@
-# chatteRbox
+# chatterbox
 
 Pure R port of [Chatterbox TTS](https://github.com/resemble-ai/chatterbox) using torch. No Python dependencies - runs entirely in R.
 
 ## Architecture
 
 ```
-chatteRbox
+chatterbox
 ├── Text Tokenizer (BPE)
 ├── Voice Encoder (speaker embeddings)
 ├── T3 Model (text → speech tokens)
@@ -29,7 +29,7 @@ chatteRbox
 ## Usage
 
 ```r
-library(chatteRbox)
+library(chatterbox)
 
 # Load model (downloads weights on first use)
 model <- chatterbox("cuda")
@@ -186,7 +186,97 @@ The S3Gen decoder uses Conditional Flow Matching (CFM):
 ```bash
 # Using tinyverse toolchain
 r -e 'rhydrogen::document(); rhydrogen::install()'
-r -e 'tinytest::test_package("chatteRbox")'
+r -e 'tinytest::test_package("chatterbox")'
+```
+
+## Debugging Notes (January 2026)
+
+### Safetensors Partial Download Corruption
+
+**Problem**: t3_cfg.safetensors was 1.3GB instead of 2.1GB due to interrupted download.
+
+**Detection**: Header showed tensor offsets (e.g., `tfmr.norm.weight` at byte 2.1GB) beyond actual file size. Python safetensors error: "incomplete metadata, file not fully covered".
+
+**Fix**: Force re-download with `hf_download(..., force = TRUE)`.
+
+**Prevention**: Check file sizes match HuggingFace metadata, or catch loading errors gracefully.
+
+### Perceiver Architecture Mismatch
+
+**Problem**: R Perceiver had separate cross-attention and self-attention layers. Python reuses a single `attn` module for both operations.
+
+**Python architecture**:
+```python
+class Perceiver:
+    pre_attention_query  # Learnable query tokens
+    attn                 # Single AttentionBlock (reused for both cross and self)
+
+class AttentionBlock:
+    norm, to_q, to_k, to_v, proj_out  # Standard attention components
+
+# Forward pass:
+pre_att = self.attn(query, x)      # Cross-attention (query attends to input)
+out = self.attn(pre_att, pre_att)  # Self-attention (query attends to itself)
+```
+
+**Wrong R structure** (had separate layers):
+```r
+# WRONG - separate layers that never got weights loaded
+query, norm1, q_proj, k_proj, v_proj, out_proj  # Cross-attention
+self_norm, self_q_proj, self_k_proj, ...        # Self-attention (random init!)
+```
+
+**Fixed R structure**:
+```r
+perceiver_resampler <- torch::nn_module(
+  initialize = function(num_query_tokens = 32, embed_dim = 1024, num_heads = 4) {
+    self$pre_attention_query <- torch::nn_parameter(
+      torch::torch_empty(1, num_query_tokens, embed_dim)$uniform_(-v, v)
+    )
+    self$attn <- attention_block(embed_dim, num_heads)  # Single module!
+  },
+  forward = function(x) {
+    query <- self$pre_attention_query$expand(c(batch_size, -1, -1))
+    pre_att <- self$attn$forward(query, x)     # Cross-attention
+    out <- self$attn$forward(pre_att, pre_att) # Self-attention (same attn!)
+    out
+  }
+)
+```
+
+**Weight key mapping** (Python → R):
+```
+cond_enc.perceiver.pre_attention_query → $perceiver$pre_attention_query
+cond_enc.perceiver.attn.norm.weight    → $perceiver$attn$norm$weight
+cond_enc.perceiver.attn.to_q.weight    → $perceiver$attn$to_q$weight
+cond_enc.perceiver.attn.to_k.weight    → $perceiver$attn$to_k$weight
+cond_enc.perceiver.attn.to_v.weight    → $perceiver$attn$to_v$weight
+cond_enc.perceiver.attn.proj_out.weight → $perceiver$attn$proj_out$weight
+```
+
+**Result after fix**: Perceiver output std matched (R=0.564 vs Python=0.567).
+
+### Llama Backbone Hidden State Variance (Ongoing)
+
+**Status**: Perceiver and conditioning now match Python. Remaining issue in Llama backbone.
+
+**Symptoms**:
+- Hidden state std: R=0.88 vs Python=1.16
+- Logits mean: R=-2.92 vs Python=-4.32
+- Logits std: R=3.04 vs Python=5.25
+- Result: Flatter probability distribution, EOS token not hit early enough
+- Audio duration: R ~31s vs Python ~1s for same input
+
+**Debugging approach**:
+1. Extract intermediate outputs at each Llama layer
+2. Compare conditioning embeddings (should match now)
+3. Compare after first transformer block
+4. Binary search to find divergence point
+
+**Python comparison using chatterbox container**:
+```bash
+# Run comparison script inside existing chatterbox container
+docker exec -it chatterbox python /tmp/check_hidden.py
 ```
 
 ## Related

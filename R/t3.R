@@ -1,4 +1,4 @@
-# T3 Model implementation for chatteRbox
+# T3 Model implementation for chatterbox
 # Token-to-Token TTS model using Llama backbone
 
 # ============================================================================
@@ -47,12 +47,16 @@ t3_config_english <- function() {
 learned_position_embeddings <- torch::nn_module(
   "LearnedPositionEmbeddings",
 
-  initialize = function(seq_len, model_dim, init_std = 0.02) {
+  initialize = function(
+    seq_len,
+    model_dim,
+    init_std = 0.02
+  ) {
     self$emb <- torch::nn_embedding(seq_len, model_dim)
     # GPT-2 style initialization
     torch::with_no_grad({
-      self$emb$weight$normal_(mean = 0.0, std = init_std)
-    })
+        self$emb$weight$normal_(mean = 0.0, std = init_std)
+      })
   },
 
   forward = function(x) {
@@ -61,7 +65,7 @@ learned_position_embeddings <- torch::nn_module(
     device <- x$device
     # R torch_arange(0, n) is inclusive, so 0 to sl-1 gives sl values
     indices <- torch::torch_arange(0, sl - 1, device = device, dtype = torch::torch_long())
-    self$emb$forward(indices$add(1L))  # R/torch is 1-indexed for embeddings
+    self$emb$forward(indices$add(1L)) # R/torch is 1-indexed for embeddings
   },
 
   get_fixed_embedding = function(idx) {
@@ -81,7 +85,7 @@ learned_position_embeddings <- torch::nn_module(
       idx <- idx$unsqueeze(1)
     }
 
-    self$emb$forward(idx$add(1L))  # (B, T, dim)
+    self$emb$forward(idx$add(1L)) # (B, T, dim)
   }
 )
 
@@ -96,11 +100,15 @@ learned_position_embeddings <- torch::nn_module(
 #' @param cond_prompt_speech_emb Optional pre-computed speech embeddings
 #' @param emotion_adv Emotion/exaggeration control (0-1)
 #' @return List representing T3Cond
-t3_cond <- function(speaker_emb, cond_prompt_speech_tokens = NULL,
-                    cond_prompt_speech_emb = NULL, emotion_adv = 0.5) {
+t3_cond <- function(
+  speaker_emb,
+  cond_prompt_speech_tokens = NULL,
+  cond_prompt_speech_emb = NULL,
+  emotion_adv = 0.5
+) {
   list(
     speaker_emb = speaker_emb,
-    clap_emb = NULL,  # Not implemented
+    clap_emb = NULL, # Not implemented
     cond_prompt_speech_tokens = cond_prompt_speech_tokens,
     cond_prompt_speech_emb = cond_prompt_speech_emb,
     emotion_adv = emotion_adv
@@ -112,7 +120,10 @@ t3_cond <- function(speaker_emb, cond_prompt_speech_tokens = NULL,
 #' @param cond T3 conditioning object
 #' @param device Target device
 #' @return T3 conditioning on device
-t3_cond_to_device <- function(cond, device) {
+t3_cond_to_device <- function(
+  cond,
+  device
+) {
   result <- cond
   for (name in names(cond)) {
     if (inherits(cond[[name]], "torch_tensor")) {
@@ -123,7 +134,78 @@ t3_cond_to_device <- function(cond, device) {
 }
 
 # ============================================================================
-# Perceiver Resampler (simplified)
+# Attention Block for Perceiver (matches Python's AttentionBlock2)
+# ============================================================================
+
+#' Attention block for perceiver
+#'
+#' @param embed_dim Embedding dimension (default 1024)
+#' @param num_heads Number of attention heads (default 4)
+#' @return nn_module
+attention_block <- torch::nn_module(
+  "AttentionBlock",
+
+  initialize = function(
+    embed_dim = 1024,
+    num_heads = 4
+  ) {
+    self$embed_dim <- embed_dim
+    self$num_heads <- num_heads
+    self$head_dim <- embed_dim %/% num_heads
+
+    # Single norm layer (applied to both inputs)
+    self$norm <- torch::nn_layer_norm(embed_dim)
+
+    # Q, K, V projections
+    self$to_q <- torch::nn_linear(embed_dim, embed_dim)
+    self$to_k <- torch::nn_linear(embed_dim, embed_dim)
+    self$to_v <- torch::nn_linear(embed_dim, embed_dim)
+
+    # Output projection
+    self$proj_out <- torch::nn_linear(embed_dim, embed_dim)
+  },
+
+  forward = function(
+    x1,
+    x2
+  ) {
+    # x1: query source (batch, q_len, dim)
+    # x2: key/value source (batch, kv_len, dim)
+    batch_size <- x1$size(1)
+    q_len <- x1$size(2)
+    kv_len <- x2$size(2)
+
+    # Normalize both inputs
+    x1_norm <- self$norm$forward(x1)
+    x2_norm <- self$norm$forward(x2)
+
+    # Create Q from x1, K and V from x2
+    q <- self$to_q$forward(x1_norm)
+    k <- self$to_k$forward(x2_norm)
+    v <- self$to_v$forward(x2_norm)
+
+    # Reshape to (batch, heads, seq, head_dim)
+    q <- q$view(c(batch_size, q_len, self$num_heads, self$head_dim))$transpose(2, 3)
+    k <- k$view(c(batch_size, kv_len, self$num_heads, self$head_dim))$transpose(2, 3)
+    v <- v$view(c(batch_size, kv_len, self$num_heads, self$head_dim))$transpose(2, 3)
+
+    # Scaled dot-product attention
+    scale <- 1.0 / sqrt(self$head_dim)
+    attn <- torch::torch_matmul(q, k$transpose(3, 4)) * scale
+    attn <- torch::nnf_softmax(attn, dim = - 1)
+    out <- torch::torch_matmul(attn, v)
+
+    # Reshape back to (batch, q_len, embed_dim)
+    out <- out$transpose(2, 3)$contiguous()$view(c(batch_size, q_len, self$embed_dim))
+
+    # Output projection and residual connection
+    h <- self$proj_out$forward(out)
+    x1 + h
+  }
+)
+
+# ============================================================================
+# Perceiver Resampler (matches Python architecture)
 # ============================================================================
 
 #' Perceiver resampler for conditioning compression
@@ -135,75 +217,37 @@ t3_cond_to_device <- function(cond, device) {
 perceiver_resampler <- torch::nn_module(
   "Perceiver",
 
-  initialize = function(num_query_tokens = 32, embed_dim = 1024, num_heads = 4) {
+  initialize = function(
+    num_query_tokens = 32,
+    embed_dim = 1024,
+    num_heads = 4
+  ) {
     self$embed_dim <- embed_dim
     self$num_heads <- num_heads
-    self$head_dim <- embed_dim %/% num_heads
 
-    # Learnable query tokens with Xavier-like initialization
+    # Learnable query tokens (pre_attention_query in Python)
     query_var <- sqrt(3.0) * sqrt(2.0 / (num_query_tokens + num_query_tokens))
-    self$query <- torch::nn_parameter(
-      torch::torch_empty(1, num_query_tokens, embed_dim)$uniform_(-query_var, query_var)
+    self$pre_attention_query <- torch::nn_parameter(
+      torch::torch_empty(1, num_query_tokens, embed_dim)$uniform_(- query_var, query_var)
     )
 
-    # Cross-attention layers
-    self$norm1 <- torch::nn_layer_norm(embed_dim)
-    self$norm2 <- torch::nn_layer_norm(embed_dim)
-
-    self$q_proj <- torch::nn_linear(embed_dim, embed_dim)
-    self$k_proj <- torch::nn_linear(embed_dim, embed_dim)
-    self$v_proj <- torch::nn_linear(embed_dim, embed_dim)
-    self$out_proj <- torch::nn_linear(embed_dim, embed_dim)
-
-    # Self-attention layers
-    self$self_norm <- torch::nn_layer_norm(embed_dim)
-    self$self_q_proj <- torch::nn_linear(embed_dim, embed_dim)
-    self$self_k_proj <- torch::nn_linear(embed_dim, embed_dim)
-    self$self_v_proj <- torch::nn_linear(embed_dim, embed_dim)
-    self$self_out_proj <- torch::nn_linear(embed_dim, embed_dim)
-  },
-
-  .attention = function(q, k, v) {
-    # q: (batch, q_len, dim), k,v: (batch, kv_len, dim)
-    batch_size <- q$size(1)
-    q_len <- q$size(2)
-    kv_len <- k$size(2)
-
-    # Reshape to (batch, heads, seq, head_dim)
-    q <- q$view(c(batch_size, q_len, self$num_heads, self$head_dim))$transpose(2, 3)
-    k <- k$view(c(batch_size, kv_len, self$num_heads, self$head_dim))$transpose(2, 3)
-    v <- v$view(c(batch_size, kv_len, self$num_heads, self$head_dim))$transpose(2, 3)
-
-    # Scaled dot-product attention
-    scale <- 1.0 / sqrt(self$head_dim)
-    attn <- torch::torch_matmul(q, k$transpose(3, 4)) * scale
-    attn <- torch::nnf_softmax(attn, dim = -1)
-    out <- torch::torch_matmul(attn, v)
-
-    # Reshape back
-    out$transpose(2, 3)$contiguous()$view(c(batch_size, q_len, self$embed_dim))
+    # Single attention block (reused for cross-attention and self-attention)
+    self$attn <- attention_block(embed_dim, num_heads)
   },
 
   forward = function(x) {
     batch_size <- x$size(1)
 
     # Expand query to batch size
-    query <- self$query$expand(c(batch_size, -1, -1))
+    query <- self$pre_attention_query$expand(c(batch_size, - 1, - 1))
 
     # Cross-attention: query attends to input
-    q <- self$q_proj$forward(self$norm1$forward(query))
-    k <- self$k_proj$forward(self$norm2$forward(x))
-    v <- self$v_proj$forward(self$norm2$forward(x))
-    cross_out <- query + self$.attention(q, k, v)
-    cross_out <- self$out_proj$forward(cross_out)
+    pre_att <- self$attn$forward(query, x)
 
-    # Self-attention
-    norm_out <- self$self_norm$forward(cross_out)
-    q <- self$self_q_proj$forward(norm_out)
-    k <- self$self_k_proj$forward(norm_out)
-    v <- self$self_v_proj$forward(norm_out)
-    self_out <- cross_out + self$.attention(q, k, v)
-    self$self_out_proj$forward(self_out)
+    # Self-attention: result attends to itself
+    out <- self$attn$forward(pre_att, pre_att)
+
+    out
   }
 )
 
@@ -246,7 +290,7 @@ t3_cond_enc <- torch::nn_module(
     batch_size <- cond$speaker_emb$size(1)
 
     # Speaker embedding projection: (B, 256) -> (B, 1, 1024)
-    cond_spkr <- self$spkr_enc$forward(cond$speaker_emb$view(c(-1, self$config$speaker_embed_size)))
+    cond_spkr <- self$spkr_enc$forward(cond$speaker_emb$view(c(- 1, self$config$speaker_embed_size)))
     cond_spkr <- cond_spkr$unsqueeze(2)
 
     # Empty tensor for unused conditioning
@@ -270,7 +314,7 @@ t3_cond_enc <- torch::nn_module(
       if (!inherits(emotion_val, "torch_tensor")) {
         emotion_val <- torch::torch_tensor(emotion_val, device = device)
       }
-      emotion_val <- emotion_val$view(c(-1, 1, 1))
+      emotion_val <- emotion_val$view(c(- 1, 1, 1))
       cond_emotion_adv <- self$emotion_adv_fc$forward(emotion_val)
     }
 
@@ -331,18 +375,23 @@ t3_model <- torch::nn_module(
     self$cond_enc$forward(cond)
   },
 
-  prepare_input_embeds = function(cond, text_tokens, speech_tokens, cfg_weight = 0.0) {
+  prepare_input_embeds = function(
+    cond,
+    text_tokens,
+    speech_tokens,
+    cfg_weight = 0.0
+  ) {
     # Prepare conditioning embeddings
-    cond_emb <- self$prepare_conditioning(cond)  # (B, len_cond, dim)
+    cond_emb <- self$prepare_conditioning(cond) # (B, len_cond, dim)
 
     # Text embeddings with position
-    text_emb <- self$text_emb$forward(text_tokens$add(1L))  # +1 for R indexing
+    text_emb <- self$text_emb$forward(text_tokens$add(1L)) # +1 for R indexing
     text_emb <- text_emb + self$text_pos_emb$forward(text_tokens)
 
     # Zero out text for CFG unconditional path
     if (cfg_weight > 0.0 && text_emb$size(1) > 1) {
       # Second batch element is unconditional
-      text_emb[2, , ] <- 0
+      text_emb[2,,] <- 0
     }
 
     # Speech embeddings with position
@@ -353,7 +402,7 @@ t3_model <- torch::nn_module(
 
     # Expand conditioning if batch sizes don't match
     if (cond_emb$size(1) != text_emb$size(1)) {
-      cond_emb <- cond_emb$expand(c(text_emb$size(1), -1, -1))
+      cond_emb <- cond_emb$expand(c(text_emb$size(1), - 1, - 1))
     }
 
     # Concatenate: cond + text + speech
@@ -362,7 +411,12 @@ t3_model <- torch::nn_module(
     list(embeds = embeds, len_cond = len_cond)
   },
 
-  forward = function(cond, text_tokens, speech_tokens, cfg_weight = 0.0) {
+  forward = function(
+    cond,
+    text_tokens,
+    speech_tokens,
+    cfg_weight = 0.0
+  ) {
     # Prepare embeddings
     prep <- self$prepare_input_embeds(cond, text_tokens, speech_tokens, cfg_weight)
     embeds <- prep$embeds
@@ -370,7 +424,7 @@ t3_model <- torch::nn_module(
 
     # Forward through Llama
     output <- self$tfmr$forward(inputs_embeds = embeds, use_cache = FALSE,
-                                output_hidden_states = TRUE)
+      output_hidden_states = TRUE)
 
     hidden_states <- output$last_hidden_state
 
@@ -383,8 +437,8 @@ t3_model <- torch::nn_module(
     speech_start <- len_cond + len_text + 1
     speech_end <- len_cond + len_text + len_speech
 
-    text_latents <- hidden_states[, text_start:text_end, ]
-    speech_latents <- hidden_states[, speech_start:speech_end, ]
+    text_latents <- hidden_states[, text_start:text_end,]
+    speech_latents <- hidden_states[, speech_start:speech_end,]
 
     # Project to logits
     text_logits <- self$text_head$forward(text_latents)
@@ -417,13 +471,17 @@ t3_model <- torch::nn_module(
 #' @param repetition_penalty Repetition penalty
 #' @return Generated speech tokens
 #' @export
-t3_inference <- function(model, cond, text_tokens,
-                         max_new_tokens = 1000,
-                         temperature = 0.8,
-                         cfg_weight = 0.5,
-                         top_p = 0.95,
-                         min_p = 0.05,
-                         repetition_penalty = 1.2) {
+t3_inference <- function(
+  model,
+  cond,
+  text_tokens,
+  max_new_tokens = 1000,
+  temperature = 0.8,
+  cfg_weight = 0.5,
+  top_p = 0.95,
+  min_p = 0.05,
+  repetition_penalty = 1.2
+) {
 
   config <- model$config
   device <- model$text_emb$weight$device
@@ -446,7 +504,7 @@ t3_inference <- function(model, cond, text_tokens,
 
   # Initial speech token (BOS)
   bos_token <- torch::torch_tensor(matrix(config$start_speech_token, nrow = 1),
-                                   device = device, dtype = torch::torch_long())
+    device = device, dtype = torch::torch_long())
 
   # Double BOS token for CFG
   if (cfg_weight > 0.0) {
@@ -465,87 +523,87 @@ t3_inference <- function(model, cond, text_tokens,
 
   # Initial forward pass
   torch::with_no_grad({
-    output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
-    past_key_values <- output$past_key_values
-
-    # Track generated tokens (only conditional path for CFG)
-    generated_ids <- bos_token[1, , drop=FALSE]$clone()
-    predicted <- list()
-
-    # Generation loop
-    for (i in seq_len(max_new_tokens)) {
-      logits <- output$last_hidden_state[, -1, ]
-      logits <- model$speech_head$forward(logits)  # (B, vocab_size)
-
-      # CFG combination
-      if (cfg_weight > 0.0) {
-        cond_logits <- logits[1, ]$unsqueeze(1)
-        uncond_logits <- logits[2, ]$unsqueeze(1)
-        logits <- cond_logits + cfg_weight * (cond_logits - uncond_logits)
-      } else {
-        logits <- logits[1, ]$unsqueeze(1)
-      }
-
-      # Apply repetition penalty
-      if (repetition_penalty != 1.0) {
-        for (token_id in as.integer(generated_ids$cpu())) {
-          logits[1, token_id + 1] <- logits[1, token_id + 1] / repetition_penalty
-        }
-      }
-
-      # Temperature scaling
-      if (temperature != 1.0) {
-        logits <- logits / temperature
-      }
-
-      # Min-p filtering
-      probs <- torch::nnf_softmax(logits, dim = -1)
-      max_prob <- probs$max()
-      min_threshold <- min_p * max_prob
-      logits[probs < min_threshold] <- -Inf
-
-      # Top-p (nucleus) sampling
-      sorted_result <- torch::torch_sort(probs, descending = TRUE)
-      sorted_probs <- sorted_result[[1]]
-      sorted_indices <- sorted_result[[2]]
-      cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = -1)
-
-      # Remove tokens with cumulative probability above threshold
-      sorted_mask <- cumsum_probs > top_p
-      # Shift mask right to keep at least one token
-      sorted_mask[, 1] <- FALSE
-      sorted_probs[sorted_mask] <- 0
-
-      # Re-normalize
-      sorted_probs <- sorted_probs / sorted_probs$sum()
-
-      # Sample
-      next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1)
-      next_token <- sorted_indices$gather(2, next_token_idx)
-
-      predicted[[length(predicted) + 1]] <- next_token
-      generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2)
-
-      # Check for EOS
-      if (as.integer(next_token$cpu()) == config$stop_speech_token) {
-        message("EOS detected at step ", i)
-        break
-      }
-
-      # Get embedding for next token
-      next_emb <- model$speech_emb$forward(next_token$add(1L)) + model$speech_pos_emb$get_fixed_embedding(i)
-
-      # Double for CFG
-      if (cfg_weight > 0.0) {
-        next_emb <- torch::torch_cat(list(next_emb, next_emb), dim = 1)
-      }
-
-      # Forward with KV cache
-      output <- model$tfmr$forward(inputs_embeds = next_emb, past_key_values = past_key_values,
-                           use_cache = TRUE)
+      output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
       past_key_values <- output$past_key_values
-    }
-  })
+
+      # Track generated tokens (only conditional path for CFG)
+      generated_ids <- bos_token[1,, drop = FALSE]$clone()
+      predicted <- list()
+
+      # Generation loop
+      for (i in seq_len(max_new_tokens)) {
+        logits <- output$last_hidden_state[, - 1,]
+        logits <- model$speech_head$forward(logits) # (B, vocab_size)
+
+        # CFG combination
+        if (cfg_weight > 0.0) {
+          cond_logits <- logits[1,]$unsqueeze(1)
+          uncond_logits <- logits[2,]$unsqueeze(1)
+          logits <- cond_logits + cfg_weight * (cond_logits - uncond_logits)
+        } else {
+          logits <- logits[1,]$unsqueeze(1)
+        }
+
+        # Apply repetition penalty
+        if (repetition_penalty != 1.0) {
+          for (token_id in as.integer(generated_ids$cpu())) {
+            logits[1, token_id + 1] <- logits[1, token_id + 1] / repetition_penalty
+          }
+        }
+
+        # Temperature scaling
+        if (temperature != 1.0) {
+          logits <- logits / temperature
+        }
+
+        # Min-p filtering
+        probs <- torch::nnf_softmax(logits, dim = - 1)
+        max_prob <- probs$max()
+        min_threshold <- min_p * max_prob
+        logits[probs < min_threshold] <- - Inf
+
+        # Top-p (nucleus) sampling
+        sorted_result <- torch::torch_sort(probs, descending = TRUE)
+        sorted_probs <- sorted_result[[1]]
+        sorted_indices <- sorted_result[[2]]
+        cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = - 1)
+
+        # Remove tokens with cumulative probability above threshold
+        sorted_mask <- cumsum_probs > top_p
+        # Shift mask right to keep at least one token
+        sorted_mask[, 1] <- FALSE
+        sorted_probs[sorted_mask] <- 0
+
+        # Re-normalize
+        sorted_probs <- sorted_probs / sorted_probs$sum()
+
+        # Sample
+        next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1)
+        next_token <- sorted_indices$gather(2, next_token_idx)
+
+        predicted[[length(predicted) + 1]] <- next_token
+        generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2)
+
+        # Check for EOS
+        if (as.integer(next_token$cpu()) == config$stop_speech_token) {
+          message("EOS detected at step ", i)
+          break
+        }
+
+        # Get embedding for next token
+        next_emb <- model$speech_emb$forward(next_token$add(1L)) + model$speech_pos_emb$get_fixed_embedding(i)
+
+        # Double for CFG
+        if (cfg_weight > 0.0) {
+          next_emb <- torch::torch_cat(list(next_emb, next_emb), dim = 1)
+        }
+
+        # Forward with KV cache
+        output <- model$tfmr$forward(inputs_embeds = next_emb, past_key_values = past_key_values,
+          use_cache = TRUE)
+        past_key_values <- output$past_key_values
+      }
+    })
 
   # Concatenate predicted tokens
   if (length(predicted) > 0) {
@@ -564,7 +622,10 @@ t3_inference <- function(model, cond, text_tokens,
 #' @param model T3 model
 #' @param state_dict Named list of tensors
 #' @return Model with loaded weights
-load_t3_weights <- function(model, state_dict) {
+load_t3_weights <- function(
+  model,
+  state_dict
+) {
   # Load Llama backbone weights (already wrapped in with_no_grad)
   llama_weights <- list()
   for (name in names(state_dict)) {
@@ -577,87 +638,76 @@ load_t3_weights <- function(model, state_dict) {
 
   # Load remaining weights with no_grad
   torch::with_no_grad({
-    # Load embedding weights
-    if ("text_emb.weight" %in% names(state_dict)) {
-      model$text_emb$weight$copy_(state_dict[["text_emb.weight"]])
-    }
-    if ("speech_emb.weight" %in% names(state_dict)) {
-      model$speech_emb$weight$copy_(state_dict[["speech_emb.weight"]])
-    }
-
-    # Load position embedding weights
-    if ("text_pos_emb.emb.weight" %in% names(state_dict)) {
-      model$text_pos_emb$emb$weight$copy_(state_dict[["text_pos_emb.emb.weight"]])
-    }
-    if ("speech_pos_emb.emb.weight" %in% names(state_dict)) {
-      model$speech_pos_emb$emb$weight$copy_(state_dict[["speech_pos_emb.emb.weight"]])
-    }
-
-    # Load output head weights
-    if ("text_head.weight" %in% names(state_dict)) {
-      model$text_head$weight$copy_(state_dict[["text_head.weight"]])
-    }
-    if ("speech_head.weight" %in% names(state_dict)) {
-      model$speech_head$weight$copy_(state_dict[["speech_head.weight"]])
-    }
-
-    # Load conditioning encoder weights
-    if ("cond_enc.spkr_enc.weight" %in% names(state_dict)) {
-      model$cond_enc$spkr_enc$weight$copy_(state_dict[["cond_enc.spkr_enc.weight"]])
-    }
-    if ("cond_enc.spkr_enc.bias" %in% names(state_dict)) {
-      model$cond_enc$spkr_enc$bias$copy_(state_dict[["cond_enc.spkr_enc.bias"]])
-    }
-    if ("cond_enc.emotion_adv_fc.weight" %in% names(state_dict)) {
-      model$cond_enc$emotion_adv_fc$weight$copy_(state_dict[["cond_enc.emotion_adv_fc.weight"]])
-    }
-
-    # Load perceiver weights
-    # Helper to copy if exists
-    copy_if_exists <- function(r_param, key) {
-      if (key %in% names(state_dict)) {
-        tryCatch({
-          r_param$copy_(state_dict[[key]])
-          return(TRUE)
-        }, error = function(e) {
-          warning("Failed to copy ", key, ": ", e$message)
-          return(FALSE)
-        })
+      # Load embedding weights
+      if ("text_emb.weight" %in% names(state_dict)) {
+        model$text_emb$weight$copy_(state_dict[["text_emb.weight"]])
       }
-      FALSE
-    }
+      if ("speech_emb.weight" %in% names(state_dict)) {
+        model$speech_emb$weight$copy_(state_dict[["speech_emb.weight"]])
+      }
 
-    # Perceiver query tokens
-    copy_if_exists(model$cond_enc$perceiver$query, "cond_enc.perceiver.query")
+      # Load position embedding weights
+      if ("text_pos_emb.emb.weight" %in% names(state_dict)) {
+        model$text_pos_emb$emb$weight$copy_(state_dict[["text_pos_emb.emb.weight"]])
+      }
+      if ("speech_pos_emb.emb.weight" %in% names(state_dict)) {
+        model$speech_pos_emb$emb$weight$copy_(state_dict[["speech_pos_emb.emb.weight"]])
+      }
 
-    # Cross-attention layers
-    copy_if_exists(model$cond_enc$perceiver$norm1$weight, "cond_enc.perceiver.norm1.weight")
-    copy_if_exists(model$cond_enc$perceiver$norm1$bias, "cond_enc.perceiver.norm1.bias")
-    copy_if_exists(model$cond_enc$perceiver$norm2$weight, "cond_enc.perceiver.norm2.weight")
-    copy_if_exists(model$cond_enc$perceiver$norm2$bias, "cond_enc.perceiver.norm2.bias")
+      # Load output head weights
+      if ("text_head.weight" %in% names(state_dict)) {
+        model$text_head$weight$copy_(state_dict[["text_head.weight"]])
+      }
+      if ("speech_head.weight" %in% names(state_dict)) {
+        model$speech_head$weight$copy_(state_dict[["speech_head.weight"]])
+      }
 
-    copy_if_exists(model$cond_enc$perceiver$q_proj$weight, "cond_enc.perceiver.q_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$q_proj$bias, "cond_enc.perceiver.q_proj.bias")
-    copy_if_exists(model$cond_enc$perceiver$k_proj$weight, "cond_enc.perceiver.k_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$k_proj$bias, "cond_enc.perceiver.k_proj.bias")
-    copy_if_exists(model$cond_enc$perceiver$v_proj$weight, "cond_enc.perceiver.v_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$v_proj$bias, "cond_enc.perceiver.v_proj.bias")
-    copy_if_exists(model$cond_enc$perceiver$out_proj$weight, "cond_enc.perceiver.out_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$out_proj$bias, "cond_enc.perceiver.out_proj.bias")
+      # Load conditioning encoder weights
+      if ("cond_enc.spkr_enc.weight" %in% names(state_dict)) {
+        model$cond_enc$spkr_enc$weight$copy_(state_dict[["cond_enc.spkr_enc.weight"]])
+      }
+      if ("cond_enc.spkr_enc.bias" %in% names(state_dict)) {
+        model$cond_enc$spkr_enc$bias$copy_(state_dict[["cond_enc.spkr_enc.bias"]])
+      }
+      if ("cond_enc.emotion_adv_fc.weight" %in% names(state_dict)) {
+        model$cond_enc$emotion_adv_fc$weight$copy_(state_dict[["cond_enc.emotion_adv_fc.weight"]])
+      }
 
-    # Self-attention layers
-    copy_if_exists(model$cond_enc$perceiver$self_norm$weight, "cond_enc.perceiver.self_norm.weight")
-    copy_if_exists(model$cond_enc$perceiver$self_norm$bias, "cond_enc.perceiver.self_norm.bias")
+      # Load perceiver weights
+      # Helper to copy if exists
+      copy_if_exists <- function(
+        r_param,
+        key
+      ) {
+        if (key %in% names(state_dict)) {
+          tryCatch({
+              r_param$copy_(state_dict[[key]])
+              return(TRUE)
+            }, error = function(e) {
+              warning("Failed to copy ", key, ": ", e$message)
+              return(FALSE)
+            })
+        }
+        FALSE
+      }
 
-    copy_if_exists(model$cond_enc$perceiver$self_q_proj$weight, "cond_enc.perceiver.self_q_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$self_q_proj$bias, "cond_enc.perceiver.self_q_proj.bias")
-    copy_if_exists(model$cond_enc$perceiver$self_k_proj$weight, "cond_enc.perceiver.self_k_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$self_k_proj$bias, "cond_enc.perceiver.self_k_proj.bias")
-    copy_if_exists(model$cond_enc$perceiver$self_v_proj$weight, "cond_enc.perceiver.self_v_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$self_v_proj$bias, "cond_enc.perceiver.self_v_proj.bias")
-    copy_if_exists(model$cond_enc$perceiver$self_out_proj$weight, "cond_enc.perceiver.self_out_proj.weight")
-    copy_if_exists(model$cond_enc$perceiver$self_out_proj$bias, "cond_enc.perceiver.self_out_proj.bias")
-  })
+      # Perceiver query tokens (pre_attention_query in Python)
+      copy_if_exists(model$cond_enc$perceiver$pre_attention_query, "cond_enc.perceiver.pre_attention_query")
+
+      # Attention block (single attn module used for both cross and self-attention)
+      copy_if_exists(model$cond_enc$perceiver$attn$norm$weight, "cond_enc.perceiver.attn.norm.weight")
+      copy_if_exists(model$cond_enc$perceiver$attn$norm$bias, "cond_enc.perceiver.attn.norm.bias")
+
+      copy_if_exists(model$cond_enc$perceiver$attn$to_q$weight, "cond_enc.perceiver.attn.to_q.weight")
+      copy_if_exists(model$cond_enc$perceiver$attn$to_q$bias, "cond_enc.perceiver.attn.to_q.bias")
+      copy_if_exists(model$cond_enc$perceiver$attn$to_k$weight, "cond_enc.perceiver.attn.to_k.weight")
+      copy_if_exists(model$cond_enc$perceiver$attn$to_k$bias, "cond_enc.perceiver.attn.to_k.bias")
+      copy_if_exists(model$cond_enc$perceiver$attn$to_v$weight, "cond_enc.perceiver.attn.to_v.weight")
+      copy_if_exists(model$cond_enc$perceiver$attn$to_v$bias, "cond_enc.perceiver.attn.to_v.bias")
+      copy_if_exists(model$cond_enc$perceiver$attn$proj_out$weight, "cond_enc.perceiver.attn.proj_out.weight")
+      copy_if_exists(model$cond_enc$perceiver$attn$proj_out$bias, "cond_enc.perceiver.attn.proj_out.bias")
+    })
 
   model
 }
+

@@ -17,6 +17,6 @@ snake_activation(in_features, alpha_trainable = TRUE, alpha_logscale = FALSE)
 nn_module
 }
 \description{
-Sine-based periodic activation: x + 1/a * sin^2(ax) Reference:
-https://arxiv.org/abs/2006.08195
+Sine-based periodic activation: x + 1/a * sin^2(ax)
+Reference: https://arxiv.org/abs/2006.08195
 }

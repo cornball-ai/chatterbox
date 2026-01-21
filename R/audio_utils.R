@@ -1,4 +1,4 @@
-# Audio utilities for chatteRbox
+# Audio utilities for chatterbox
 # Handles audio I/O, resampling, and mel spectrogram computation
 
 #' Read audio file
@@ -17,7 +17,7 @@ read_audio <- function(path) {
   } else if (wav@bit == 32) {
     samples <- wav@left / 2147483648
   } else {
-    samples <- wav@left / (2^(wav@bit - 1))
+    samples <- wav@left / (2 ^ (wav@bit - 1))
   }
 
   list(
@@ -32,15 +32,19 @@ read_audio <- function(path) {
 #' @param sr Sample rate
 #' @param path Output path (WAV format)
 #' @export
-write_audio <- function(samples, sr, path) {
+write_audio <- function(
+  samples,
+  sr,
+  path
+) {
   # Handle torch tensor input
 
-if (inherits(samples, "torch_tensor")) {
+  if (inherits(samples, "torch_tensor")) {
     samples <- as.numeric(samples$cpu())
   }
 
   # Clip to valid range
-  samples <- pmax(pmin(samples, 0.99), -0.99)
+  samples <- pmax(pmin(samples, 0.99), - 0.99)
 
   # Convert to 16-bit integer
   samples_int <- as.integer(samples * 32767)
@@ -61,7 +65,11 @@ if (inherits(samples, "torch_tensor")) {
 #' @param to_sr Target sample rate
 #' @return Resampled audio samples
 #' @export
-resample_audio <- function(samples, from_sr, to_sr) {
+resample_audio <- function(
+  samples,
+  from_sr,
+  to_sr
+) {
   if (from_sr == to_sr) {
     return(samples)
   }
@@ -86,7 +94,14 @@ resample_audio <- function(samples, from_sr, to_sr) {
 #' @param fmin Minimum frequency
 #' @param fmax Maximum frequency
 #' @return Mel filterbank matrix (n_mels x (n_fft/2 + 1))
-create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL, norm = "slaney") {
+create_mel_filterbank <- function(
+  sr,
+  n_fft,
+  n_mels,
+  fmin = 0,
+  fmax = NULL,
+  norm = "slaney"
+) {
   if (is.null(fmax)) {
     fmax <- sr / 2
   }
@@ -97,7 +112,7 @@ create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL, norm
   }
 
   mel_to_hz <- function(mel) {
-    700 * (10^(mel / 2595) - 1)
+    700 * (10 ^ (mel / 2595) - 1)
   }
 
   # Create mel points
@@ -128,7 +143,7 @@ create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL, norm
     falling[fft_freqs < center] <- 0
     falling[fft_freqs > right] <- 0
 
-    filterbank[i, ] <- pmax(rising, 0) + pmax(falling, 0)
+    filterbank[i,] <- pmax(rising, 0) + pmax(falling, 0)
     filterbank[i, fft_freqs >= center] <- pmax(falling[fft_freqs >= center], 0)
     filterbank[i, fft_freqs < center] <- pmax(rising[fft_freqs < center], 0)
   }
@@ -160,9 +175,17 @@ create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL, norm
 #' @param center Whether to center frames (default FALSE)
 #' @return Mel spectrogram tensor (batch, n_mels, time)
 #' @export
-compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
-                                     hop_size = 480, win_size = 1920,
-                                     fmin = 0, fmax = 8000, center = FALSE) {
+compute_mel_spectrogram <- function(
+  y,
+  n_fft = 1920,
+  n_mels = 80,
+  sr = 24000,
+  hop_size = 480,
+  win_size = 1920,
+  fmin = 0,
+  fmax = 8000,
+  center = FALSE
+) {
   # Convert to torch tensor if needed
   if (!inherits(y, "torch_tensor")) {
     y <- torch::torch_tensor(y, dtype = torch::torch_float32())
@@ -192,7 +215,7 @@ compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
 
   # Pad audio (reflect padding)
   pad_amount <- as.integer((n_fft - hop_size) / 2)
-  y <- y$unsqueeze(2)  # Add channel dim for padding
+  y <- y$unsqueeze(2) # Add channel dim for padding
   y <- torch::nnf_pad(y, c(pad_amount, pad_amount), mode = "reflect")
   y <- y$squeeze(2)
 
@@ -212,7 +235,7 @@ compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
 
   # Convert to magnitude
   spec <- torch::torch_view_as_real(spec)
-  spec <- torch::torch_sqrt(spec$pow(2)$sum(-1) + 1e-9)
+  spec <- torch::torch_sqrt(spec$pow(2)$sum(- 1) + 1e-9)
 
   # Apply mel filterbank
   spec <- torch::torch_matmul(mel_basis, spec)
@@ -229,7 +252,10 @@ compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
 #' @param sr Sample rate (should be 16000)
 #' @return Mel spectrogram (batch, time, 40)
 #' @export
-compute_mel_spectrogram_ve <- function(y, sr = 16000) {
+compute_mel_spectrogram_ve <- function(
+  y,
+  sr = 16000
+) {
   # Voice encoder uses different params
   spec <- compute_mel_spectrogram(
     y,
@@ -246,3 +272,4 @@ compute_mel_spectrogram_ve <- function(y, sr = 16000) {
   # Transpose to (batch, time, mels) for LSTM
   spec$transpose(2, 3)
 }
+

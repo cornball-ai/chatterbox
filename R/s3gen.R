@@ -2,7 +2,7 @@
 # Flow matching decoder + HiFiGAN vocoder
 
 # Constants
-S3GEN_SR <- 24000  # Output sample rate
+S3GEN_SR <- 24000# Output sample rate
 
 # ============================================================================
 # Utility Functions
@@ -13,7 +13,10 @@ S3GEN_SR <- 24000  # Output sample rate
 #' @param lengths Sequence lengths
 #' @param max_len Maximum length
 #' @return Boolean mask (TRUE for padded positions)
-make_pad_mask <- function(lengths, max_len = NULL) {
+make_pad_mask <- function(
+  lengths,
+  max_len = NULL
+) {
   if (is.null(max_len)) {
     max_len <- max(as.integer(lengths$cpu()))
   }
@@ -43,7 +46,11 @@ make_pad_mask <- function(lengths, max_len = NULL) {
 upsample_conformer_encoder <- torch::nn_module(
   "UpsampleConformerEncoder",
 
-  initialize = function(input_size = 512, output_size = 512, num_blocks = 6) {
+  initialize = function(
+    input_size = 512,
+    output_size = 512,
+    num_blocks = 6
+  ) {
     self$input_size <- input_size
     self$output_size_val <- output_size
 
@@ -62,14 +69,17 @@ upsample_conformer_encoder <- torch::nn_module(
 
     # Upsample 2x (token to mel frame rate)
     self$upsample <- torch::nn_conv_transpose1d(output_size, output_size, kernel_size = 4,
-                                                 stride = 2, padding = 1)
+      stride = 2, padding = 1)
   },
 
   output_size = function() {
     self$output_size_val
   },
 
-  forward = function(x, x_len) {
+  forward = function(
+    x,
+    x_len
+  ) {
     # x: (batch, time, features)
     x <- self$input_proj$forward(x)
 
@@ -100,7 +110,10 @@ upsample_conformer_encoder <- torch::nn_module(
 cfm_estimator <- torch::nn_module(
   "CFMEstimator",
 
-  initialize = function(in_channels = 320, out_channels = 80) {
+  initialize = function(
+    in_channels = 320,
+    out_channels = 80
+  ) {
     # Time embedding
     self$time_emb <- torch::nn_sequential(
       torch::nn_linear(1, 256),
@@ -113,21 +126,28 @@ cfm_estimator <- torch::nn_module(
 
     # Residual blocks
     self$blocks <- torch::nn_module_list(lapply(1:12, function(i) {
-      torch::nn_sequential(
-        torch::nn_conv1d(256, 256, 3, padding = 1),
-        torch::nn_group_norm(32, 256),
-        torch::nn_silu(),
-        torch::nn_conv1d(256, 256, 3, padding = 1),
-        torch::nn_group_norm(32, 256),
-        torch::nn_silu()
-      )
-    }))
+          torch::nn_sequential(
+            torch::nn_conv1d(256, 256, 3, padding = 1),
+            torch::nn_group_norm(32, 256),
+            torch::nn_silu(),
+            torch::nn_conv1d(256, 256, 3, padding = 1),
+            torch::nn_group_norm(32, 256),
+            torch::nn_silu()
+          )
+        }))
 
     # Output projection
     self$output_proj <- torch::nn_conv1d(256, out_channels, 1)
   },
 
-  forward = function(x, mask, mu, t, spks, cond) {
+  forward = function(
+    x,
+    mask,
+    mu,
+    t,
+    spks,
+    cond
+  ) {
     # x: (batch, 80, time) - noisy sample
     # mu: (batch, 80, time) - encoder output
     # t: (batch,) - timestep
@@ -138,22 +158,22 @@ cfm_estimator <- torch::nn_module(
     seq_len <- x$size(3)
 
     # Expand speaker embedding to sequence length
-    spks_expanded <- spks$unsqueeze(3)$expand(c(-1, -1, seq_len))
+    spks_expanded <- spks$unsqueeze(3)$expand(c(- 1, - 1, seq_len))
 
     # Concatenate inputs: x + mu + spks + cond
     h <- torch::torch_cat(list(x, mu, spks_expanded, cond), dim = 2)
     h <- self$input_proj$forward(h)
 
     # Time embedding
-    t_emb <- self$time_emb$forward(t$view(c(-1, 1)))$unsqueeze(3)
+    t_emb <- self$time_emb$forward(t$view(c(- 1, 1)))$unsqueeze(3)
 
     # Residual blocks with time conditioning
     for (i in seq_along(self$blocks)) {
       block <- self$blocks[[i]]
       residual <- h
       h <- block$forward(h)
-      h <- h + t_emb  # Add time embedding
-      h <- h + residual  # Residual connection
+      h <- h + t_emb# Add time embedding
+      h <- h + residual# Residual connection
     }
 
     # Output
@@ -170,7 +190,11 @@ cfm_estimator <- torch::nn_module(
 causal_cfm <- torch::nn_module(
   "CausalConditionalCFM",
 
-  initialize = function(in_channels = 320, out_channels = 80, spk_emb_dim = 80) {
+  initialize = function(
+    in_channels = 320,
+    out_channels = 80,
+    spk_emb_dim = 80
+  ) {
     self$sigma_min <- 1e-6
     self$t_scheduler <- "cosine"
     self$inference_cfg_rate <- 0.7
@@ -184,12 +208,19 @@ causal_cfm <- torch::nn_module(
     )
   },
 
-  forward = function(mu, mask, spks, cond, n_timesteps = 10, temperature = 1.0) {
+  forward = function(
+    mu,
+    mask,
+    spks,
+    cond,
+    n_timesteps = 10,
+    temperature = 1.0
+  ) {
     device <- mu$device
     seq_len <- mu$size(3)
 
     # Initial noise
-    z <- self$rand_noise[, , 1:seq_len]$to(device = device)$to(dtype = mu$dtype) * temperature
+    z <- self$rand_noise[,, 1:seq_len]$to(device = device)$to(dtype = mu$dtype) * temperature
 
     # Time span with cosine schedule
     t_span <- torch::torch_linspace(0, 1, n_timesteps + 1, device = device, dtype = mu$dtype)
@@ -200,10 +231,17 @@ causal_cfm <- torch::nn_module(
     # Euler solver
     result <- self$solve_euler(z, t_span, mu, mask, spks, cond)
 
-    list(result, NULL)  # Return mel and cache (NULL for now)
+    list(result, NULL) # Return mel and cache (NULL for now)
   },
 
-  solve_euler = function(x, t_span, mu, mask, spks, cond) {
+  solve_euler = function(
+    x,
+    t_span,
+    mu,
+    mask,
+    spks,
+    cond
+  ) {
     batch_size <- x$size(1)
     seq_len <- x$size(3)
     device <- x$device
@@ -221,22 +259,22 @@ causal_cfm <- torch::nn_module(
 
     for (step in 2:length(t_span)) {
       # Classifier-Free Guidance: conditional and unconditional paths
-      x_in[1:2, , ] <- x
-      mask_in[1:2, , ] <- mask
-      mu_in[1, , ] <- mu
+      x_in[1:2,,] <- x
+      mask_in[1:2,,] <- mask
+      mu_in[1,,] <- mu
       # mu_in[2] stays zero (unconditional)
       t_in[1:2] <- t
-      spks_in[1, ] <- spks
+      spks_in[1,] <- spks
       # spks_in[2] stays zero
-      cond_in[1, , ] <- cond
+      cond_in[1,,] <- cond
       # cond_in[2] stays zero
 
       # Forward through estimator
       dphi_dt <- self$estimator$forward(x_in, mask_in, mu_in, t_in, spks_in, cond_in)
 
       # CFG combination
-      dphi_cond <- dphi_dt[1, , ]$unsqueeze(1)
-      dphi_uncond <- dphi_dt[2, , ]$unsqueeze(1)
+      dphi_cond <- dphi_dt[1,,]$unsqueeze(1)
+      dphi_uncond <- dphi_dt[2,,]$unsqueeze(1)
       dphi_dt <- (1.0 + self$inference_cfg_rate) * dphi_cond - self$inference_cfg_rate * dphi_uncond
 
       # Euler step
@@ -268,8 +306,14 @@ causal_cfm <- torch::nn_module(
 causal_masked_diff_xvec <- torch::nn_module(
   "CausalMaskedDiffWithXvec",
 
-  initialize = function(vocab_size = 6561, input_size = 512, output_size = 80,
-                        spk_embed_dim = 192, input_frame_rate = 25, token_mel_ratio = 2) {
+  initialize = function(
+    vocab_size = 6561,
+    input_size = 512,
+    output_size = 80,
+    spk_embed_dim = 192,
+    input_frame_rate = 25,
+    token_mel_ratio = 2
+  ) {
     self$vocab_size <- vocab_size
     self$input_size <- input_size
     self$output_size <- output_size
@@ -293,8 +337,16 @@ causal_masked_diff_xvec <- torch::nn_module(
     self$decoder <- causal_cfm(in_channels = 320, out_channels = output_size, spk_emb_dim = output_size)
   },
 
-  forward = function(token, token_len, prompt_token, prompt_token_len,
-                     prompt_feat, prompt_feat_len, embedding, finalize = TRUE) {
+  forward = function(
+    token,
+    token_len,
+    prompt_token,
+    prompt_token_len,
+    prompt_feat,
+    prompt_feat_len,
+    embedding,
+    finalize = TRUE
+  ) {
     device <- token$device
 
     # Normalize and project speaker embedding
@@ -312,7 +364,7 @@ causal_masked_diff_xvec <- torch::nn_module(
     token <- torch::torch_clamp(token, min = 0L, max = as.integer(self$vocab_size - 1))$to(dtype = torch::torch_long())
 
     # Embed tokens
-    token <- self$input_embedding$forward(token$add(1L)) * mask  # +1 for R indexing
+    token <- self$input_embedding$forward(token$add(1L)) * mask# +1 for R indexing
 
     # Encode
     enc_result <- self$encoder$forward(token, token_len)
@@ -321,7 +373,7 @@ causal_masked_diff_xvec <- torch::nn_module(
 
     # Truncate lookahead if not finalizing
     if (!finalize) {
-      h <- h[, 1:(h$size(2) - self$pre_lookahead_len * self$token_mel_ratio), ]
+      h <- h[, 1:(h$size(2) - self$pre_lookahead_len * self$token_mel_ratio),]
     }
 
     # Calculate mel lengths based on token counts (encoder upsamples by token_mel_ratio)
@@ -334,13 +386,13 @@ causal_masked_diff_xvec <- torch::nn_module(
 
     # Prepare conditioning (resize prompt_feat to match expected mel_len1)
     conds <- torch::torch_zeros(c(1, mel_len1 + mel_len2, self$output_size),
-                                device = device, dtype = h$dtype)
+      device = device, dtype = h$dtype)
     # Truncate or pad prompt_feat to mel_len1
     prompt_feat_len <- prompt_feat$size(2)
     if (prompt_feat_len >= mel_len1) {
-      conds[1, 1:mel_len1, ] <- prompt_feat[1, 1:mel_len1, ]
+      conds[1, 1:mel_len1,] <- prompt_feat[1, 1:mel_len1,]
     } else {
-      conds[1, 1:prompt_feat_len, ] <- prompt_feat
+      conds[1, 1:prompt_feat_len,] <- prompt_feat
     }
     conds <- conds$transpose(2, 3)
 
@@ -359,7 +411,7 @@ causal_masked_diff_xvec <- torch::nn_module(
     feat <- result[[1]]
 
     # Extract generated portion (after prompt)
-    feat <- feat[, , (mel_len1 + 1):(mel_len1 + mel_len2)]
+    feat <- feat[,, (mel_len1 + 1) :(mel_len1 + mel_len2)]
 
     list(feat$to(dtype = torch::torch_float32()), NULL)
   }
@@ -392,15 +444,19 @@ s3gen <- torch::nn_module(
     self$mel2wav <- NULL
 
     # Fade-in to reduce artifacts
-    n_trim <- S3GEN_SR %/% 50  # 20ms
+    n_trim <- S3GEN_SR %/% 50# 20ms
     trim_fade <- torch::torch_zeros(2 * n_trim)
     fade_in <- (torch::torch_cos(torch::torch_linspace(pi, 0, n_trim)) + 1) / 2
-    trim_fade[(n_trim + 1):(2 * n_trim)] <- fade_in
+    trim_fade[(n_trim + 1) :(2 * n_trim)] <- fade_in
     self$trim_fade <- torch::nn_buffer(trim_fade)
   },
 
-  #' Embed reference audio
-  embed_ref = function(ref_wav, ref_sr, device = "auto") {
+#' Embed reference audio
+  embed_ref = function(
+    ref_wav,
+    ref_sr,
+    device = "auto"
+  ) {
     if (device == "auto") {
       device <- self$tokenizer$mel_filters$device
     }
@@ -451,9 +507,14 @@ s3gen <- torch::nn_module(
     )
   },
 
-  #' Run inference (tokens -> mel -> audio)
-  inference = function(speech_tokens, ref_wav = NULL, ref_sr = NULL, ref_dict = NULL,
-                       finalize = TRUE) {
+#' Run inference (tokens -> mel -> audio)
+  inference = function(
+    speech_tokens,
+    ref_wav = NULL,
+    ref_sr = NULL,
+    ref_dict = NULL,
+    finalize = TRUE
+  ) {
     # Get reference dict
     if (is.null(ref_dict)) {
       if (is.null(ref_wav)) {
@@ -511,72 +572,78 @@ s3gen <- torch::nn_module(
 #' @param state_dict State dictionary from safetensors
 #' @return Model with loaded weights
 #' @export
-load_s3gen_weights <- function(model, state_dict) {
+load_s3gen_weights <- function(
+  model,
+  state_dict
+) {
   torch::with_no_grad({
-    # Helper to copy weight if exists
-    copy_if_exists <- function(r_param, key) {
-      if (key %in% names(state_dict)) {
-        tryCatch({
-          r_param$copy_(state_dict[[key]])
-          return(TRUE)
-        }, error = function(e) {
-          warning("Failed to copy ", key, ": ", e$message)
-          return(FALSE)
-        })
+      # Helper to copy weight if exists
+      copy_if_exists <- function(
+        r_param,
+        key
+      ) {
+        if (key %in% names(state_dict)) {
+          tryCatch({
+              r_param$copy_(state_dict[[key]])
+              return(TRUE)
+            }, error = function(e) {
+              warning("Failed to copy ", key, ": ", e$message)
+              return(FALSE)
+            })
+        }
+        FALSE
       }
-      FALSE
-    }
 
-    # ========== Speech Tokenizer ==========
-    # Load tokenizer weights (S3TokenizerV2)
-    load_s3tokenizer_weights(model$tokenizer, state_dict, prefix = "tokenizer.")
+      # ========== Speech Tokenizer ==========
+      # Load tokenizer weights (S3TokenizerV2)
+      load_s3tokenizer_weights(model$tokenizer, state_dict, prefix = "tokenizer.")
 
-    # ========== Speaker Encoder (CAMPPlus) ==========
-    load_campplus_weights(model$speaker_encoder, state_dict, prefix = "speaker_encoder.")
+      # ========== Speaker Encoder (CAMPPlus) ==========
+      load_campplus_weights(model$speaker_encoder, state_dict, prefix = "speaker_encoder.")
 
-    # ========== Flow Module ==========
-    # Input embedding
-    copy_if_exists(model$flow$input_embedding$weight, "flow.input_embedding.weight")
+      # ========== Flow Module ==========
+      # Input embedding
+      copy_if_exists(model$flow$input_embedding$weight, "flow.input_embedding.weight")
 
-    # Speaker embedding projection
-    copy_if_exists(model$flow$spk_embed_affine_layer$weight, "flow.spk_embed_affine_layer.weight")
-    copy_if_exists(model$flow$spk_embed_affine_layer$bias, "flow.spk_embed_affine_layer.bias")
+      # Speaker embedding projection
+      copy_if_exists(model$flow$spk_embed_affine_layer$weight, "flow.spk_embed_affine_layer.weight")
+      copy_if_exists(model$flow$spk_embed_affine_layer$bias, "flow.spk_embed_affine_layer.bias")
 
-    # Encoder projection
-    copy_if_exists(model$flow$encoder_proj$weight, "flow.encoder_proj.weight")
-    copy_if_exists(model$flow$encoder_proj$bias, "flow.encoder_proj.bias")
+      # Encoder projection
+      copy_if_exists(model$flow$encoder_proj$weight, "flow.encoder_proj.weight")
+      copy_if_exists(model$flow$encoder_proj$bias, "flow.encoder_proj.bias")
 
-    # Encoder - this is a conformer with complex structure
-    # For now, load what we can (the simplified transformer encoder)
-    copy_if_exists(model$flow$encoder$input_proj$weight, "flow.encoder.embed.weight")
-    copy_if_exists(model$flow$encoder$input_proj$bias, "flow.encoder.embed.bias")
+      # Encoder - this is a conformer with complex structure
+      # For now, load what we can (the simplified transformer encoder)
+      copy_if_exists(model$flow$encoder$input_proj$weight, "flow.encoder.embed.weight")
+      copy_if_exists(model$flow$encoder$input_proj$bias, "flow.encoder.embed.bias")
 
-    # Encoder upsample
-    copy_if_exists(model$flow$encoder$upsample$weight, "flow.encoder.upsample.weight")
-    copy_if_exists(model$flow$encoder$upsample$bias, "flow.encoder.upsample.bias")
+      # Encoder upsample
+      copy_if_exists(model$flow$encoder$upsample$weight, "flow.encoder.upsample.weight")
+      copy_if_exists(model$flow$encoder$upsample$bias, "flow.encoder.upsample.bias")
 
-    # CFM Decoder/Estimator - complex nested structure
-    # The Python decoder is ConditionalDecoder (UNet-style)
-    # We have simplified CFM estimator
-    # Load what maps...
+      # CFM Decoder/Estimator - complex nested structure
+      # The Python decoder is ConditionalDecoder (UNet-style)
+      # We have simplified CFM estimator
+      # Load what maps...
 
-    # Time embedding
-    copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$weight, "flow.decoder.estimator.time_embed.mlp.0.weight")
-    copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$bias, "flow.decoder.estimator.time_embed.mlp.0.bias")
-    copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$weight, "flow.decoder.estimator.time_embed.mlp.2.weight")
-    copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$bias, "flow.decoder.estimator.time_embed.mlp.2.bias")
+      # Time embedding
+      copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$weight, "flow.decoder.estimator.time_embed.mlp.0.weight")
+      copy_if_exists(model$flow$decoder$estimator$time_emb[[1]]$bias, "flow.decoder.estimator.time_embed.mlp.0.bias")
+      copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$weight, "flow.decoder.estimator.time_embed.mlp.2.weight")
+      copy_if_exists(model$flow$decoder$estimator$time_emb[[3]]$bias, "flow.decoder.estimator.time_embed.mlp.2.bias")
 
-    # Input/output projections
-    copy_if_exists(model$flow$decoder$estimator$input_proj$weight, "flow.decoder.estimator.input_projection.weight")
-    copy_if_exists(model$flow$decoder$estimator$input_proj$bias, "flow.decoder.estimator.input_projection.bias")
-    copy_if_exists(model$flow$decoder$estimator$output_proj$weight, "flow.decoder.estimator.output_projection.weight")
-    copy_if_exists(model$flow$decoder$estimator$output_proj$bias, "flow.decoder.estimator.output_projection.bias")
+      # Input/output projections
+      copy_if_exists(model$flow$decoder$estimator$input_proj$weight, "flow.decoder.estimator.input_projection.weight")
+      copy_if_exists(model$flow$decoder$estimator$input_proj$bias, "flow.decoder.estimator.input_projection.bias")
+      copy_if_exists(model$flow$decoder$estimator$output_proj$weight, "flow.decoder.estimator.output_projection.weight")
+      copy_if_exists(model$flow$decoder$estimator$output_proj$bias, "flow.decoder.estimator.output_projection.bias")
 
-    # ========== HiFiGAN Vocoder ==========
-    if (!is.null(model$mel2wav)) {
-      load_hifigan_weights(model$mel2wav, state_dict, prefix = "mel2wav.")
-    }
-  })
+      # ========== HiFiGAN Vocoder ==========
+      if (!is.null(model$mel2wav)) {
+        load_hifigan_weights(model$mel2wav, state_dict, prefix = "mel2wav.")
+      }
+    })
 
   model
 }
@@ -587,7 +654,10 @@ load_s3gen_weights <- function(model, state_dict) {
 #' @param device Device to load to ("cpu", "cuda", etc.)
 #' @return S3Gen model with loaded weights
 #' @export
-load_s3gen <- function(path, device = "cpu") {
+load_s3gen <- function(
+  path,
+  device = "cpu"
+) {
   # Read safetensors
   state_dict <- read_safetensors(path, device)
 
@@ -606,3 +676,4 @@ load_s3gen <- function(path, device = "cpu") {
 
   model
 }
+

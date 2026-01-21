@@ -1,4 +1,4 @@
-# CAMPPlus Speaker Encoder (xvector) for chatteRbox
+# CAMPPlus Speaker Encoder (xvector) for chatterbox
 # DenseNet-style TDNN for speaker embeddings (192-dim)
 
 # ============================================================================
@@ -28,19 +28,23 @@ statistics_pooling <- function(x) {
 basic_res_block <- torch::nn_module(
   "BasicResBlock",
 
-  initialize = function(in_planes, planes, stride = 1) {
+  initialize = function(
+    in_planes,
+    planes,
+    stride = 1
+  ) {
     self$conv1 <- torch::nn_conv2d(in_planes, planes, kernel_size = 3,
-                                    stride = c(stride, 1), padding = 1, bias = FALSE)
+      stride = c(stride, 1), padding = 1, bias = FALSE)
     self$bn1 <- torch::nn_batch_norm2d(planes)
     self$conv2 <- torch::nn_conv2d(planes, planes, kernel_size = 3,
-                                    stride = 1, padding = 1, bias = FALSE)
+      stride = 1, padding = 1, bias = FALSE)
     self$bn2 <- torch::nn_batch_norm2d(planes)
 
     # Shortcut connection
     if (stride != 1 || in_planes != planes) {
       self$shortcut <- torch::nn_sequential(
         torch::nn_conv2d(in_planes, planes, kernel_size = 1,
-                         stride = c(stride, 1), bias = FALSE),
+          stride = c(stride, 1), bias = FALSE),
         torch::nn_batch_norm2d(planes)
       )
     } else {
@@ -70,11 +74,14 @@ basic_res_block <- torch::nn_module(
 fcm_module <- torch::nn_module(
   "FCM",
 
-  initialize = function(m_channels = 32, feat_dim = 80) {
+  initialize = function(
+    m_channels = 32,
+    feat_dim = 80
+  ) {
     self$in_planes <- m_channels
 
     self$conv1 <- torch::nn_conv2d(1, m_channels, kernel_size = 3,
-                                    stride = 1, padding = 1, bias = FALSE)
+      stride = 1, padding = 1, bias = FALSE)
     self$bn1 <- torch::nn_batch_norm2d(m_channels)
 
     # Two residual layers
@@ -82,13 +89,17 @@ fcm_module <- torch::nn_module(
     self$layer2 <- self$.make_layer(m_channels, 2, stride = 2)
 
     self$conv2 <- torch::nn_conv2d(m_channels, m_channels, kernel_size = 3,
-                                    stride = c(2, 1), padding = 1, bias = FALSE)
+      stride = c(2, 1), padding = 1, bias = FALSE)
     self$bn2 <- torch::nn_batch_norm2d(m_channels)
 
     self$out_channels <- m_channels * (feat_dim %/% 8)
   },
 
-  .make_layer = function(planes, num_blocks, stride) {
+  .make_layer = function(
+    planes,
+    num_blocks,
+    stride
+  ) {
     layers <- list()
     strides <- c(stride, rep(1, num_blocks - 1))
 
@@ -101,7 +112,7 @@ fcm_module <- torch::nn_module(
   },
 
   forward = function(x) {
-    x <- x$unsqueeze(2)  # Add channel dim
+    x <- x$unsqueeze(2) # Add channel dim
     out <- torch::nnf_relu(self$bn1$forward(self$conv1$forward(x)))
     out <- self$layer1$forward(out)
     out <- self$layer2$forward(out)
@@ -125,15 +136,21 @@ fcm_module <- torch::nn_module(
 tdnn_layer <- torch::nn_module(
   "TDNNLayer",
 
-  initialize = function(in_channels, out_channels, kernel_size,
-                        stride = 1, dilation = 1, padding = NULL) {
+  initialize = function(
+    in_channels,
+    out_channels,
+    kernel_size,
+    stride = 1,
+    dilation = 1,
+    padding = NULL
+  ) {
     if (is.null(padding)) {
       padding <- ((kernel_size - 1) %/% 2) * dilation
     }
 
     self$conv <- torch::nn_conv1d(in_channels, out_channels, kernel_size,
-                                   stride = stride, padding = padding,
-                                   dilation = dilation, bias = FALSE)
+      stride = stride, padding = padding,
+      dilation = dilation, bias = FALSE)
     self$bn <- torch::nn_batch_norm1d(out_channels)
   },
 
@@ -155,29 +172,39 @@ tdnn_layer <- torch::nn_module(
 cam_layer <- torch::nn_module(
   "CAMLayer",
 
-  initialize = function(bn_channels, out_channels, kernel_size,
-                        stride = 1, padding = 0, dilation = 1, reduction = 2) {
+  initialize = function(
+    bn_channels,
+    out_channels,
+    kernel_size,
+    stride = 1,
+    padding = 0,
+    dilation = 1,
+    reduction = 2
+  ) {
     self$linear_local <- torch::nn_conv1d(bn_channels, out_channels, kernel_size,
-                                           stride = stride, padding = padding,
-                                           dilation = dilation, bias = FALSE)
+      stride = stride, padding = padding,
+      dilation = dilation, bias = FALSE)
     self$linear1 <- torch::nn_conv1d(bn_channels, bn_channels %/% reduction, 1)
     self$relu <- torch::nn_relu()
     self$linear2 <- torch::nn_conv1d(bn_channels %/% reduction, out_channels, 1)
     self$sigmoid <- torch::nn_sigmoid()
   },
 
-  .seg_pooling = function(x, seg_len = 100) {
+  .seg_pooling = function(
+    x,
+    seg_len = 100
+  ) {
     # Segment-based average pooling
     pooled <- torch::nnf_avg_pool1d(x, kernel_size = seg_len, stride = seg_len,
-                                     ceil_mode = TRUE)
+      ceil_mode = TRUE)
 
     # Expand back to original length
     shape <- pooled$shape
     expanded <- pooled$unsqueeze(4)$expand(c(shape[1], shape[2], shape[3], seg_len))
-    expanded <- expanded$reshape(c(shape[1], shape[2], -1))
+    expanded <- expanded$reshape(c(shape[1], shape[2], - 1))
 
     # Trim to match input length
-    expanded[, , 1:x$size(3)]
+    expanded[,, 1:x$size(3)]
   },
 
   forward = function(x) {
@@ -203,15 +230,20 @@ cam_layer <- torch::nn_module(
 cam_dense_tdnn_layer <- torch::nn_module(
   "CAMDenseTDNNLayer",
 
-  initialize = function(in_channels, out_channels, bn_channels,
-                        kernel_size, dilation = 1) {
+  initialize = function(
+    in_channels,
+    out_channels,
+    bn_channels,
+    kernel_size,
+    dilation = 1
+  ) {
     padding <- ((kernel_size - 1) %/% 2) * dilation
 
     self$bn1 <- torch::nn_batch_norm1d(in_channels)
     self$linear1 <- torch::nn_conv1d(in_channels, bn_channels, 1, bias = FALSE)
     self$bn2 <- torch::nn_batch_norm1d(bn_channels)
     self$cam <- cam_layer(bn_channels, out_channels, kernel_size,
-                          padding = padding, dilation = dilation)
+      padding = padding, dilation = dilation)
   },
 
   forward = function(x) {
@@ -234,8 +266,14 @@ cam_dense_tdnn_layer <- torch::nn_module(
 cam_dense_tdnn_block <- torch::nn_module(
   "CAMDenseTDNNBlock",
 
-  initialize = function(num_layers, in_channels, out_channels,
-                        bn_channels, kernel_size, dilation = 1) {
+  initialize = function(
+    num_layers,
+    in_channels,
+    out_channels,
+    bn_channels,
+    kernel_size,
+    dilation = 1
+  ) {
     self$layers <- torch::nn_module_list()
 
     for (i in seq_len(num_layers)) {
@@ -265,7 +303,11 @@ cam_dense_tdnn_block <- torch::nn_module(
 transit_layer <- torch::nn_module(
   "TransitLayer",
 
-  initialize = function(in_channels, out_channels, bias = FALSE) {
+  initialize = function(
+    in_channels,
+    out_channels,
+    bias = FALSE
+  ) {
     self$bn <- torch::nn_batch_norm1d(in_channels)
     self$conv <- torch::nn_conv1d(in_channels, out_channels, 1, bias = bias)
   },
@@ -283,7 +325,10 @@ transit_layer <- torch::nn_module(
 dense_layer <- torch::nn_module(
   "DenseLayer",
 
-  initialize = function(in_channels, out_channels) {
+  initialize = function(
+    in_channels,
+    out_channels
+  ) {
     self$conv <- torch::nn_conv1d(in_channels, out_channels, 1, bias = FALSE)
     self$bn <- torch::nn_batch_norm1d(out_channels, affine = FALSE)
   },
@@ -313,35 +358,39 @@ dense_layer <- torch::nn_module(
 campplus <- torch::nn_module(
   "CAMPPlus",
 
-  initialize = function(feat_dim = 80, embedding_size = 192,
-                        growth_rate = 32, init_channels = 128) {
+  initialize = function(
+    feat_dim = 80,
+    embedding_size = 192,
+    growth_rate = 32,
+    init_channels = 128
+  ) {
     self$head <- fcm_module(m_channels = 32, feat_dim = feat_dim)
 
     channels <- self$head$out_channels
 
     # Initial TDNN
     self$tdnn <- tdnn_layer(channels, init_channels, kernel_size = 5,
-                            stride = 2, dilation = 1)
+      stride = 2, dilation = 1)
     channels <- init_channels
 
     # Three dense blocks with transit layers
     # Block 1: 12 layers, kernel=3, dilation=1
     self$block1 <- cam_dense_tdnn_block(12, channels, growth_rate,
-                                         growth_rate * 4, 3, dilation = 1)
+      growth_rate * 4, 3, dilation = 1)
     channels <- channels + 12 * growth_rate
     self$transit1 <- transit_layer(channels, channels %/% 2)
     channels <- channels %/% 2
 
     # Block 2: 24 layers, kernel=3, dilation=2
     self$block2 <- cam_dense_tdnn_block(24, channels, growth_rate,
-                                         growth_rate * 4, 3, dilation = 2)
+      growth_rate * 4, 3, dilation = 2)
     channels <- channels + 24 * growth_rate
     self$transit2 <- transit_layer(channels, channels %/% 2)
     channels <- channels %/% 2
 
     # Block 3: 16 layers, kernel=3, dilation=2
     self$block3 <- cam_dense_tdnn_block(16, channels, growth_rate,
-                                         growth_rate * 4, 3, dilation = 2)
+      growth_rate * 4, 3, dilation = 2)
     channels <- channels + 16 * growth_rate
     self$transit3 <- transit_layer(channels, channels %/% 2)
     channels <- channels %/% 2
@@ -404,7 +453,11 @@ campplus <- torch::nn_module(
 #' @param sr Sample rate
 #' @return Speaker embedding (1, 192)
 #' @export
-compute_xvector_embedding <- function(model, audio, sr) {
+compute_xvector_embedding <- function(
+  model,
+  audio,
+  sr
+) {
   device <- model$parameters[[1]]$device
 
   # Convert to tensor if needed
@@ -448,8 +501,8 @@ compute_xvector_embedding <- function(model, audio, sr) {
   mel <- mel$to(device = device)
 
   torch::with_no_grad({
-    model$forward(mel)
-  })
+      model$forward(mel)
+    })
 }
 
 #' Load CAMPPlus weights from safetensors
@@ -459,25 +512,32 @@ compute_xvector_embedding <- function(model, audio, sr) {
 #' @param prefix Prefix for weight keys (default "speaker_encoder.")
 #' @return Model with loaded weights
 #' @export
-load_campplus_weights <- function(model, state_dict, prefix = "speaker_encoder.") {
+load_campplus_weights <- function(
+  model,
+  state_dict,
+  prefix = "speaker_encoder."
+) {
   # Helper to copy weight if exists
-  copy_if_exists <- function(r_param, key) {
+  copy_if_exists <- function(
+    r_param,
+    key
+  ) {
     full_key <- paste0(prefix, key)
     if (full_key %in% names(state_dict)) {
       tryCatch({
-        r_param$copy_(state_dict[[full_key]])
-        return(TRUE)
-      }, error = function(e) {
-        warning("Failed to copy ", key, ": ", e$message)
-        return(FALSE)
-      })
+          r_param$copy_(state_dict[[full_key]])
+          return(TRUE)
+        }, error = function(e) {
+          warning("Failed to copy ", key, ": ", e$message)
+          return(FALSE)
+        })
     }
     # Try without prefix
     if (key %in% names(state_dict)) {
       tryCatch({
-        r_param$copy_(state_dict[[key]])
-        return(TRUE)
-      }, error = function(e) FALSE)
+          r_param$copy_(state_dict[[key]])
+          return(TRUE)
+        }, error = function(e) FALSE)
     }
     FALSE
   }
@@ -669,3 +729,4 @@ load_campplus_weights <- function(model, state_dict, prefix = "speaker_encoder."
 
   model
 }
+

@@ -23,8 +23,7 @@ tts(
 
 \item{exaggeration}{Emotion/expression exaggeration level (0-1, default 0.5)}
 
-\item{cfg_weight}{Classifier-free guidance weight (higher = more adherence to text,
-default 0.5)}
+\item{cfg_weight}{Classifier-free guidance weight (higher = more adherence to text, default 0.5)}
 
 \item{temperature}{Sampling temperature (default 0.8)}
 

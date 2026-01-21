@@ -1,4 +1,4 @@
-Package: chatteRbox
+Package: chatterbox
 Title: Text-to-Speech Using Chatterbox TTS Engine
 Version: 0.0.1
 Authors@R:
@@ -19,3 +19,4 @@ Imports:
 Suggests:
     tinytest,
     av
+RoxygenNote: 7.3.3

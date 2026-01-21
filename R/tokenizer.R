@@ -1,4 +1,4 @@
-# Text tokenizer for chatteRbox
+# Text tokenizer for chatterbox
 # Parses HuggingFace tokenizers JSON format
 
 # Special tokens
@@ -47,7 +47,7 @@ load_tokenizer <- function(vocab_path) {
   names(token_to_id) <- names(vocab)
 
   for (token in names(vocab)) {
-    id <- vocab[[token]] + 1  # R is 1-indexed
+    id <- vocab[[token]] + 1# R is 1-indexed
     id_to_token[id] <- token
     token_to_id[token] <- vocab[[token]]
   }
@@ -89,17 +89,17 @@ punc_norm <- function(text) {
   # Replace uncommon punctuation
   replacements <- list(
     c("...", ", "),
-    c("\u2026", ", "),  # ellipsis
+    c("\u2026", ", "), # ellipsis
     c(":", ","),
     c(" - ", ", "),
     c(";", ", "),
-    c("\u2014", "-"),  # em dash
-    c("\u2013", "-"),  # en dash
+    c("\u2014", "-"), # em dash
+    c("\u2013", "-"), # en dash
     c(" ,", ","),
-    c("\u201c", "\""),  # left double quote
-    c("\u201d", "\""),  # right double quote
-    c("\u2018", "'"),   # left single quote
-    c("\u2019", "'")    # right single quote
+    c("\u201c", "\""), # left double quote
+    c("\u201d", "\""), # right double quote
+    c("\u2018", "'"), # left single quote
+    c("\u2019", "'") # right single quote
   )
 
   for (r in replacements) {
@@ -127,12 +127,15 @@ punc_norm <- function(text) {
 #' @param tokenizer Tokenizer object
 #' @param text Input text
 #' @return Integer vector of token IDs
-tokenize_text <- function(tokenizer, text) {
+tokenize_text <- function(
+  tokenizer,
+  text
+) {
   # First, split text while preserving spaces as special tokens
   # Don't replace spaces yet - handle them during initial tokenization
 
   # Start with characters, but treat spaces as [SPACE] tokens
-  chars <- strsplit(text, "")[[1]]
+  chars <- strsplit(text, "") [[1]]
 
   # Handle characters - map spaces to [SPACE], unknowns to UNK
   tokens <- character(length(chars))
@@ -176,11 +179,11 @@ tokenize_text <- function(tokenizer, text) {
     if (merged_token %in% names(tokenizer$vocab)) {
       # Replace the pair with merged token
       if (best_idx == 1) {
-        tokens <- c(merged_token, tokens[(best_idx + 2):length(tokens)])
+        tokens <- c(merged_token, tokens[(best_idx + 2) :length(tokens)])
       } else if (best_idx + 1 == length(tokens)) {
         tokens <- c(tokens[1:(best_idx - 1)], merged_token)
       } else {
-        tokens <- c(tokens[1:(best_idx - 1)], merged_token, tokens[(best_idx + 2):length(tokens)])
+        tokens <- c(tokens[1:(best_idx - 1)], merged_token, tokens[(best_idx + 2) :length(tokens)])
       }
     } else {
       # Merged token not in vocab, skip this merge
@@ -209,7 +212,12 @@ tokenize_text <- function(tokenizer, text) {
 #' @param device Target device
 #' @return Token tensor (1, seq_len)
 #' @export
-text_to_tokens <- function(tokenizer, text, normalize = TRUE, device = "cpu") {
+text_to_tokens <- function(
+  tokenizer,
+  text,
+  normalize = TRUE,
+  device = "cpu"
+) {
   if (normalize) {
     text <- punc_norm(text)
   }
@@ -229,14 +237,17 @@ text_to_tokens <- function(tokenizer, text, normalize = TRUE, device = "cpu") {
 #' @param ids Integer vector or tensor of token IDs
 #' @return Decoded text string
 #' @export
-decode_tokens <- function(tokenizer, ids) {
+decode_tokens <- function(
+  tokenizer,
+  ids
+) {
   if (inherits(ids, "torch_tensor")) {
     ids <- as.integer(ids$cpu())
   }
 
   tokens <- character(length(ids))
   for (i in seq_along(ids)) {
-    idx <- ids[i] + 1  # Convert to R indexing
+    idx <- ids[i] + 1# Convert to R indexing
     if (idx > 0 && idx <= length(tokenizer$id_to_token)) {
       tokens[i] <- tokenizer$id_to_token[idx]
     } else {
@@ -246,10 +257,11 @@ decode_tokens <- function(tokenizer, ids) {
 
   # Join and clean up
   text <- paste(tokens, collapse = "")
-  text <- gsub(" ", "", text)  # Remove spaces from BPE
+  text <- gsub(" ", "", text) # Remove spaces from BPE
   text <- gsub(SPECIAL_TOKENS$SPACE, " ", text, fixed = TRUE)
   text <- gsub(SPECIAL_TOKENS$EOT, "", text, fixed = TRUE)
   text <- gsub(SPECIAL_TOKENS$UNK, "", text, fixed = TRUE)
 
   text
 }
+

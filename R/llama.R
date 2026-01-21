@@ -1,4 +1,4 @@
-# Llama model implementation for chatteRbox
+# Llama model implementation for chatterbox
 # A minimal Llama implementation compatible with HuggingFace weights
 
 # ============================================================================
@@ -10,7 +10,7 @@
 #' @return List with model configuration
 llama_config_520m <- function() {
   list(
-    vocab_size = 8,  # Unused - custom embeddings
+    vocab_size = 8, # Unused - custom embeddings
     max_position_embeddings = 131072,
     hidden_size = 1024,
     intermediate_size = 4096,
@@ -46,7 +46,10 @@ llama_config_520m <- function() {
 llama_rms_norm <- torch::nn_module(
   "LlamaRMSNorm",
 
-  initialize = function(hidden_size, eps = 1e-5) {
+  initialize = function(
+    hidden_size,
+    eps = 1e-5
+  ) {
     self$eps <- eps
     self$weight <- torch::nn_parameter(torch::torch_ones(hidden_size))
   },
@@ -54,7 +57,7 @@ llama_rms_norm <- torch::nn_module(
   forward = function(x) {
     input_dtype <- x$dtype
     x <- x$to(dtype = torch::torch_float32())
-    variance <- x$pow(2)$mean(dim = -1, keepdim = TRUE)
+    variance <- x$pow(2)$mean(dim = - 1, keepdim = TRUE)
     x <- x * torch::torch_rsqrt(variance + self$eps)
     self$weight * x$to(dtype = input_dtype)
   }
@@ -72,8 +75,13 @@ llama_rms_norm <- torch::nn_module(
 #' @param scaling Rope scaling configuration (optional)
 #' @param device Device to create tensors on
 #' @return List with cos and sin caches
-compute_rope_frequencies <- function(dim, max_seq_len, theta = 500000.0,
-                                      scaling = NULL, device = "cpu") {
+compute_rope_frequencies <- function(
+  dim,
+  max_seq_len,
+  theta = 500000.0,
+  scaling = NULL,
+  device = "cpu"
+) {
   # Compute inverse frequencies
   # R torch_arange is inclusive; use end= - 1 for Python-like behavior
   inv_freq <- 1.0 / (theta ^ (torch::torch_arange(start = 0, end = dim - 1, step = 2, device = device)$to(dtype = torch::torch_float32()) / dim))
@@ -90,7 +98,7 @@ compute_rope_frequencies <- function(dim, max_seq_len, theta = 500000.0,
   freqs <- torch::torch_outer(t, inv_freq)
 
   # Create cos and sin caches: (seq_len, dim)
-  emb <- torch::torch_cat(list(freqs, freqs), dim = -1)
+  emb <- torch::torch_cat(list(freqs, freqs), dim = - 1)
 
   list(
     cos = emb$cos(),
@@ -104,7 +112,11 @@ compute_rope_frequencies <- function(dim, max_seq_len, theta = 500000.0,
 #' @param scaling Scaling configuration
 #' @param dim Dimension
 #' @return Scaled inverse frequencies
-apply_llama3_rope_scaling <- function(inv_freq, scaling, dim) {
+apply_llama3_rope_scaling <- function(
+  inv_freq,
+  scaling,
+  dim
+) {
   factor <- scaling$factor
   low_freq_factor <- scaling$low_freq_factor
   high_freq_factor <- scaling$high_freq_factor
@@ -142,9 +154,9 @@ apply_llama3_rope_scaling <- function(inv_freq, scaling, dim) {
 #' @param x Input tensor
 #' @return Rotated tensor
 rotate_half <- function(x) {
-  x1 <- x[, , , 1:(x$size(4) %/% 2)]
-  x2 <- x[, , , (x$size(4) %/% 2 + 1):x$size(4)]
-  torch::torch_cat(list(-x2, x1), dim = -1)
+  x1 <- x[,,, 1:(x$size(4) %/% 2)]
+  x2 <- x[,,, (x$size(4) %/% 2 + 1) :x$size(4)]
+  torch::torch_cat(list(- x2, x1), dim = - 1)
 }
 
 #' Apply rotary position embeddings to Q and K
@@ -155,14 +167,20 @@ rotate_half <- function(x) {
 #' @param sin Sine cache
 #' @param position_ids Position indices
 #' @return List with rotated q and k
-apply_rotary_pos_emb <- function(q, k, cos, sin, position_ids) {
+apply_rotary_pos_emb <- function(
+  q,
+  k,
+  cos,
+  sin,
+  position_ids
+) {
   # Gather cos/sin for positions
   # R torch uses 1-based indexing for unsqueeze, so unsqueeze(3) inserts at position 3
-  cos <- cos[position_ids$add(1L), ]$unsqueeze(3)  # (batch, seq, 1, dim)
-  sin <- sin[position_ids$add(1L), ]$unsqueeze(3)
+  cos <- cos[position_ids$add(1L),]$unsqueeze(3) # (batch, seq, 1, dim)
+  sin <- sin[position_ids$add(1L),]$unsqueeze(3)
 
   # Transpose to match q, k layout: (batch, seq, 1, dim) -> (batch, 1, seq, dim)
-  cos <- cos$transpose(2, 3)  # (batch, 1, seq, dim)
+  cos <- cos$transpose(2, 3) # (batch, 1, seq, dim)
   sin <- sin$transpose(2, 3)
 
   q_embed <- (q * cos) + (rotate_half(q) * sin)
@@ -183,7 +201,10 @@ apply_rotary_pos_emb <- function(q, k, cos, sin, position_ids) {
 llama_attention <- torch::nn_module(
   "LlamaAttention",
 
-  initialize = function(config, layer_idx) {
+  initialize = function(
+    config,
+    layer_idx
+  ) {
     self$config <- config
     self$layer_idx <- layer_idx
     self$hidden_size <- config$hidden_size
@@ -200,8 +221,14 @@ llama_attention <- torch::nn_module(
     self$o_proj <- torch::nn_linear(self$num_heads * self$head_dim, self$hidden_size, bias = config$attention_bias)
   },
 
-  forward = function(hidden_states, position_ids, rope_cos, rope_sin,
-                     attention_mask = NULL, past_key_value = NULL) {
+  forward = function(
+    hidden_states,
+    position_ids,
+    rope_cos,
+    rope_sin,
+    attention_mask = NULL,
+    past_key_value = NULL
+  ) {
     bsz <- hidden_states$size(1)
     q_len <- hidden_states$size(2)
 
@@ -244,7 +271,7 @@ llama_attention <- torch::nn_module(
     }
 
     # Softmax and dropout
-    attn_weights <- torch::nnf_softmax(attn_weights, dim = -1)
+    attn_weights <- torch::nnf_softmax(attn_weights, dim = - 1)
     if (self$training && self$attention_dropout > 0) {
       attn_weights <- torch::nnf_dropout(attn_weights, p = self$attention_dropout)
     }
@@ -308,15 +335,24 @@ llama_mlp <- torch::nn_module(
 llama_decoder_layer <- torch::nn_module(
   "LlamaDecoderLayer",
 
-  initialize = function(config, layer_idx) {
+  initialize = function(
+    config,
+    layer_idx
+  ) {
     self$self_attn <- llama_attention(config, layer_idx)
     self$mlp <- llama_mlp(config)
     self$input_layernorm <- llama_rms_norm(config$hidden_size, config$rms_norm_eps)
     self$post_attention_layernorm <- llama_rms_norm(config$hidden_size, config$rms_norm_eps)
   },
 
-  forward = function(hidden_states, position_ids, rope_cos, rope_sin,
-                     attention_mask = NULL, past_key_value = NULL) {
+  forward = function(
+    hidden_states,
+    position_ids,
+    rope_cos,
+    rope_sin,
+    attention_mask = NULL,
+    past_key_value = NULL
+  ) {
     residual <- hidden_states
 
     # Pre-norm
@@ -369,8 +405,8 @@ llama_model <- torch::nn_module(
     # Decoder layers
     self$layers <- torch::nn_module_list(
       lapply(seq_len(config$num_hidden_layers) - 1, function(i) {
-        llama_decoder_layer(config, i)
-      })
+          llama_decoder_layer(config, i)
+        })
     )
 
     # Final norm
@@ -380,10 +416,13 @@ llama_model <- torch::nn_module(
     self$rope_cache <- NULL
   },
 
-  .get_rope_cache = function(seq_len, device) {
+  .get_rope_cache = function(
+    seq_len,
+    device
+  ) {
     if (is.null(self$rope_cache) ||
-        self$rope_cache$cos$size(1) < seq_len ||
-        self$rope_cache$cos$device$type != device$type) {
+      self$rope_cache$cos$size(1) < seq_len ||
+      self$rope_cache$cos$device$type != device$type) {
 
       self$rope_cache <- compute_rope_frequencies(
         dim = self$config$head_dim,
@@ -396,10 +435,16 @@ llama_model <- torch::nn_module(
     self$rope_cache
   },
 
-  forward = function(input_ids = NULL, inputs_embeds = NULL, position_ids = NULL,
-                     attention_mask = NULL, past_key_values = NULL,
-                     use_cache = TRUE, output_hidden_states = FALSE,
-                     output_attentions = FALSE) {
+  forward = function(
+    input_ids = NULL,
+    inputs_embeds = NULL,
+    position_ids = NULL,
+    attention_mask = NULL,
+    past_key_values = NULL,
+    use_cache = TRUE,
+    output_hidden_states = FALSE,
+    output_attentions = FALSE
+  ) {
 
     # Get hidden states from embeddings
     if (!is.null(inputs_embeds)) {
@@ -416,10 +461,14 @@ llama_model <- torch::nn_module(
 
     # Handle position IDs
     if (is.null(position_ids)) {
-      past_length <- if (!is.null(past_key_values)) past_key_values[[1]]$k$size(3) else 0
+      if (!is.null(past_key_values)) {
+        past_length <- past_key_values[[1]]$k$size(3)
+      } else {
+        past_length <- 0
+      }
       # R torch_arange is inclusive, so use seq_length - 1 for end to get seq_length values
       position_ids <- torch::torch_arange(past_length, past_length + seq_length - 1, device = device, dtype = torch::torch_long())
-      position_ids <- position_ids$unsqueeze(1)$expand(c(batch_size, -1))
+      position_ids <- position_ids$unsqueeze(1)$expand(c(batch_size, - 1))
     }
 
     # Get RoPE cache
@@ -432,24 +481,36 @@ llama_model <- torch::nn_module(
     if (is.null(attention_mask)) {
       if (seq_length > 1) {
         # Create causal mask
-        mask <- torch::torch_full(c(seq_length, seq_length), -Inf, device = device)
+        mask <- torch::torch_full(c(seq_length, seq_length), - Inf, device = device)
         mask <- torch::torch_triu(mask, diagonal = 1)
         # Add past length
         if (!is.null(past_key_values)) {
           past_len <- past_key_values[[1]]$k$size(3)
           mask <- torch::torch_cat(list(
-            torch::torch_zeros(c(seq_length, past_len), device = device),
-            mask
-          ), dim = -1)
+              torch::torch_zeros(c(seq_length, past_len), device = device),
+              mask
+            ), dim = - 1)
         }
         attention_mask <- mask$unsqueeze(1)$unsqueeze(1)
       }
     }
 
     # Storage for outputs
-    all_hidden_states <- if (output_hidden_states) list() else NULL
-    all_attentions <- if (output_attentions) list() else NULL
-    new_past_key_values <- if (use_cache) list() else NULL
+    if (output_hidden_states) {
+      all_hidden_states <- list()
+    } else {
+      all_hidden_states <- NULL
+    }
+    if (output_attentions) {
+      all_attentions <- list()
+    } else {
+      all_attentions <- NULL
+    }
+    if (use_cache) {
+      new_past_key_values <- list()
+    } else {
+      new_past_key_values <- NULL
+    }
 
     # Process through layers
     for (i in seq_along(self$layers)) {
@@ -459,7 +520,11 @@ llama_model <- torch::nn_module(
         all_hidden_states[[length(all_hidden_states) + 1]] <- hidden_states
       }
 
-      past_kv <- if (!is.null(past_key_values)) past_key_values[[i]] else NULL
+      if (!is.null(past_key_values)) {
+        past_kv <- past_key_values[[i]]
+      } else {
+        past_kv <- NULL
+      }
 
       layer_out <- layer$forward(
         hidden_states,
@@ -507,59 +572,64 @@ llama_model <- torch::nn_module(
 #' @param state_dict Named list of tensors from safetensors
 #' @param prefix Prefix to strip from weight names (default: "model.")
 #' @return Model with loaded weights
-load_llama_weights <- function(model, state_dict, prefix = "model.") {
+load_llama_weights <- function(
+  model,
+  state_dict,
+  prefix = "model."
+) {
   torch::with_no_grad({
-    # Map HuggingFace weight names to our model
-    for (name in names(state_dict)) {
-      # Strip prefix
-      key <- sub(paste0("^", prefix), "", name)
+      # Map HuggingFace weight names to our model
+      for (name in names(state_dict)) {
+        # Strip prefix
+        key <- sub(paste0("^", prefix), "", name)
 
-      # Parse the key to find the parameter
-      param <- tryCatch({
-        parts <- strsplit(key, "\\.")[[1]]
+        # Parse the key to find the parameter
+        param <- tryCatch({
+            parts <- strsplit(key, "\\.") [[1]]
 
-        if (parts[1] == "embed_tokens") {
-          model$embed_tokens$weight
-        } else if (parts[1] == "norm") {
-          model$norm$weight
-        } else if (parts[1] == "layers") {
-          layer_idx <- as.integer(parts[2]) + 1  # R is 1-indexed
-          layer <- model$layers[[layer_idx]]
+            if (parts[1] == "embed_tokens") {
+              model$embed_tokens$weight
+            } else if (parts[1] == "norm") {
+              model$norm$weight
+            } else if (parts[1] == "layers") {
+              layer_idx <- as.integer(parts[2]) + 1# R is 1-indexed
+              layer <- model$layers[[layer_idx]]
 
-          if (parts[3] == "self_attn") {
-            proj_name <- parts[4]
-            if (proj_name == "q_proj") {
-              layer$self_attn$q_proj$weight
-            } else if (proj_name == "k_proj") {
-              layer$self_attn$k_proj$weight
-            } else if (proj_name == "v_proj") {
-              layer$self_attn$v_proj$weight
-            } else if (proj_name == "o_proj") {
-              layer$self_attn$o_proj$weight
+              if (parts[3] == "self_attn") {
+                proj_name <- parts[4]
+                if (proj_name == "q_proj") {
+                  layer$self_attn$q_proj$weight
+                } else if (proj_name == "k_proj") {
+                  layer$self_attn$k_proj$weight
+                } else if (proj_name == "v_proj") {
+                  layer$self_attn$v_proj$weight
+                } else if (proj_name == "o_proj") {
+                  layer$self_attn$o_proj$weight
+                }
+              } else if (parts[3] == "mlp") {
+                proj_name <- parts[4]
+                if (proj_name == "gate_proj") {
+                  layer$mlp$gate_proj$weight
+                } else if (proj_name == "up_proj") {
+                  layer$mlp$up_proj$weight
+                } else if (proj_name == "down_proj") {
+                  layer$mlp$down_proj$weight
+                }
+              } else if (parts[3] == "input_layernorm") {
+                layer$input_layernorm$weight
+              } else if (parts[3] == "post_attention_layernorm") {
+                layer$post_attention_layernorm$weight
+              }
             }
-          } else if (parts[3] == "mlp") {
-            proj_name <- parts[4]
-            if (proj_name == "gate_proj") {
-              layer$mlp$gate_proj$weight
-            } else if (proj_name == "up_proj") {
-              layer$mlp$up_proj$weight
-            } else if (proj_name == "down_proj") {
-              layer$mlp$down_proj$weight
-            }
-          } else if (parts[3] == "input_layernorm") {
-            layer$input_layernorm$weight
-          } else if (parts[3] == "post_attention_layernorm") {
-            layer$post_attention_layernorm$weight
-          }
+          }, error = function(e) NULL)
+
+        if (!is.null(param)) {
+          # Copy weights
+          param$copy_(state_dict[[name]])
         }
-      }, error = function(e) NULL)
-
-      if (!is.null(param)) {
-        # Copy weights
-        param$copy_(state_dict[[name]])
       }
-    }
-  })
+    })
 
   model
 }
+
