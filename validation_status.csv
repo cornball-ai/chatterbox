@@ -1,0 +1,11 @@
+Component,Order,Max Diff,Status,Test Script,Notes
+CFM Decoder,8,0.052,Validated,scripts/test_cfm_full.R,10-step Euler solver
+HiFi-GAN Vocoder,9,0.026,Validated,scripts/test_hifigan.R,Weight normalization handled
+CAMPPlus,5,0.0015,Validated,scripts/test_campplus.R,Speaker embedding for S3Gen
+Conformer Encoder,7,0.0004,Validated,scripts/test_encoder_steps.R,6 layers + upsample
+Voice Encoder,2,0.00026,Validated,scripts/test_voice_encoder.R,LSTM speaker embedding
+T3 Llama Backbone,4,0.00003,Validated,scripts/test_t3_llama.R,520M param transformer
+T3 Conditioning,4,0.000002,Validated,scripts/test_t3_cond.R,Perceiver resampler
+Mel Extractor,6,0.000001,Validated,scripts/test_voice_encoder.R,Slaney filterbank
+S3 Tokenizer,3,0,Validated,scripts/test_s3tokenizer.R,100% token match
+Text Tokenizer,1,0,Validated,-,Same tokenizer.json
