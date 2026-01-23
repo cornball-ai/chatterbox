@@ -425,12 +425,16 @@ hift_generator <- torch::nn_module(
     self$source_downs <- torch::nn_module_list()
     self$source_resblocks <- torch::nn_module_list()
 
-    # Compute downsample rates (original formula for weight compatibility)
-    downsample_rates <- c(1, rev(upsample_rates[- length(upsample_rates)]))
-    downsample_cum <- cumprod(downsample_rates)
+    # Compute downsample rates to match source STFT to each upsample stage
+    # Source STFT has frames = audio_frames / istft_hop_len
+    # At stage i, mel has been upsampled by prod(upsample_rates[1:(i+1)])
+    # Downsample rate = total_upsample / istft_hop / cumulative_upsample[i]
+    total_upsample <- prod(upsample_rates)
+    cum_up <- cumprod(upsample_rates)
+    downsample_rates <- total_upsample %/% cum_up  # c(15, 3, 1) for rates c(8, 5, 3)
 
     for (i in seq_along(source_resblock_kernel_sizes)) {
-      u <- rev(downsample_cum)[i]
+      u <- downsample_rates[i]
       k <- source_resblock_kernel_sizes[i]
       d <- source_resblock_dilation_sizes[[i]]
       out_ch <- base_channels %/% (2 ^ i)
@@ -658,96 +662,136 @@ load_hifigan_weights <- function(
   state_dict,
   prefix = "mel2wav."
 ) {
-  # Map weights from Python model to R implementation
-  # This requires careful attention to naming conventions
+  torch::with_no_grad({
+    # Map weights from Python model to R implementation
+    # Python uses ParametrizedConv1d with weight normalization
+    # Weight keys: parametrizations.weight.original0 (g), original1 (v)
+    # Effective weight: w = g * v / ||v||
 
-  # Helper to copy weight if exists
-  copy_if_exists <- function(
-    r_param,
-    key
-  ) {
-    full_key <- paste0(prefix, key)
-    if (full_key %in% names(state_dict)) {
-      r_param$copy_(state_dict[[full_key]])
-      return(TRUE)
+    # Helper to compute effective weight from parametrized conv
+    get_parametrized_weight <- function(key_base) {
+      g_key <- paste0(prefix, key_base, ".parametrizations.weight.original0")
+      v_key <- paste0(prefix, key_base, ".parametrizations.weight.original1")
+
+      if (!(g_key %in% names(state_dict) && v_key %in% names(state_dict))) {
+        return(NULL)
+      }
+
+      g <- state_dict[[g_key]]  # magnitude [out, 1, 1]
+      v <- state_dict[[v_key]]  # direction [out, in, kernel]
+
+      # Compute ||v|| over in_channels and kernel dimensions
+      v_flat <- v$view(c(v$size(1), -1L))
+      v_norm <- v_flat$norm(dim = 2L, keepdim = TRUE)$unsqueeze(3L)
+
+      # Effective weight: w = g * v / ||v||
+      g * v / v_norm
     }
-    FALSE
-  }
 
-  # F0 predictor
-  f0_keys <- grep(paste0("^", prefix, "f0_predictor\\."), names(state_dict), value = TRUE)
-  if (length(f0_keys) > 0) {
-    # condnet layers (5 conv layers)
+    # Helper to copy weight if exists (for non-parametrized weights)
+    copy_if_exists <- function(r_param, key) {
+      full_key <- paste0(prefix, key)
+      if (full_key %in% names(state_dict)) {
+        r_param$copy_(state_dict[[full_key]])
+        return(TRUE)
+      }
+      FALSE
+    }
+
+    # Helper to copy parametrized conv weight
+    copy_parametrized_conv <- function(r_conv, key_base) {
+      w <- get_parametrized_weight(key_base)
+      if (!is.null(w)) {
+        r_conv$weight$copy_(w)
+      }
+      copy_if_exists(r_conv$bias, paste0(key_base, ".bias"))
+    }
+
+    # F0 predictor - condnet uses parametrized convolutions
     for (i in 0:4) {
-      conv_key <- sprintf("f0_predictor.condnet.%d.weight", i * 2)
-      if (paste0(prefix, conv_key) %in% names(state_dict)) {
-        # Sequential index: conv at 0, 2, 4, 6, 8
-        model$f0_predictor$condnet[[i * 2 + 1]]$weight$copy_(
-          state_dict[[paste0(prefix, conv_key)]]
-        )
-      }
-      bias_key <- sprintf("f0_predictor.condnet.%d.bias", i * 2)
-      if (paste0(prefix, bias_key) %in% names(state_dict)) {
-        model$f0_predictor$condnet[[i * 2 + 1]]$bias$copy_(
-          state_dict[[paste0(prefix, bias_key)]]
-        )
-      }
+      key_base <- sprintf("f0_predictor.condnet.%d", i * 2)
+      # R sequential index: conv at 1, 3, 5, 7, 9
+      copy_parametrized_conv(model$f0_predictor$condnet[[i * 2 + 1]], key_base)
     }
-    # classifier
+    # classifier (linear, not parametrized)
     copy_if_exists(model$f0_predictor$classifier$weight, "f0_predictor.classifier.weight")
     copy_if_exists(model$f0_predictor$classifier$bias, "f0_predictor.classifier.bias")
-  }
 
-  # Source module
-  copy_if_exists(model$m_source$l_linear$weight, "m_source.l_linear.weight")
-  copy_if_exists(model$m_source$l_linear$bias, "m_source.l_linear.bias")
+    # Source module (linear, not parametrized)
+    copy_if_exists(model$m_source$l_linear$weight, "m_source.l_linear.weight")
+    copy_if_exists(model$m_source$l_linear$bias, "m_source.l_linear.bias")
 
-  # conv_pre
-  copy_if_exists(model$conv_pre$weight, "conv_pre.weight")
-  copy_if_exists(model$conv_pre$bias, "conv_pre.bias")
+    # conv_pre (parametrized)
+    copy_parametrized_conv(model$conv_pre, "conv_pre")
 
-  # Upsampling layers
-  for (i in seq_along(model$ups)) {
-    key_w <- sprintf("ups.%d.weight", i - 1)
-    key_b <- sprintf("ups.%d.bias", i - 1)
-    copy_if_exists(model$ups[[i]]$weight, key_w)
-    copy_if_exists(model$ups[[i]]$bias, key_b)
-  }
+    # Upsampling layers (parametrized ConvTranspose1d)
+    for (i in seq_along(model$ups)) {
+      key_base <- sprintf("ups.%d", i - 1)
+      # ConvTranspose1d has different weight shape, handle specially
+      g_key <- paste0(prefix, key_base, ".parametrizations.weight.original0")
+      v_key <- paste0(prefix, key_base, ".parametrizations.weight.original1")
 
-  # Source downs and resblocks
-  for (i in seq_along(model$source_downs)) {
-    key_w <- sprintf("source_downs.%d.weight", i - 1)
-    key_b <- sprintf("source_downs.%d.bias", i - 1)
-    copy_if_exists(model$source_downs[[i]]$weight, key_w)
-    copy_if_exists(model$source_downs[[i]]$bias, key_b)
-  }
+      if (g_key %in% names(state_dict) && v_key %in% names(state_dict)) {
+        g <- state_dict[[g_key]]  # [in, 1, 1] for ConvTranspose
+        v <- state_dict[[v_key]]  # [in, out, kernel]
 
-  # Main resblocks - complex nested structure
-  for (i in seq_along(model$resblocks)) {
-    block_prefix <- sprintf("resblocks.%d.", i - 1)
-    # Each resblock has convs1, convs2, activations1, activations2
-    for (j in seq_along(model$resblocks[[i]]$convs1)) {
-      conv1_w <- paste0(block_prefix, sprintf("convs1.%d.weight", j - 1))
-      conv1_b <- paste0(block_prefix, sprintf("convs1.%d.bias", j - 1))
-      conv2_w <- paste0(block_prefix, sprintf("convs2.%d.weight", j - 1))
-      conv2_b <- paste0(block_prefix, sprintf("convs2.%d.bias", j - 1))
-
-      copy_if_exists(model$resblocks[[i]]$convs1[[j]]$weight, conv1_w)
-      copy_if_exists(model$resblocks[[i]]$convs1[[j]]$bias, conv1_b)
-      copy_if_exists(model$resblocks[[i]]$convs2[[j]]$weight, conv2_w)
-      copy_if_exists(model$resblocks[[i]]$convs2[[j]]$bias, conv2_b)
-
-      # Snake activations
-      act1_key <- paste0(block_prefix, sprintf("activations1.%d.alpha", j - 1))
-      act2_key <- paste0(block_prefix, sprintf("activations2.%d.alpha", j - 1))
-      copy_if_exists(model$resblocks[[i]]$activations1[[j]]$alpha, act1_key)
-      copy_if_exists(model$resblocks[[i]]$activations2[[j]]$alpha, act2_key)
+        # For ConvTranspose, norm over out_channels and kernel (dims 2 and 3)
+        v_flat <- v$view(c(v$size(1), -1L))
+        v_norm <- v_flat$norm(dim = 2L, keepdim = TRUE)$unsqueeze(3L)
+        w <- g * v / v_norm
+        model$ups[[i]]$weight$copy_(w)
+      }
+      copy_if_exists(model$ups[[i]]$bias, paste0(key_base, ".bias"))
     }
-  }
 
-  # conv_post
-  copy_if_exists(model$conv_post$weight, "conv_post.weight")
-  copy_if_exists(model$conv_post$bias, "conv_post.bias")
+    # Source downs (regular Conv1d, not parametrized)
+    for (i in seq_along(model$source_downs)) {
+      key_w <- sprintf("source_downs.%d.weight", i - 1)
+      key_b <- sprintf("source_downs.%d.bias", i - 1)
+      copy_if_exists(model$source_downs[[i]]$weight, key_w)
+      copy_if_exists(model$source_downs[[i]]$bias, key_b)
+    }
+
+    # Main resblocks - complex nested structure (parametrized convs)
+    for (i in seq_along(model$resblocks)) {
+      block_prefix <- sprintf("resblocks.%d", i - 1)
+      # Each resblock has convs1, convs2, activations1, activations2
+      for (j in seq_along(model$resblocks[[i]]$convs1)) {
+        conv1_base <- paste0(block_prefix, sprintf(".convs1.%d", j - 1))
+        conv2_base <- paste0(block_prefix, sprintf(".convs2.%d", j - 1))
+
+        copy_parametrized_conv(model$resblocks[[i]]$convs1[[j]], conv1_base)
+        copy_parametrized_conv(model$resblocks[[i]]$convs2[[j]], conv2_base)
+
+        # Snake activations (not parametrized)
+        act1_key <- paste0(block_prefix, sprintf(".activations1.%d.alpha", j - 1))
+        act2_key <- paste0(block_prefix, sprintf(".activations2.%d.alpha", j - 1))
+        copy_if_exists(model$resblocks[[i]]$activations1[[j]]$alpha, act1_key)
+        copy_if_exists(model$resblocks[[i]]$activations2[[j]]$alpha, act2_key)
+      }
+    }
+
+    # Source resblocks (parametrized convs)
+    for (i in seq_along(model$source_resblocks)) {
+      block_prefix <- sprintf("source_resblocks.%d", i - 1)
+      for (j in seq_along(model$source_resblocks[[i]]$convs1)) {
+        conv1_base <- paste0(block_prefix, sprintf(".convs1.%d", j - 1))
+        conv2_base <- paste0(block_prefix, sprintf(".convs2.%d", j - 1))
+
+        copy_parametrized_conv(model$source_resblocks[[i]]$convs1[[j]], conv1_base)
+        copy_parametrized_conv(model$source_resblocks[[i]]$convs2[[j]], conv2_base)
+
+        # Snake activations
+        act1_key <- paste0(block_prefix, sprintf(".activations1.%d.alpha", j - 1))
+        act2_key <- paste0(block_prefix, sprintf(".activations2.%d.alpha", j - 1))
+        copy_if_exists(model$source_resblocks[[i]]$activations1[[j]]$alpha, act1_key)
+        copy_if_exists(model$source_resblocks[[i]]$activations2[[j]]$alpha, act2_key)
+      }
+    }
+
+    # conv_post (parametrized)
+    copy_parametrized_conv(model$conv_post, "conv_post")
+  })
 
   model
 }
@@ -762,10 +806,12 @@ load_hifigan_weights <- function(
 #' @return HiFTGenerator module
 #' @export
 create_s3gen_vocoder <- function(device = "cpu") {
-  # S3Gen uses specific HiFiGAN configuration
-  # Config derived from s3gen.safetensors weight shapes:
-  # - source_downs kernels: 30, 6, 1 -> requires upsample_rates c(5, 3, 8)
-  # - ups kernels: 16, 11, 7 -> upsample_kernel_sizes c(16, 11, 7)
+  # S3Gen HiFiGAN configuration from Python model inspection:
+  # - ups strides: (8, 5, 3), kernels: (16, 11, 7)
+  # - source_downs strides: (15, 3, 1), kernels: (30, 6, 1)
+  # - source_resblocks kernels: (7, 7, 11)
+  # - ISTFT: n_fft=16, hop_len=4
+  # Total upsample: 8 * 5 * 3 * 4 = 480x
   model <- hift_generator(
     in_channels = 80,
     base_channels = 512,
@@ -774,13 +820,13 @@ create_s3gen_vocoder <- function(device = "cpu") {
     nsf_alpha = 0.1,
     nsf_sigma = 0.003,
     nsf_voiced_threshold = 10,
-    upsample_rates = c(5, 3, 8), # 5*3*8 = 120, with hop_len 4 gives ~480x
+    upsample_rates = c(8, 5, 3),
     upsample_kernel_sizes = c(16, 11, 7),
     istft_n_fft = 16,
     istft_hop_len = 4,
     resblock_kernel_sizes = c(3, 7, 11),
     resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5), c(1, 3, 5)),
-    source_resblock_kernel_sizes = c(7, 11, 3),
+    source_resblock_kernel_sizes = c(7, 7, 11),
     source_resblock_dilation_sizes = list(c(1, 3, 5), c(1, 3, 5), c(1, 3, 5)),
     lrelu_slope = 0.1,
     audio_limit = 0.99

@@ -332,9 +332,13 @@ Systematic component-by-component validation against Python reference.
 | T3 Conditioning | ✅ Validated | < 0.000002 | `scripts/test_t3_cond.R` |
 | T3 Llama Backbone | ✅ Validated | < 0.00003 | `scripts/test_t3_llama.R` |
 | T3 Token Generation | ✅ Fixed | N/A | See debugging notes |
-| S3Gen (CFM + Vocoder) | 🔄 Pending | - | `scripts/save_s3gen_steps.py` |
+| CAMPPlus Speaker Encoder | ✅ Validated | < 0.001471 | `scripts/test_campplus.R` |
+| Conformer Encoder | ✅ Validated | < 0.0004 | `scripts/test_encoder_steps.R` |
+| CFM Estimator | ✅ Validated | < 0.052 | `scripts/test_estimator_euler_inputs.R` |
+| CFM Decoder | ✅ Validated | < 0.028 | `scripts/test_cfm_full.R` |
+| HiFi-GAN Vocoder | ✅ Validated | < 0.026 | `scripts/test_hifigan.R` |
 
-**Current state**: T3 (text → speech tokens) is fully validated. S3Gen (speech tokens → audio) architecture is understood but R implementation is pending.
+**Current state**: All components fully validated. End-to-end TTS pipeline complete.
 
 ### ✅ Mel Spectrogram (Voice Encoder)
 
@@ -435,34 +439,147 @@ The T3 autoregressive token generation loop was debugged and fixed. Key issues r
 
 See "Llama Backbone Hidden State Variance (FIXED)" in Debugging Notes for details.
 
-### 🔄 S3Gen (Speech Tokens → Audio)
+### ✅ CAMPPlus Speaker Encoder
 
-**Status**: Architecture understood, implementation pending
+**Validated**: R matches Python with max diff < 0.001471
+
+**Architecture**:
+- FCM head: Conv2d layers reducing frequency 80→10
+- xvector: TDNN blocks with stats pooling
+- Output: 192-dim speaker embedding
+
+**Input**: Raw audio at 16kHz
+**Output**: L2-normalized 192-dim embedding
+
+**Test script**: `scripts/test_campplus.R`
+
+### ✅ Conformer Encoder (UpsampleConformerEncoder)
+
+**Validated**: R matches Python with max diff < 0.0004
+
+**Architecture**:
+- LinearNoSubsampling input embedding
+- EspnetRelPositionalEncoding (position 0 at center of buffer)
+- 6 Conformer encoder layers
+- 2x upsample layer (interpolate + conv1d)
+- 4 Conformer up-encoder layers
+- Final LayerNorm
+
+**Fixes applied**:
+1. **Positional encoding center**: Changed from `max_len - 1` to `max_len` (R 1-indexed)
+2. **PE buffer creation**: Matched Python's flip + concat structure for relative positions
+3. **rel_shift function**: Complete rewrite to match Python's reshape + slice approach
+
+**Test script**: `scripts/test_encoder_steps.R`
+
+### ✅ CFM Decoder (CausalConditionalCFM)
+
+**Validated**: R matches Python with max diff < 0.028
+
+**Architecture**:
+- CFM Estimator: UNet-style ConditionalDecoder (71.3M parameters)
+  - SinusoidalPosEmb + TimestepEmbedding for time conditioning
+  - 1 down block: CausalResnetBlock1D + 4 BasicTransformerBlocks + CausalConv1d
+  - 12 mid blocks: each with CausalResnetBlock1D + 4 BasicTransformerBlocks
+  - 1 up block: CausalResnetBlock1D + 4 BasicTransformerBlocks + CausalConv1d
+  - Final: CausalBlock1D + Conv1d projection
+- 10-step Euler ODE solver (cosine time schedule)
+- Classifier-free guidance (cfg_rate=0.7)
+
+**Fixes applied**:
+1. **Up block order**: Changed from `conv -> concat -> resnet -> transformers` to `concat -> resnet -> transformers -> conv` (matching Python)
+2. **Attention inner_dim**: Fixed from 256 to 512 (8 heads × 64 head_dim)
+3. **GELU with projection**: FeedForward uses internal projection before GELU (diffusers style)
+4. **res_conv always present**: Python always has conv layer even when channels match
+
+**Test scripts**: `scripts/test_estimator_euler_inputs.R`, `scripts/test_cfm_full.R`
+
+### ✅ S3Gen (Speech Tokens → Audio)
+
+**Status**: All components validated (encoder, CFM decoder, HiFiGAN vocoder).
+
+**Weights**: `~/.cache/huggingface/hub/models--ResembleAI--chatterbox/` → `s3gen.safetensors` (1.06 GB)
 
 **Architecture** (from Python tracing):
 ```
-S3Token2Wav
+S3Token2Wav (inherits S3Token2Mel)
 ├── tokenizer: S3Tokenizer (✅ validated 100% match)
-├── speaker_encoder: CAMPPlus
-├── flow: CausalMaskedDiffWithXvec (CFM decoder)
-└── mel2wav: HiFTGenerator (HiFi-GAN vocoder)
+├── speaker_encoder: CAMPPlus (192-dim speaker embedding)
+│   ├── head: FCM (Conv2d layers, freq reduction 80→10)
+│   └── xvector: Sequential (TDNN blocks, StatsPool, Dense)
+├── mel_extractor: function (24kHz mel spectrogram)
+├── flow: CausalMaskedDiffWithXvec
+│   ├── input_embedding: Embedding(6561, 512)
+│   ├── spk_embed_affine_layer: Linear(192→80)
+│   ├── encoder: UpsampleConformerEncoder (6 layers + 2x upsample)
+│   ├── encoder_proj: Linear(512→80)
+│   └── decoder: CausalConditionalCFM (U-Net style, 10 Euler steps)
+│       └── estimator: ConditionalDecoder (down/mid/up blocks)
+└── mel2wav: HiFTGenerator
+    ├── f0_predictor: ConvRNNF0Predictor
+    ├── m_source: SourceModuleHnNSF (harmonic + noise)
+    └── decode: Conv + ResBlocks → waveform
 ```
 
-**API**:
-```python
-s3gen.forward(speech_tokens, ref_wav, ref_sr, ref_dict=None, finalize=False)
-# speech_tokens: [batch, seq_len] - 0-indexed tokens (0-6560)
-# ref_wav: [batch, samples] - reference audio at ref_sr
-# ref_sr: int - sample rate (16000)
-# Returns: [batch, audio_samples] at 24kHz
-```
+**Pipeline**:
+1. **embed_ref**(ref_wav, ref_sr) → ref_dict:
+   - Resample to 24kHz and 16kHz
+   - `prompt_feat`: 24kHz mel spectrogram [B, T, 80]
+   - `embedding`: CAMPPlus speaker embedding [B, 192]
+   - `prompt_token`: S3Tokenizer tokens [B, T//2]
 
-**Known parameters**:
+2. **flow.inference**(token, token_len, **ref_dict) → mel:
+   - Normalize & project speaker embedding: [B, 192] → [B, 80]
+   - Concat prompt_token + speech_tokens → embed
+   - UpsampleConformerEncoder: [B, T, 512] → [B, 2T, 512]
+   - Project to mel dim: [B, 2T, 512] → [B, 2T, 80]
+   - CFM decoder (10 Euler steps): → [B, 80, 2T]
+
+3. **mel2wav.inference**(mel) → waveform:
+   - F0 prediction from mel
+   - Source signal generation (harmonic + noise)
+   - HiFi-GAN decode: [B, 80, T] → [B, T*320]
+
+**Key parameters**:
 - Output sample rate: 24kHz
-- Uses Conditional Flow Matching (CFM) with Euler solver
-- HiFi-GAN based vocoder (HiFTGenerator)
+- Token-to-mel ratio: 2x (upsampled in encoder)
+- pre_lookahead_len: 3 tokens (trimmed when finalize=False)
+- CFM timesteps: 10 (cosine schedule)
+- Speaker embedding: 192-dim (CAMPPlus)
+- Mel channels: 80
 
-**Test script**: `scripts/save_s3gen_steps.py`
+**CAMPPlus Speaker Encoder**:
+```
+Input: raw audio (16kHz, 1D tensor)
+↓
+extract_feature: torchaudio Kaldi.fbank(num_mel_bins=80)
+  → [B, T, 80] (mean-normalized)
+↓
+permute: [B, T, 80] → [B, 80, T]
+↓
+FCM head:
+  unsqueeze: [B, 1, 80, T]
+  conv1+bn1+relu: [B, 32, 80, T]
+  layer1: [B, 32, 40, T]  (freq/2)
+  layer2: [B, 32, 20, T]  (freq/2)
+  conv2+bn2+relu: [B, 32, 10, T]  (freq/2)
+  reshape: [B, 320, T]
+↓
+xvector:
+  tdnn: [B, 320, T] → [B, 128, T/2]
+  block1+transit1: [B, 256, T/2]
+  block2+transit2: [B, 512, T/2]
+  block3+transit3: [B, 512, T/2]
+  out_nonlinear: [B, 512, T/2]
+  stats (mean+std pool): [B, 1024]
+  dense: [B, 192]
+```
+
+**Test scripts**:
+- `scripts/save_s3gen_detailed.py` - Architecture exploration
+- `scripts/save_s3gen_components.py` - Component intermediates
+- `scripts/save_campplus_extract.py` - CAMPPlus step-by-step
+- `scripts/save_cfm_details.py` - CFM flow tracing
 
 ### ✅ S3 Tokenizer
 
@@ -482,6 +599,29 @@ s3gen.forward(speech_tokens, ref_wav, ref_sr, ref_dict=None, finalize=False)
 - FSMN attention blocks (depthwise conv for temporal context)
 
 **Test script**: `scripts/test_s3tokenizer.R`
+
+### ✅ HiFi-GAN Vocoder
+
+**Validated**: R matches Python with max diff < 0.026
+
+**Architecture** (HiFTGenerator):
+- F0 predictor: 5-layer ConvNet (80 → 512 → 1)
+- Source module: Sine generator with 8 harmonics + noise
+- Upsampling: 3 ConvTranspose1d layers (strides 8, 5, 3)
+- Source fusion: Downsample source STFT + ResBlocks at each stage
+- ISTFT synthesis: n_fft=16, hop_len=4
+- Total upsample factor: 8 * 5 * 3 * 4 = 480x
+
+**Weight normalization**: Python uses ParametrizedConv1d with weight norm.
+State dict keys use `parametrizations.weight.original0` (magnitude) and `original1` (direction).
+Effective weight: `w = g * v / ||v||`
+
+**Components validated**:
+- F0 predictor: max diff 0.000430
+- conv_pre: max diff 0.000995
+- Full decode: max diff 0.025823
+
+**Test script**: `scripts/test_hifigan.R`
 
 ## Related
 
