@@ -164,6 +164,18 @@ y <- x * 0.5
 y <- x$mul(0.5)
 ```
 
+**Tensor methods return new tensors, not in-place**: Unlike Python's `tensor.sub_()`, R torch methods return a new tensor:
+```r
+# WRONG - tokens is unchanged!
+tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
+tokens$sub(1L)  # Returns new tensor, but result is discarded
+tokens  # Still has original values!
+
+# CORRECT - assign the result
+tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
+tokens <- tokens$sub(1L)  # Now tokens has the subtracted values
+```
+
 **conv_transpose1d padding when kernel < stride**:
 ```r
 # Standard: padding = (kernel - stride) / 2
@@ -299,7 +311,9 @@ if (token_id == config$stop_speech_token) break
 next_emb <- model$speech_emb$forward(next_token)  # No $add(1L)
 
 # Return tokens as 0-indexed for downstream
-tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)$sub(1L)
+# CRITICAL: Must assign result - $sub() returns new tensor, doesn't modify in place!
+tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
+tokens <- tokens$sub(1L)  # Convert 1-indexed to 0-indexed
 ```
 
 ```r
@@ -311,6 +325,27 @@ sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
 ```
 
 **Result**: TTS now generates appropriate audio lengths (4-8 seconds for "Hello world").
+
+### T3 Token Return Bug (Silent Output)
+
+**Problem**: TTS produced 19 seconds of silence despite all components being individually validated.
+
+**Root cause**: In `t3_inference()`, the token conversion to 0-indexed was not assigned:
+```r
+# BUG - $sub() returns new tensor, original unchanged!
+tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
+tokens$sub(1L)  # Result discarded, tokens still 1-indexed
+
+# FIX - assign the result
+tokens <- tokens$sub(1L)
+```
+
+**Effect**: All speech tokens passed to S3Gen were off-by-one (1-6563 instead of 0-6562), causing:
+- Every token mapped to wrong embedding (token N used embedding N+1)
+- Valid max token 6560 appeared as 6561, filtered as invalid
+- S3Gen received garbage embeddings, producing silence
+
+**Verification**: S3Gen with correct 0-indexed tokens produces audio with std=0.048 (vs 0.0005 when broken).
 
 **Python comparison using chatterbox container**:
 ```bash
