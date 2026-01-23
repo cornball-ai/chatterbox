@@ -615,7 +615,8 @@ t3_inference <- function(
   # (sorted_indices returns R 1-indexed positions)
   if (length(predicted) > 0) {
     tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
-    tokens$sub(1L) # Convert to 0-indexed token IDs
+    tokens <- tokens$sub(1L) # Convert to 0-indexed token IDs
+    tokens
   } else {
     torch::torch_tensor(integer(0), device = device)
   }
