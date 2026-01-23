@@ -545,9 +545,11 @@ t3_inference <- function(
         }
 
         # Apply repetition penalty
+        # Note: generated_ids contains 1-indexed values (from sorted_indices),
+        # which is already correct for R tensor indexing (no +1 needed)
         if (repetition_penalty != 1.0) {
           for (token_id in as.integer(generated_ids$cpu())) {
-            logits[1, token_id + 1] <- logits[1, token_id + 1] / repetition_penalty
+            logits[1, token_id] <- logits[1, token_id] / repetition_penalty
           }
         }
 

@@ -3,11 +3,18 @@
 
 #' Read audio file
 #'
-#' @param path Path to audio file (WAV format)
+#' @param path Path to audio file (WAV or MP3 format)
 #' @return List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
 #' @export
 read_audio <- function(path) {
-  wav <- tuneR::readWave(path)
+  ext <- tolower(tools::file_ext(path))
+
+  if (ext == "mp3") {
+    # MP3 requires mpg123 system library
+    wav <- tuneR::readMP3(path)
+  } else {
+    wav <- tuneR::readWave(path)
+  }
 
   # Extract samples and normalize to [-1, 1]
   if (wav@bit == 16) {
