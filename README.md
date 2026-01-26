@@ -22,7 +22,8 @@ model <- chatterbox("cuda")
 model <- load_chatterbox(model)
 
 # Generate speech
-result <- tts(model, "Hello, this is a test!", "reference_audio.wav")
+jfk <- system.file("audio", "jfk.mp3", package = "chatterbox")
+result <- tts(model, "Hello, this is a test!", jfk)
 write_audio(result$audio, result$sample_rate, "output.wav")
 
 # Or one-liner:

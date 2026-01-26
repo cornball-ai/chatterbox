@@ -63,51 +63,52 @@ cat(sprintf("Embeds mean: %.6f, std: %.6f\n", embeds$mean()$item(), embeds$std()
 # Run initial forward pass
 cat("\n=== Running initial forward pass ===\n")
 torch::with_no_grad({
-  output <- t3$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
+        output <- t3$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
 
-  # Get logits from last position
-  last_hidden <- output$last_hidden_state[, embeds$size(2), ]
-  logits <- t3$speech_head$forward(last_hidden)
+        # Get logits from last position
+        last_hidden <- output$last_hidden_state[, embeds$size(2),]
+        logits <- t3$speech_head$forward(last_hidden)
 
-  cat(sprintf("Last hidden shape: %s\n", paste(last_hidden$shape, collapse = "x")))
-  cat(sprintf("Logits shape: %s\n", paste(logits$shape, collapse = "x")))
+        cat(sprintf("Last hidden shape: %s\n", paste(last_hidden$shape, collapse = "x")))
+        cat(sprintf("Logits shape: %s\n", paste(logits$shape, collapse = "x")))
 
-  # CFG combination
-  cond_logits <- logits[1, ]$unsqueeze(1)
-  uncond_logits <- logits[2, ]$unsqueeze(1)
-  cfg_weight <- 0.5
-  combined <- cond_logits + cfg_weight * (cond_logits - uncond_logits)
+        # CFG combination
+        cond_logits <- logits[1,]$unsqueeze(1)
+        uncond_logits <- logits[2,]$unsqueeze(1)
+        cfg_weight <- 0.5
+        combined <- cond_logits + cfg_weight * (cond_logits - uncond_logits)
 
-  cat(sprintf("\nCond logits mean: %.6f, std: %.6f\n",
-              cond_logits$mean()$item(), cond_logits$std()$item()))
-  cat(sprintf("Uncond logits mean: %.6f, std: %.6f\n",
-              uncond_logits$mean()$item(), uncond_logits$std()$item()))
-  cat(sprintf("Combined (CFG) mean: %.6f, std: %.6f\n",
-              combined$mean()$item(), combined$std()$item()))
+        cat(sprintf("\nCond logits mean: %.6f, std: %.6f\n",
+                cond_logits$mean()$item(), cond_logits$std()$item()))
+        cat(sprintf("Uncond logits mean: %.6f, std: %.6f\n",
+                uncond_logits$mean()$item(), uncond_logits$std()$item()))
+        cat(sprintf("Combined (CFG) mean: %.6f, std: %.6f\n",
+                combined$mean()$item(), combined$std()$item()))
 
-  # Temperature
-  temperature <- 0.8
-  logits_temp <- combined / temperature
+        # Temperature
+        temperature <- 0.8
+        logits_temp <- combined / temperature
 
-  # Convert to probs
-  probs <- torch::nnf_softmax(logits_temp, dim = -1L)
+        # Convert to probs
+        probs <- torch::nnf_softmax(logits_temp, dim = - 1L)
 
-  # Top tokens
-  top_result <- torch::torch_topk(probs, k = 10L)
-  top_probs <- top_result[[1]]
-  top_indices <- top_result[[2]]
+        # Top tokens
+        top_result <- torch::torch_topk(probs, k = 10L)
+        top_probs <- top_result[[1]]
+        top_indices <- top_result[[2]]
 
-  cat(sprintf("\nTop 10 tokens (temp=%.1f):\n", temperature))
-  for (i in 1:10) {
-    token_id <- as.integer(top_indices[1, i]$item()) - 1L  # Convert back to 0-indexed
-    prob <- top_probs[1, i]$item()
-    token_name <- if (token_id == t3$config$stop_speech_token) "EOS" else as.character(token_id)
-    cat(sprintf("  Token %s: %.6f\n", token_name, prob))
-  }
+        cat(sprintf("\nTop 10 tokens (temp=%.1f):\n", temperature))
+        for (i in 1:10) {
+            token_id <- as.integer(top_indices[1, i]$item()) - 1L# Convert back to 0-indexed
+            prob <- top_probs[1, i]$item()
+            token_name <- if (token_id == t3$config$stop_speech_token) "EOS" else as.character(token_id)
+            cat(sprintf("  Token %s: %.6f\n", token_name, prob))
+        }
 
-  # Check EOS probability
-  eos_prob <- probs[1, t3$config$stop_speech_token + 1L]$item()  # +1 for R indexing
-  cat(sprintf("\nEOS token (%d) probability: %.6f\n", t3$config$stop_speech_token, eos_prob))
-})
+        # Check EOS probability
+        eos_prob <- probs[1, t3$config$stop_speech_token + 1L]$item() # +1 for R indexing
+        cat(sprintf("\nEOS token (%d) probability: %.6f\n", t3$config$stop_speech_token, eos_prob))
+    })
 
 cat("\nDone.\n")
+

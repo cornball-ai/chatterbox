@@ -4,7 +4,15 @@
 \alias{create_mel_filterbank}
 \title{Create mel filterbank}
 \usage{
-create_mel_filterbank(sr, n_fft, n_mels, fmin = 0, fmax = NULL, norm = "slaney")
+create_mel_filterbank(
+  sr,
+  n_fft,
+  n_mels,
+  fmin = 0,
+  fmax = NULL,
+  norm = "slaney",
+  htk = FALSE
+)
 }
 \arguments{
 \item{sr}{Sample rate}

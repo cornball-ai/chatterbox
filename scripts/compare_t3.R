@@ -16,10 +16,10 @@ cat("Speaker embedding mean:", mean(as.numeric(ref$speaker_emb)), "\n")
 cat("Speaker embedding std:", sd(as.numeric(ref$speaker_emb)), "\n")
 
 if ("cond_prompt_speech_tokens" %in% names(ref)) {
-  cond_tokens <- ref$cond_prompt_speech_tokens
-  cat("Cond prompt tokens shape:", paste(dim(cond_tokens), collapse = "x"), "\n")
-  cat("Cond prompt tokens (first 20):",
-      paste(as.integer(cond_tokens[1, 1:20]$cpu()), collapse = ", "), "\n")
+    cond_tokens <- ref$cond_prompt_speech_tokens
+    cat("Cond prompt tokens shape:", paste(dim(cond_tokens), collapse = "x"), "\n")
+    cat("Cond prompt tokens (first 20):",
+        paste(as.integer(cond_tokens[1, 1:20]$cpu()), collapse = ", "), "\n")
 }
 
 py_speech <- as.integer(ref$speech_tokens$cpu())
@@ -47,19 +47,19 @@ cat("R text tokens:", paste(text_tokens, collapse = ", "), "\n")
 # Compare with Python
 py_text_tokens <- as.integer(ref$text_tokens)
 if (identical(text_tokens, py_text_tokens)) {
-  cat("TEXT TOKENS MATCH\n")
+    cat("TEXT TOKENS MATCH\n")
 } else {
-  cat("TEXT TOKENS DIFFER\n")
-  cat("  Python length:", length(py_text_tokens), "\n")
-  cat("  R length:", length(text_tokens), "\n")
-  # Find differences
-  min_len <- min(length(text_tokens), length(py_text_tokens))
-  diffs <- which(text_tokens[1:min_len] != py_text_tokens[1:min_len])
-  if (length(diffs) > 0) {
-    cat("  First difference at position:", diffs[1], "\n")
-    cat("    Python:", py_text_tokens[diffs[1]], "\n")
-    cat("    R:", text_tokens[diffs[1]], "\n")
-  }
+    cat("TEXT TOKENS DIFFER\n")
+    cat("  Python length:", length(py_text_tokens), "\n")
+    cat("  R length:", length(text_tokens), "\n")
+    # Find differences
+    min_len <- min(length(text_tokens), length(py_text_tokens))
+    diffs <- which(text_tokens[1:min_len] != py_text_tokens[1:min_len])
+    if (length(diffs) > 0) {
+        cat("  First difference at position:", diffs[1], "\n")
+        cat("    Python:", py_text_tokens[diffs[1]], "\n")
+        cat("    R:", text_tokens[diffs[1]], "\n")
+    }
 }
 
 cat("\n=== R Voice Embedding ===\n")
@@ -77,9 +77,9 @@ cat("Speaker embedding max diff:", emb_diff$max()$item(), "\n")
 cat("Speaker embedding mean diff:", emb_diff$mean()$item(), "\n")
 
 if (emb_diff$max()$item() < 0.01) {
-  cat("SPEAKER EMBEDDINGS MATCH (within tolerance)\n")
+    cat("SPEAKER EMBEDDINGS MATCH (within tolerance)\n")
 } else {
-  cat("SPEAKER EMBEDDINGS DIFFER SIGNIFICANTLY\n")
+    cat("SPEAKER EMBEDDINGS DIFFER SIGNIFICANTLY\n")
 }
 
 cat("\n=== R T3 Inference ===\n")
@@ -87,28 +87,28 @@ cat("\n=== R T3 Inference ===\n")
 set.seed(42)
 torch::torch_manual_seed(42L)
 if (torch::cuda_is_available()) {
-  # Note: torch_cuda_manual_seed doesn't exist in R torch, using global seed
+    # Note: torch_cuda_manual_seed doesn't exist in R torch, using global seed
 }
 
 text_tokens_tensor <- torch::torch_tensor(text_tokens, dtype = torch::torch_long())$unsqueeze(1)$to(device = device)
 
 cond <- t3_cond(
-  speaker_emb = r_speaker_emb,
-  emotion_adv = 0.5
+    speaker_emb = r_speaker_emb,
+    emotion_adv = 0.5
 )
 
 torch::with_no_grad({
-  speech_tokens <- t3_inference(
-    model = model$t3,
-    cond = cond,
-    text_tokens = text_tokens_tensor,
-    cfg_weight = 0.5,
-    temperature = 0.8,
-    top_p = 0.9,
-    min_p = 0.05,
-    repetition_penalty = 1.2
-  )
-})
+        speech_tokens <- t3_inference(
+            model = model$t3,
+            cond = cond,
+            text_tokens = text_tokens_tensor,
+            cfg_weight = 0.5,
+            temperature = 0.8,
+            top_p = 0.9,
+            min_p = 0.05,
+            repetition_penalty = 1.2
+        )
+    })
 
 r_speech_tokens <- as.integer(speech_tokens$cpu())
 cat("R speech tokens count:", length(r_speech_tokens), "\n")
@@ -145,20 +145,21 @@ cat("Token overlap:", overlap, "tokens appear in both\n")
 
 cat("\n=== Summary ===\n")
 if (identical(text_tokens, py_text_tokens)) {
-  cat("Text tokenization: PASS\n")
+    cat("Text tokenization: PASS\n")
 } else {
-  cat("Text tokenization: FAIL\n")
+    cat("Text tokenization: FAIL\n")
 }
 
 if (emb_diff$max()$item() < 0.01) {
-  cat("Voice embedding: PASS\n")
+    cat("Voice embedding: PASS\n")
 } else {
-  cat("Voice embedding: FAIL\n")
+    cat("Voice embedding: FAIL\n")
 }
 
 # For speech tokens, check if distribution looks reasonable
 if (min(r_speech_tokens) >= 0 && max(r_speech_tokens) < 6561 && length(r_speech_tokens) > 10) {
-  cat("Speech token generation: PLAUSIBLE (different due to sampling)\n")
+    cat("Speech token generation: PLAUSIBLE (different due to sampling)\n")
 } else {
-  cat("Speech token generation: SUSPICIOUS - check range and count\n")
+    cat("Speech token generation: SUSPICIOUS - check range and count\n")
 }
+

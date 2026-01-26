@@ -11,18 +11,18 @@ t3_weights <- read_safetensors(paths$t3_cfg, device = "cpu")
 cat("\nAll weight keys (first 50):\n")
 all_keys <- names(t3_weights)
 for (key in all_keys[1:min(50, length(all_keys))]) {
-  tensor <- t3_weights[[key]]
-  cat(sprintf("  %s: %s, mean=%.6f, std=%.6f\n",
-              key, paste(dim(tensor), collapse = "x"),
-              tensor$mean()$item(), tensor$std()$item()))
+    tensor <- t3_weights[[key]]
+    cat(sprintf("  %s: %s, mean=%.6f, std=%.6f\n",
+            key, paste(dim(tensor), collapse = "x"),
+            tensor$mean()$item(), tensor$std()$item()))
 }
 
 cat("\n\nLlama backbone keys (tfmr.*):\n")
 tfmr_keys <- grep("^tfmr\\.", all_keys, value = TRUE)
 cat("Total tfmr keys:", length(tfmr_keys), "\n")
 for (key in tfmr_keys[1:min(20, length(tfmr_keys))]) {
-  tensor <- t3_weights[[key]]
-  cat(sprintf("  %s: %s, mean=%.6f\n", key, paste(dim(tensor), collapse = "x"), tensor$mean()$item()))
+    tensor <- t3_weights[[key]]
+    cat(sprintf("  %s: %s, mean=%.6f\n", key, paste(dim(tensor), collapse = "x"), tensor$mean()$item()))
 }
 
 # Create the model and check weights
@@ -68,9 +68,10 @@ test_input <- torch::torch_randn(c(1, 10, 1024), device = device)
 cat("Test input mean:", test_input$mean()$item(), "\n")
 
 torch::with_no_grad({
-  output <- model$tfmr$forward(inputs_embeds = test_input, use_cache = FALSE)
-  cat("Output last_hidden_state shape:", paste(dim(output$last_hidden_state), collapse = "x"), "\n")
-  cat("Output last_hidden_state mean:", output$last_hidden_state$mean()$item(), "\n")
-  cat("Output last_hidden_state std:", output$last_hidden_state$std()$item(), "\n")
-  cat("Output range: [", output$last_hidden_state$min()$item(), ", ", output$last_hidden_state$max()$item(), "]\n", sep = "")
-})
+        output <- model$tfmr$forward(inputs_embeds = test_input, use_cache = FALSE)
+        cat("Output last_hidden_state shape:", paste(dim(output$last_hidden_state), collapse = "x"), "\n")
+        cat("Output last_hidden_state mean:", output$last_hidden_state$mean()$item(), "\n")
+        cat("Output last_hidden_state std:", output$last_hidden_state$std()$item(), "\n")
+        cat("Output range: [", output$last_hidden_state$min()$item(), ", ", output$last_hidden_state$max()$item(), "]\n", sep = "")
+    })
+

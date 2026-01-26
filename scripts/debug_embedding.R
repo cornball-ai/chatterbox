@@ -10,12 +10,12 @@ emb <- torch::nn_embedding(5, 3)
 
 # Set known values for testing
 torch::with_no_grad({
-  emb$weight[1, ] <- torch::torch_tensor(c(1.0, 1.0, 1.0))
-  emb$weight[2, ] <- torch::torch_tensor(c(2.0, 2.0, 2.0))
-  emb$weight[3, ] <- torch::torch_tensor(c(3.0, 3.0, 3.0))
-  emb$weight[4, ] <- torch::torch_tensor(c(4.0, 4.0, 4.0))
-  emb$weight[5, ] <- torch::torch_tensor(c(5.0, 5.0, 5.0))
-})
+        emb$weight[1,] <- torch::torch_tensor(c(1.0, 1.0, 1.0))
+        emb$weight[2,] <- torch::torch_tensor(c(2.0, 2.0, 2.0))
+        emb$weight[3,] <- torch::torch_tensor(c(3.0, 3.0, 3.0))
+        emb$weight[4,] <- torch::torch_tensor(c(4.0, 4.0, 4.0))
+        emb$weight[5,] <- torch::torch_tensor(c(5.0, 5.0, 5.0))
+    })
 
 cat("Embedding weights:\n")
 cat("  weight[1,] = c(1,1,1) - R index 1\n")
@@ -42,10 +42,11 @@ cat(sprintf("forward(2) = [%.0f, %.0f, %.0f]\n", result2[1, 1, 1]$item(), result
 
 cat("\n=== Key finding ===\n")
 if (result0[1, 1, 1]$item() == 1.0) {
-  cat("forward(0) = weight[1,]: nn_embedding uses 0-indexed input -> 1-indexed weight\n")
-  cat("Input 0 gets weight at R position 1\n")
+    cat("forward(0) = weight[1,]: nn_embedding uses 0-indexed input -> 1-indexed weight\n")
+    cat("Input 0 gets weight at R position 1\n")
 } else if (result1[1, 1, 1]$item() == 1.0) {
-  cat("forward(1) = weight[1,]: nn_embedding uses 1-indexed input\n")
+    cat("forward(1) = weight[1,]: nn_embedding uses 1-indexed input\n")
 }
 
 cat("\nDone.\n")
+

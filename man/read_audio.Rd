@@ -7,7 +7,7 @@
 read_audio(path)
 }
 \arguments{
-\item{path}{Path to audio file (WAV format)}
+\item{path}{Path to audio file (WAV or MP3 format)}
 }
 \value{
 List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)

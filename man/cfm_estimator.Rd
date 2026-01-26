@@ -2,18 +2,33 @@
 % Please edit documentation in R/s3gen.R
 \name{cfm_estimator}
 \alias{cfm_estimator}
-\title{CFM Estimator (UNet1D style)}
+\title{CFM Estimator (ConditionalDecoder)}
 \usage{
-cfm_estimator(in_channels = 320, out_channels = 80)
+cfm_estimator(
+  in_channels = 320L,
+  out_channels = 80L,
+  hidden_dim = 256L,
+  num_mid_blocks = 12L,
+  num_transformer_blocks = 4L
+)
 }
 \arguments{
-\item{in_channels}{Input channels}
+\item{in_channels}{Input channels (default 320 = x + mu + spks + cond)}
 
-\item{out_channels}{Output channels}
+\item{out_channels}{Output channels (default 80 = mel bins)}
+
+\item{hidden_dim}{Hidden dimension (default 256)}
+
+\item{num_mid_blocks}{Number of mid blocks (default 12)}
+
+\item{num_transformer_blocks}{Transformer blocks per layer (default 4)}
 }
 \value{
 nn_module
 }
 \description{
-CFM Estimator (UNet1D style)
+UNet-style architecture with:
+- 1 down block (320 -> 256, with 4 transformer blocks)
+- 12 mid blocks (256 -> 256, each with 4 transformer blocks)
+- 1 up block (512 -> 256 with skip connection, 4 transformer blocks)
 }

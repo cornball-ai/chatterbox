@@ -658,8 +658,41 @@ Effective weight: `w = g * v / ||v||`
 
 **Test script**: `scripts/test_hifigan.R`
 
+## Performance
+
+### Float16 → Float32 Conversion (Known Slowdown)
+
+**Status**: Known issue, not yet fixed.
+
+**Problem**: The R safetensors loader converts all float16/bfloat16 weights to float32:
+
+```r
+# From R/safetensors.R - get_dtype_info()
+"F16" = list(..., torch_dtype = torch::torch_float32()),  # Convert to f32
+"BF16" = list(..., torch_dtype = torch::torch_float32()), # Convert to f32
+```
+
+**Impact**: ~5-6x slower inference compared to container:
+- Container (float16): ~1.8s per generation
+- Native R (float32): ~10s per generation (with model cached)
+
+**Why slower**:
+1. **float32 vs float16** - 2x more memory bandwidth, 2x more compute
+2. **No fused CUDA kernels** - Python has optimized attention/matmul fusions
+3. **R interpreter overhead** - each tensor op has R call overhead
+
+**Why it was done this way**: Quick workaround to avoid dtype issues during development. R torch has known issues with float16 scalar operations promoting to float32 (see "R scalar arithmetic promotes dtype" in Critical R torch Differences).
+
+**Fix options**:
+1. Keep model weights in float16, do inference in float16 (requires careful dtype handling throughout)
+2. Use `torch::jit_compile()` if available for hot paths
+3. Accept the tradeoff (native = slower but no Docker dependency)
+
+**TODO**: Refactor to preserve float16 weights and inference. This would roughly halve inference time.
+
 ## Related
 
 - Part of the [cornyverse](https://github.com/cornball-ai/cornyverse) ecosystem
-- Alternative to ttsapi for local TTS (no container required)
+- Alternative to tts.api container backend for local TTS (no Docker required)
+- Use `tts.api::speech(..., backend = "native")` for unified interface
 - pytorch-migration skill for migration patterns

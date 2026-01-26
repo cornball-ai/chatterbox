@@ -52,3 +52,5 @@ rsconnect/
 /reference
 
 man-md/
+outputs/
+output.wav

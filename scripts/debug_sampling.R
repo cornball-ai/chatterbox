@@ -11,8 +11,8 @@ cat("=== Testing torch_sort indexing ===\n")
 # Create a simple probability distribution
 vocab_size <- 6564L
 probs <- torch::torch_zeros(1, vocab_size)
-probs[1, 100] <- 0.05  # R 1-indexed: position 100 = token 99 (0-indexed)
-probs[1, 6563] <- 0.95 # R 1-indexed: position 6563 = token 6562 (0-indexed)
+probs[1, 100] <- 0.05# R 1-indexed: position 100 = token 99 (0-indexed)
+probs[1, 6563] <- 0.95# R 1-indexed: position 6563 = token 6562 (0-indexed)
 
 cat(sprintf("Setting probs[1, 100] = 0.05 (token 99 in 0-indexed)\n"))
 cat(sprintf("Setting probs[1, 6563] = 0.95 (token 6562 in 0-indexed)\n"))
@@ -52,11 +52,12 @@ cat(sprintf("test_tensor[2] = %d (R 1-indexed: second element)\n", as.integer(te
 # And let's check what index we need for token 6562
 cat("\n=== Key finding ===\n")
 if (as.integer(sorted_indices[1, 1]$item()) == 6562) {
-  cat("sorted_indices[1, 1] = 6562: torch_sort returns 0-indexed values\n")
-  cat("This means token 6562 is at position 1 (R 1-indexed) after sorting\n")
+    cat("sorted_indices[1, 1] = 6562: torch_sort returns 0-indexed values\n")
+    cat("This means token 6562 is at position 1 (R 1-indexed) after sorting\n")
 } else if (as.integer(sorted_indices[1, 1]$item()) == 6563) {
-  cat("sorted_indices[1, 1] = 6563: torch_sort returns 1-indexed values!\n")
-  cat("This might be the source of the off-by-one issue\n")
+    cat("sorted_indices[1, 1] = 6563: torch_sort returns 1-indexed values!\n")
+    cat("This might be the source of the off-by-one issue\n")
 }
 
 cat("\nDone.\n")
+
