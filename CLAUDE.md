@@ -660,49 +660,62 @@ Effective weight: `w = g * v / ||v||`
 
 ## Performance
 
-### Float16 → Float32 Conversion (Known Slowdown)
+See `vignettes/performance.md` for detailed comparison.
 
-**Status**: Known issue, not yet fixed.
+### Comparison: Native R vs Container
 
-**Problem**: The R safetensors loader converts all float16/bfloat16 weights to float32:
+| Implementation | Precision | Time (6s audio) | Real-time Factor |
+|----------------|-----------|-----------------|------------------|
+| Container (Python) | float16 | ~2.2s | **2.7x** |
+| Native R | float32 | ~28s | **0.29x** |
 
-```r
-# From R/safetensors.R - get_dtype_info()
-"F16" = list(..., torch_dtype = torch::torch_float32()),  # Convert to f32
-"BF16" = list(..., torch_dtype = torch::torch_float32()), # Convert to f32
-```
+The container is ~10x faster due to:
+1. **float16 vs float32** - Half the memory bandwidth and compute
+2. **Python C++ bindings** - Lower per-operation overhead
+3. **Fused kernels** - Python has optimized attention/matmul fusions
 
-**Impact**: ~5-6x slower inference compared to container:
-- Container (float16): ~1.8s per generation
-- Native R (float32): ~10s per generation (with model cached)
+### Optimizations Applied (Jan 2026)
 
-**Why slower**:
-1. **float32 vs float16** - 2x more memory bandwidth, 2x more compute
-2. **No fused CUDA kernels** - Python has optimized attention/matmul fusions
-3. **R interpreter overhead** - each tensor op has R call overhead
+Improved from 232ms/token to **135ms/token** (42% faster):
 
-**Why it was done this way**: Quick workaround to avoid dtype issues during development. R torch has known issues with float16 scalar operations promoting to float32 (see "R scalar arithmetic promotes dtype" in Critical R torch Differences).
+1. **SDPA (Scaled Dot-Product Attention)**: Fused attention kernel, 2.7x faster in isolation
+   ```r
+   # Access unexported function from torch namespace
+   sdpa <- get("torch_scaled_dot_product_attention", envir = asNamespace("torch"))
+   ```
 
-**Optimization attempts (Jan 2026)**:
-1. **torch::with_autocast()** - R torch supports this, but it's actually *slower* than float32 (~0.75x) due to conversion overhead
-2. **Model.to(float16)** - Requires converting all input tensors throughout the codebase
-3. **Repetition penalty vectorization** - Marginal impact, R loop overhead isn't the main bottleneck
+2. **Vectorized repetition penalty**: O(1) scatter vs O(n) loop
+   ```r
+   unique_ids <- unique(as.integer(generated_ids$cpu()))
+   logits[1, unique_ids] <- logits[1, unique_ids] / penalty
+   ```
 
-**Main bottleneck**: T3 autoregressive token generation (~100ms per token). Each iteration requires:
-- Transformer forward pass through KV cache
+3. **Single softmax for min-p**: Filter in probability space, renormalize
+
+4. **CPU-first weight loading**: Load to CPU, copy to model, gc(), then move to CUDA
+   - Peak VRAM: 6GB → 3.3GB (matches theoretical 3.2GB for 798M params)
+
+### Main Bottleneck
+
+T3 autoregressive token generation (~135ms per token). Each iteration:
+- Transformer forward pass through 30 layers with KV cache
 - Logit processing (softmax, top-p sampling)
-- R interpreter overhead for loop iteration
+- R-to-C++ boundary crossing for every tensor operation
 
-**Realistic performance**:
-| Backend | ~Time for 2s audio | Notes |
-|---------|-------------------|-------|
-| Container (Python) | ~1.8s | Autocast + fused kernels |
-| Native R (float32) | ~10-15s | R interpreter overhead |
+### When to Use Native R
 
-The native R implementation is ~5-8x slower than the optimized Python container. This is acceptable for:
-- Offline batch processing
-- Development/debugging
-- Environments where Docker isn't available
+- No Docker available or desired
+- Long-running R sessions (model stays cached, avoids 17s load time)
+- Custom fine-tuning or LoRA experimentation
+- Full control over inference parameters
+- Offline operation required
+
+### When to Use Container
+
+- Speed is critical (10x faster)
+- Short-lived scripts (avoid model load overhead)
+- Production deployments
+- GPU resource management via gpu.ctl
 
 ## Related
 
