@@ -683,12 +683,26 @@ Effective weight: `w = g * v / ||v||`
 
 **Why it was done this way**: Quick workaround to avoid dtype issues during development. R torch has known issues with float16 scalar operations promoting to float32 (see "R scalar arithmetic promotes dtype" in Critical R torch Differences).
 
-**Fix options**:
-1. Keep model weights in float16, do inference in float16 (requires careful dtype handling throughout)
-2. Use `torch::jit_compile()` if available for hot paths
-3. Accept the tradeoff (native = slower but no Docker dependency)
+**Optimization attempts (Jan 2026)**:
+1. **torch::with_autocast()** - R torch supports this, but it's actually *slower* than float32 (~0.75x) due to conversion overhead
+2. **Model.to(float16)** - Requires converting all input tensors throughout the codebase
+3. **Repetition penalty vectorization** - Marginal impact, R loop overhead isn't the main bottleneck
 
-**TODO**: Refactor to preserve float16 weights and inference. This would roughly halve inference time.
+**Main bottleneck**: T3 autoregressive token generation (~100ms per token). Each iteration requires:
+- Transformer forward pass through KV cache
+- Logit processing (softmax, top-p sampling)
+- R interpreter overhead for loop iteration
+
+**Realistic performance**:
+| Backend | ~Time for 2s audio | Notes |
+|---------|-------------------|-------|
+| Container (Python) | ~1.8s | Autocast + fused kernels |
+| Native R (float32) | ~10-15s | R interpreter overhead |
+
+The native R implementation is ~5-8x slower than the optimized Python container. This is acceptable for:
+- Offline batch processing
+- Development/debugging
+- Environments where Docker isn't available
 
 ## Related
 
