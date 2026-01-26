@@ -12,7 +12,8 @@ tts(
   cfg_weight = 0.5,
   temperature = 0.8,
   top_p = 0.9,
-  autocast = NULL
+  autocast = NULL,
+  traced = FALSE
 )
 }
 \arguments{

@@ -191,7 +191,7 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #' @return List with audio (numeric vector) and sample_rate
 #' @export
 tts <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
-                 temperature = 0.8, top_p = 0.9, autocast = NULL)
+                 temperature = 0.8, top_p = 0.9, autocast = NULL, traced = FALSE)
 {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
@@ -222,10 +222,14 @@ tts <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 
     # Generate speech tokens with T3
     message("Generating speech tokens...")
+
+    # Select inference function
+    inference_fn <- if (traced) t3_inference_traced else t3_inference
+
     if (use_autocast) {
         torch::with_autocast(device_type = "cuda", {
             torch::with_no_grad({
-                speech_tokens <- t3_inference(
+                speech_tokens <- inference_fn(
                     model = model$t3,
                     cond = cond,
                     text_tokens = text_tokens,
@@ -237,7 +241,7 @@ tts <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
         })
     } else {
         torch::with_no_grad({
-            speech_tokens <- t3_inference(
+            speech_tokens <- inference_fn(
                 model = model$t3,
                 cond = cond,
                 text_tokens = text_tokens,

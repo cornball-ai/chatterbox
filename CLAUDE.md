@@ -56,6 +56,9 @@ model <- load_chatterbox(model)
 result <- tts(model, "Hello world!", "reference_voice.wav")
 write_audio(result$audio, result$sample_rate, "output.wav")
 
+# Use traced inference for 2.2x faster generation
+result <- tts(model, "Hello world!", "reference_voice.wav", traced = TRUE)
+
 # Or one-liner:
 quick_tts("Hello!", "ref.wav", "out.wav")
 ```
@@ -664,15 +667,35 @@ See `vignettes/performance.md` for detailed comparison.
 
 ### Comparison: Native R vs Container
 
-| Implementation | Precision | Time (6s audio) | Real-time Factor |
-|----------------|-----------|-----------------|------------------|
+| Implementation | Precision | Time (~5s audio) | Real-time Factor |
+|----------------|-----------|------------------|------------------|
 | Container (Python) | float16 | ~2.2s | **2.7x** |
-| Native R | float32 | ~28s | **0.29x** |
+| Native R (traced) | float32 | ~15.6s | **0.35x** |
+| Native R (normal) | float32 | ~34s | **0.15x** |
 
-The container is ~10x faster due to:
+**Traced inference (`traced = TRUE`) is 2.2x faster** than normal R inference.
+
+The container is still ~8x faster due to:
 1. **float16 vs float32** - Half the memory bandwidth and compute
 2. **Python C++ bindings** - Lower per-operation overhead
 3. **Fused kernels** - Python has optimized attention/matmul fusions
+
+### JIT Trace Optimization (Jan 2026)
+
+The `traced = TRUE` parameter compiles transformer layers and KV projectors to C++ graphs
+using `torch::jit_trace()`, eliminating R-to-C++ boundary overhead.
+
+**How it works:**
+1. Pre-allocate KV cache to max length (350 tokens) with attention mask
+2. Trace each decoder layer and KV projector once (first call)
+3. Generation loop: update cache in R, run traced forward pass
+
+**Speedup:** 2.2x faster (0.35x real-time vs 0.15x normal)
+
+**Limitations:**
+- Cache limited to 350 tokens (including conditioning ~50-100 tokens)
+- First call has compilation overhead (~5s to trace 30 layers)
+- Long texts may be truncated to fit cache
 
 ### Optimizations Applied (Jan 2026)
 

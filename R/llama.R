@@ -2,12 +2,12 @@
 # A minimal Llama implementation compatible with HuggingFace weights
 
 # Cache SDPA function (not exported from torch but 2.7x faster than manual attention)
-.sdpa <- NULL
+.sdpa_cache <- new.env(parent = emptyenv())
 get_sdpa <- function() {
-    if (is.null(.sdpa)) {
-        .sdpa <<- get("torch_scaled_dot_product_attention", envir = asNamespace("torch"))
+    if (is.null(.sdpa_cache$fn)) {
+        .sdpa_cache$fn <- get("torch_scaled_dot_product_attention", envir = asNamespace("torch"))
     }
-    .sdpa
+    .sdpa_cache$fn
 }
 
 # ============================================================================

@@ -605,6 +605,272 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
 }
 
 # ============================================================================
+# Traced Inference (JIT Optimized)
+# ============================================================================
+
+# Global cache for traced models
+.traced_cache <- new.env(parent = emptyenv())
+
+#' Get or create traced layers for cached inference
+#'
+#' @param model T3 model
+#' @param max_cache_len Maximum cache length
+#' @return List of traced layer modules
+get_traced_layers <- function(model, max_cache_len = 350L) {
+    cache_key <- paste0("traced_layers_", max_cache_len)
+
+    if (!exists(cache_key, envir = .traced_cache)) {
+        message("Creating traced layers (one-time compilation)...")
+
+        device <- model$text_emb$weight$device
+        config <- model$tfmr$config
+
+        n_layers <- config$num_hidden_layers
+        batch_size <- 2L
+        n_heads <- config$num_attention_heads
+        head_dim <- config$head_dim
+
+        # Example inputs for tracing
+        hidden_states <- torch::torch_randn(batch_size, 1L, config$hidden_size, device = device)
+        position_ids <- torch::torch_zeros(c(batch_size, 1L), dtype = torch::torch_long(), device = device)
+        rope <- compute_rope_frequencies(head_dim, max_cache_len + 100L, device = device)
+        k_cache <- torch::torch_randn(batch_size, n_heads, max_cache_len, head_dim, device = device)
+        v_cache <- torch::torch_randn(batch_size, n_heads, max_cache_len, head_dim, device = device)
+        valid_mask <- torch::torch_ones(batch_size, 1L, 1L, max_cache_len, dtype = torch::torch_bool(), device = device)
+
+        traced_layers <- list()
+        traced_kv_projectors <- list()
+
+        for (i in seq_len(n_layers)) {
+            # Trace the decoder layer
+            wrapper <- traceable_decoder_layer(model$tfmr$layers[[i]], max_cache_len)
+            traced_layers[[i]] <- torch::jit_trace(wrapper, hidden_states, position_ids,
+                                                    rope$cos, rope$sin, k_cache, v_cache, valid_mask)
+
+            # Trace the KV projector for this layer
+            kv_proj <- traceable_kv_projector(model$tfmr$layers[[i]])
+            traced_kv_projectors[[i]] <- torch::jit_trace(kv_proj, hidden_states, position_ids,
+                                                           rope$cos, rope$sin)
+        }
+
+        # Also trace the final norm
+        traced_norm <- torch::jit_trace(model$tfmr$norm, hidden_states)
+
+        .traced_cache[[cache_key]] <- list(
+            layers = traced_layers,
+            kv_projectors = traced_kv_projectors,
+            norm = traced_norm
+        )
+        message("Traced ", n_layers, " layers + KV projectors ready.")
+    }
+
+    .traced_cache[[cache_key]]
+}
+
+#' T3 inference with JIT tracing (optimized)
+#'
+#' Uses jit_trace for ~8x faster per-token inference.
+#'
+#' @param model T3 model
+#' @param cond Conditioning object
+#' @param text_tokens Text token tensor
+#' @param max_new_tokens Maximum tokens to generate
+#' @param temperature Sampling temperature
+#' @param cfg_weight Classifier-free guidance weight
+#' @param top_p Top-p sampling threshold
+#' @param min_p Min-p filtering threshold
+#' @param repetition_penalty Repetition penalty
+#' @param max_cache_len Maximum KV cache length
+#' @return Generated speech token tensor
+t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
+                                temperature = 0.8, cfg_weight = 0.5, top_p = 0.95,
+                                min_p = 0.05, repetition_penalty = 1.2,
+                                max_cache_len = 350L) {
+    config <- model$config
+    llama_config <- model$tfmr$config
+    device <- model$text_emb$weight$device
+
+    # Ensure text_tokens is 2D
+    if (text_tokens$dim() == 1L) {
+        text_tokens <- text_tokens$unsqueeze(1L)
+    }
+
+    # Add start/stop text tokens
+    sot <- config$start_text_token
+    eot <- config$stop_text_token
+    text_tokens <- torch::nnf_pad(text_tokens, c(1L, 0L), value = sot)
+    text_tokens <- torch::nnf_pad(text_tokens, c(0L, 1L), value = eot)
+
+    # Double batch for CFG
+    if (cfg_weight > 0.0) {
+        text_tokens <- torch::torch_cat(list(text_tokens, text_tokens), dim = 1L)
+    }
+
+    # Initial speech token (BOS)
+    bos_token <- torch::torch_tensor(matrix(config$start_speech_token, nrow = 1L),
+        device = device, dtype = torch::torch_long())
+
+    if (cfg_weight > 0.0) {
+        bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1L)
+    }
+
+    # Prepare initial embeddings
+    prep <- model$prepare_input_embeds(cond, text_tokens, bos_token, cfg_weight)
+    embeds <- prep$embeds
+    cond_len <- embeds$size(2)  # Conditioning sequence length
+
+    # Get traced layers
+    traced_tfmr <- get_traced_layers(model, max_cache_len)
+
+    # Create pre-allocated KV cache
+    batch_size <- embeds$size(1)
+    n_layers <- llama_config$num_hidden_layers
+    n_heads <- llama_config$num_attention_heads
+    head_dim <- llama_config$head_dim
+
+    cache <- create_kv_cache(batch_size, n_layers, n_heads, head_dim, max_cache_len, device)
+
+    # Get RoPE cache
+    rope <- compute_rope_frequencies(head_dim, max_cache_len + 100L,
+                                     theta = llama_config$rope_theta,
+                                     scaling = llama_config$rope_scaling,
+                                     device = device)
+
+    torch::with_no_grad({
+        # === FIRST TOKEN: Use regular forward to get initial KV cache ===
+        output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
+        past_key_values <- output$past_key_values
+
+        # Initialize pre-allocated cache from first forward
+        init_cache_from_first(cache, past_key_values)
+
+        # Track generated tokens
+        generated_ids <- bos_token[1,, drop = FALSE]$clone()
+        predicted <- list()
+
+        # === GENERATION LOOP: Use traced transformer ===
+        # Limit generation to fit in cache
+        max_gen_tokens <- min(max_new_tokens, max_cache_len - cond_len - 1L)
+        if (max_gen_tokens < max_new_tokens) {
+            message(sprintf("Limiting generation to %d tokens (cache size %d, conditioning %d)",
+                           max_gen_tokens, max_cache_len, cond_len))
+        }
+
+        for (i in seq_len(max_gen_tokens)) {
+            # Get logits from last position
+            logits <- output$last_hidden_state[, -1L,]
+            logits <- model$speech_head$forward(logits)
+
+            # CFG combination
+            if (cfg_weight > 0.0) {
+                cond_logits <- logits[1L,]$unsqueeze(1L)
+                uncond_logits <- logits[2L,]$unsqueeze(1L)
+                logits <- cond_logits + cfg_weight * (cond_logits - uncond_logits)
+            } else {
+                logits <- logits[1L,]$unsqueeze(1L)
+            }
+
+            # Apply repetition penalty
+            if (repetition_penalty != 1.0) {
+                unique_ids <- unique(as.integer(generated_ids$cpu()))
+                logits[1L, unique_ids] <- logits[1L, unique_ids] / repetition_penalty
+            }
+
+            # Temperature scaling
+            if (temperature != 1.0) {
+                logits <- logits / temperature
+            }
+
+            # Sampling (same as original)
+            probs <- torch::nnf_softmax(logits, dim = -1L)
+            max_prob <- probs$max()
+            min_threshold <- min_p * max_prob
+            probs[probs < min_threshold] <- 0
+            probs_filtered <- probs / probs$sum()
+
+            sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
+            sorted_probs <- sorted_result[[1]]
+            sorted_indices <- sorted_result[[2]]
+            cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = -1L)
+
+            sorted_mask <- cumsum_probs > top_p
+            sorted_mask[, 1L] <- FALSE
+            sorted_probs[sorted_mask] <- 0
+            sorted_probs <- sorted_probs / sorted_probs$sum()
+
+            next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1L)
+            next_token <- sorted_indices$gather(2L, next_token_idx)
+
+            predicted[[length(predicted) + 1L]] <- next_token
+            generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2L)
+
+            # Check for EOS
+            token_id <- as.integer(next_token$cpu()) - 1L
+            if (token_id == config$stop_speech_token) {
+                message("EOS detected at step ", i)
+                break
+            }
+
+            # Get embedding for next token
+            next_emb <- model$speech_emb$forward(next_token) + model$speech_pos_emb$get_fixed_embedding(i)
+
+            if (cfg_weight > 0.0) {
+                next_emb <- torch::torch_cat(list(next_emb, next_emb), dim = 1L)
+            }
+
+            # Current position in cache (0-indexed)
+            current_pos <- cond_len + i - 1L
+            position_ids <- torch::torch_tensor(
+                matrix(current_pos, nrow = batch_size, ncol = 1L),
+                device = device, dtype = torch::torch_long()
+            )
+
+            # Update valid mask for new position
+            update_valid_mask(cache, current_pos)
+
+            # Run through traced layers, computing and caching K/V at each layer
+            hidden_states <- next_emb
+            for (layer_idx in seq_len(n_layers)) {
+                # Compute K/V using traced projector
+                kv_concat <- traced_tfmr$kv_projectors[[layer_idx]](
+                    hidden_states, position_ids, rope$cos, rope$sin
+                )
+
+                # Split K and V from concatenated output: (batch, heads, 1, head_dim * 2)
+                k <- kv_concat[,,,1:head_dim]
+                v <- kv_concat[,,,(head_dim + 1L):(head_dim * 2L)]
+
+                # Update cache for this layer
+                update_kv_cache(cache, layer_idx, k, v, current_pos)
+
+                # Run traced layer with updated cache
+                hidden_states <- traced_tfmr$layers[[layer_idx]](
+                    hidden_states, position_ids, rope$cos, rope$sin,
+                    cache$k_cache[layer_idx,,,, drop = FALSE]$squeeze(1L),
+                    cache$v_cache[layer_idx,,,, drop = FALSE]$squeeze(1L),
+                    cache$valid_mask
+                )
+            }
+
+            # Final norm
+            hidden_states <- traced_tfmr$norm(hidden_states)
+
+            # Create output structure for next iteration
+            output <- list(last_hidden_state = hidden_states)
+        }
+    })
+
+    # Concatenate predicted tokens
+    if (length(predicted) > 0L) {
+        tokens <- torch::torch_cat(predicted, dim = 2L)$squeeze(1L)
+        tokens <- tokens$sub(1L)
+        tokens
+    } else {
+        torch::torch_tensor(integer(0), device = device)
+    }
+}
+
+# ============================================================================
 # Weight Loading
 # ============================================================================
 

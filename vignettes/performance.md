@@ -19,9 +19,11 @@ Python container backend.
 | Implementation | Precision | Generation Time | Audio Length | Real-time Factor |
 |----------------|-----------|-----------------|--------------|------------------|
 | Container (Python) | float16 | 2.2s | 6s | **2.7x** |
-| Native R | float32 | 28s | 8s | **0.29x** |
+| Native R (traced) | float32 | 15.6s | 5.4s | **0.35x** |
+| Native R (normal) | float32 | 34s | 5.2s | **0.15x** |
 
-The container is approximately **10x faster** than native R.
+**Traced inference is 2.2x faster** than normal R inference.
+The container is still approximately **8x faster** than traced native R.
 
 ## Why the Difference?
 
@@ -138,6 +140,37 @@ model$to(device = "cuda")
 The CPU-first loading optimization eliminated the 6GB peak that occurred when
 weights were temporarily held in both the state dict and model.
 
+## JIT Trace Optimization (Jan 2026)
+
+The `traced = TRUE` parameter enables JIT-traced inference, which compiles R torch
+code to a C++ graph and eliminates per-operation R overhead.
+
+### How it works
+
+1. **Pre-allocated KV cache**: Fixed-size cache (350 tokens) with attention mask
+2. **Traced layers**: Each transformer layer + KV projector is traced once
+3. **Generation loop**: Update cache values and mask in R, run traced forward
+
+```r
+# Enable traced inference
+result <- tts(model, text, voice, traced = TRUE)
+```
+
+### Limitations
+
+- Cache limited to 350 tokens (including conditioning)
+- First call compiles traced modules (one-time overhead)
+- Longer sequences may be truncated
+
+### Benchmark
+
+Same hardware, same text (~5s audio):
+
+| Mode | Time | Real-time Factor | Speedup |
+|------|------|------------------|---------|
+| Normal | 34.0s | 0.15x | baseline |
+| Traced | 15.6s | 0.35x | **2.2x** |
+
 ## Future Improvements
 
 Potential optimizations not yet implemented:
@@ -148,4 +181,5 @@ Potential optimizations not yet implemented:
 4. **Speculative decoding**: Would add complexity
 
 The R-to-C++ boundary overhead is fundamental and cannot be eliminated without
-changes to R torch itself.
+changes to R torch itself. JIT tracing helps by batching operations into a single
+C++ graph execution.
