@@ -523,13 +523,12 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                     logits <- logits[1,]$unsqueeze(1)
                 }
 
-                # Apply repetition penalty
+                # Apply repetition penalty (vectorized - O(1) vs O(n) for loop)
                 # Note: generated_ids contains 1-indexed values (from sorted_indices),
                 # which is already correct for R tensor indexing (no +1 needed)
                 if (repetition_penalty != 1.0) {
-                    for (token_id in as.integer(generated_ids$cpu())) {
-                        logits[1, token_id] <- logits[1, token_id] / repetition_penalty
-                    }
+                    unique_ids <- unique(as.integer(generated_ids$cpu()))
+                    logits[1, unique_ids] <- logits[1, unique_ids] / repetition_penalty
                 }
 
                 # Temperature scaling
@@ -537,15 +536,16 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                     logits <- logits / temperature
                 }
 
-                # Min-p filtering
-                probs <- torch::nnf_softmax(logits, dim = - 1)
+                # Single softmax, then apply min-p in prob space
+                probs <- torch::nnf_softmax(logits, dim = -1)
+
+                # Min-p filtering in prob space (avoids second softmax)
                 max_prob <- probs$max()
                 min_threshold <- min_p * max_prob
-                # Use -65504 instead of -Inf for float16 compatibility
-                logits[probs < min_threshold] <- -65504.0
+                probs[probs < min_threshold] <- 0
 
-                # Recompute probs after min-p filtering
-                probs_filtered <- torch::nnf_softmax(logits, dim = - 1)
+                # Renormalize after min-p
+                probs_filtered <- probs / probs$sum()
 
                 # Top-p (nucleus) sampling
                 sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)

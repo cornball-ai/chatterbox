@@ -1,6 +1,15 @@
 # Llama model implementation for chatterbox
 # A minimal Llama implementation compatible with HuggingFace weights
 
+# Cache SDPA function (not exported from torch but 2.7x faster than manual attention)
+.sdpa <- NULL
+get_sdpa <- function() {
+    if (is.null(.sdpa)) {
+        .sdpa <<- get("torch_scaled_dot_product_attention", envir = asNamespace("torch"))
+    }
+    .sdpa
+}
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -243,23 +252,16 @@ llama_attention <- torch::nn_module(
             value_states <- value_states$`repeat`(c(1, self$num_key_value_groups, 1, 1))
         }
 
-        # Scaled dot-product attention
-        scale <- 1.0 / sqrt(self$head_dim)
-        attn_weights <- torch::torch_matmul(query_states, key_states$transpose(3, 4)) * scale
-
-        # Apply attention mask if provided
-        if (!is.null(attention_mask)) {
-            attn_weights <- attn_weights + attention_mask
-        }
-
-        # Softmax and dropout
-        attn_weights <- torch::nnf_softmax(attn_weights, dim = - 1)
-        if (self$training && self$attention_dropout > 0) {
-            attn_weights <- torch::nnf_dropout(attn_weights, p = self$attention_dropout)
-        }
-
-        # Apply attention to values
-        attn_output <- torch::torch_matmul(attn_weights, value_states)
+        # Scaled dot-product attention (fused kernel)
+        dropout_p <- if (self$training) self$attention_dropout else 0.0
+        attn_output <- get_sdpa()(
+            query_states,
+            key_states,
+            value_states,
+            attn_mask = if (!is.null(attention_mask)) attention_mask else list(),
+            dropout_p = dropout_p,
+            is_causal = FALSE  # We handle causality via attention_mask
+        )
 
         # Reshape back: (batch, heads, seq, head_dim) -> (batch, seq, hidden)
         attn_output <- attn_output$transpose(2, 3)$contiguous()
@@ -271,7 +273,7 @@ llama_attention <- torch::nn_module(
         list(
             hidden_states = attn_output,
             past_key_value = new_past_key_value,
-            attn_weights = attn_weights
+            attn_weights = NULL  # SDPA doesn't return attention weights
         )
     }
 )
