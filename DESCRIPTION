@@ -18,5 +18,7 @@ Imports:
     jsonlite
 Suggests:
     tinytest,
-    av
+    av,
+    simplermarkdown
+VignetteBuilder: simplermarkdown
 RoxygenNote: 7.3.3
