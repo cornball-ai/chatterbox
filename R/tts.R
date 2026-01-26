@@ -274,7 +274,8 @@ tts <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                 result <- model$s3gen$inference(
                     speech_tokens = speech_tokens,
                     ref_dict = voice$ref_dict,
-                    finalize = TRUE
+                    finalize = TRUE,
+                    traced = traced
                 )
                 audio <- result[[1]]
             })
@@ -284,7 +285,8 @@ tts <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
             result <- model$s3gen$inference(
                 speech_tokens = speech_tokens,
                 ref_dict = voice$ref_dict,
-                finalize = TRUE
+                finalize = TRUE,
+                traced = traced
             )
             audio <- result[[1]]
         })

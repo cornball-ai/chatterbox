@@ -505,6 +505,12 @@ cfm_estimator <- torch::nn_module(
 #' @param out_channels Output channels (mel bins)
 #' @param spk_emb_dim Speaker embedding dimension
 #' @return nn_module
+# Cache for traced CFM estimators
+.cfm_traced_cache <- new.env(parent = emptyenv())
+
+# Fixed max sequence length for CFM tracing (avoids retracing per length)
+CFM_MAX_SEQ_LEN <- 1024L
+
 causal_cfm <- torch::nn_module(
     "CausalConditionalCFM",
 
@@ -524,6 +530,32 @@ causal_cfm <- torch::nn_module(
         self$rand_noise <- torch::nn_buffer(
             torch::torch_randn(c(1, 80, 50 * 300))
         )
+
+        # Flag for using traced estimator
+        self$use_traced <- FALSE
+    },
+
+    #' Get or create traced estimator (fixed max length)
+    get_traced_estimator = function(device) {
+        cache_key <- "cfm_traced"
+
+        if (!exists(cache_key, envir = .cfm_traced_cache)) {
+            message("Tracing CFM estimator (one-time, max_len=", CFM_MAX_SEQ_LEN, ")...")
+
+            # Create example inputs at fixed max length
+            x_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
+            mask_in <- torch::torch_ones(c(2L, 1L, CFM_MAX_SEQ_LEN), device = device)
+            mu_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
+            t_in <- torch::torch_tensor(c(0.5, 0.5), device = device)
+            spks_in <- torch::torch_randn(c(2L, 80L), device = device)
+            cond_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
+
+            self$estimator$eval()
+            traced <- torch::jit_trace(self$estimator, x_in, mask_in, mu_in, t_in, spks_in, cond_in)
+            .cfm_traced_cache[[cache_key]] <- traced
+        }
+
+        .cfm_traced_cache[[cache_key]]
     },
 
     forward = function(
@@ -532,7 +564,8 @@ causal_cfm <- torch::nn_module(
         spks,
         cond,
         n_timesteps = 10,
-        temperature = 1.0
+        temperature = 1.0,
+        traced = FALSE
     ) {
         device <- mu$device
         seq_len <- mu$size(3)
@@ -547,7 +580,7 @@ causal_cfm <- torch::nn_module(
         }
 
         # Euler solver
-        result <- self$solve_euler(z, t_span, mu, mask, spks, cond)
+        result <- self$solve_euler(z, t_span, mu, mask, spks, cond, traced = traced || self$use_traced)
 
         list(result, NULL) # Return mel and cache (NULL for now)
     },
@@ -558,46 +591,93 @@ causal_cfm <- torch::nn_module(
         mu,
         mask,
         spks,
-        cond
+        cond,
+        traced = FALSE
     ) {
         batch_size <- x$size(1)
         seq_len <- x$size(3)
         device <- x$device
+        dtype <- x$dtype
+
+        # For traced mode, pad to fixed max length
+        if (traced && seq_len <= CFM_MAX_SEQ_LEN) {
+            traced_est <- self$get_traced_estimator(device)
+            pad_len <- CFM_MAX_SEQ_LEN - seq_len
+
+            # Pad inputs to max length
+            x_padded <- torch::nnf_pad(x, c(0L, pad_len), value = 0)
+            mu_padded <- torch::nnf_pad(mu, c(0L, pad_len), value = 0)
+            mask_padded <- torch::nnf_pad(mask, c(0L, pad_len), value = 0)
+            cond_padded <- torch::nnf_pad(cond, c(0L, pad_len), value = 0)
+
+            estimator_fn <- function(x_in, mask_in, mu_in, t_in, spks_in, cond_in) {
+                # Run traced estimator and slice output
+                out <- traced_est(x_in, mask_in, mu_in, t_in, spks_in, cond_in)
+                out[,, 1:seq_len]
+            }
+        } else {
+            # Normal mode or sequence too long
+            if (traced && seq_len > CFM_MAX_SEQ_LEN) {
+                warning("Sequence length ", seq_len, " exceeds CFM_MAX_SEQ_LEN ", CFM_MAX_SEQ_LEN,
+                        ", falling back to non-traced")
+            }
+            x_padded <- x
+            mu_padded <- mu
+            mask_padded <- mask
+            cond_padded <- cond
+            estimator_fn <- function(...) self$estimator$forward(...)
+        }
 
         t <- t_span[1]$unsqueeze(1)
         dt <- t_span[2] - t_span[1]
 
+        # Determine working length (padded for traced mode)
+        work_len <- if (traced && seq_len <= CFM_MAX_SEQ_LEN) CFM_MAX_SEQ_LEN else seq_len
+
         # Pre-allocate tensors for CFG (batch size 2)
-        x_in <- torch::torch_zeros(c(2, 80, seq_len), device = device, dtype = x$dtype)
-        mask_in <- torch::torch_zeros(c(2, 1, seq_len), device = device, dtype = x$dtype)
-        mu_in <- torch::torch_zeros(c(2, 80, seq_len), device = device, dtype = x$dtype)
-        t_in <- torch::torch_zeros(2, device = device, dtype = x$dtype)
-        spks_in <- torch::torch_zeros(c(2, 80), device = device, dtype = x$dtype)
-        cond_in <- torch::torch_zeros(c(2, 80, seq_len), device = device, dtype = x$dtype)
+        x_in <- torch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
+        mask_in <- torch::torch_zeros(c(2L, 1L, work_len), device = device, dtype = dtype)
+        mu_in <- torch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
+        t_in <- torch::torch_zeros(2L, device = device, dtype = dtype)
+        spks_in <- torch::torch_zeros(c(2L, 80L), device = device, dtype = dtype)
+        cond_in <- torch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
 
         for (step in 2:length(t_span)) {
             # Classifier-Free Guidance: conditional and unconditional paths
-            x_in[1:2,,] <- x
-            mask_in[1:2,,] <- mask
-            mu_in[1,,] <- mu
+            # Use padded tensors in traced mode
+            if (traced && seq_len <= CFM_MAX_SEQ_LEN) {
+                x_in[1:2,,] <- x_padded
+                mask_in[1:2,,] <- mask_padded
+                mu_in[1,,] <- mu_padded
+                cond_in[1,,] <- cond_padded
+            } else {
+                x_in[1:2,,] <- x
+                mask_in[1:2,,] <- mask
+                mu_in[1,,] <- mu
+                cond_in[1,,] <- cond
+            }
             # mu_in[2] stays zero (unconditional)
             t_in[1:2] <- t
             spks_in[1,] <- spks
             # spks_in[2] stays zero
-            cond_in[1,,] <- cond
             # cond_in[2] stays zero
 
-            # Forward through estimator
-            dphi_dt <- self$estimator$forward(x_in, mask_in, mu_in, t_in, spks_in, cond_in)
+            # Forward through estimator (traced or normal)
+            dphi_dt <- estimator_fn(x_in, mask_in, mu_in, t_in, spks_in, cond_in)
 
             # CFG combination
             dphi_cond <- dphi_dt[1,,]$unsqueeze(1)
             dphi_uncond <- dphi_dt[2,,]$unsqueeze(1)
             dphi_dt <- (1.0 + self$inference_cfg_rate) * dphi_cond - self$inference_cfg_rate * dphi_uncond
 
-            # Euler step
-            x <- x + dt * dphi_dt
+            # Euler step (only on actual sequence length)
+            x <- x + dt * dphi_dt[,, 1:seq_len]
             t <- t + dt
+
+            # Update padded x for next iteration
+            if (traced && seq_len <= CFM_MAX_SEQ_LEN) {
+                x_padded[,, 1:seq_len] <- x
+            }
 
             if (step < length(t_span)) {
                 dt <- t_span[step + 1] - t_span[step]
@@ -663,7 +743,8 @@ causal_masked_diff_xvec <- torch::nn_module(
         prompt_feat,
         prompt_feat_len,
         embedding,
-        finalize = TRUE
+        finalize = TRUE,
+        traced = FALSE
     ) {
         device <- token$device
 
@@ -724,7 +805,8 @@ causal_masked_diff_xvec <- torch::nn_module(
             mask = dec_mask,
             spks = embedding$squeeze(2),
             cond = conds,
-            n_timesteps = 10
+            n_timesteps = 10,
+            traced = traced
         )
         feat <- result[[1]]
 
@@ -831,7 +913,8 @@ s3gen <- torch::nn_module(
         ref_wav = NULL,
         ref_sr = NULL,
         ref_dict = NULL,
-        finalize = TRUE
+        finalize = TRUE,
+        traced = FALSE
     ) {
         # Get reference dict
         if (is.null(ref_dict)) {
@@ -859,7 +942,8 @@ s3gen <- torch::nn_module(
             prompt_feat = ref_dict$prompt_feat,
             prompt_feat_len = ref_dict$prompt_feat_len,
             embedding = ref_dict$embedding,
-            finalize = finalize
+            finalize = finalize,
+            traced = traced
         )
         output_mels <- result[[1]]
 
