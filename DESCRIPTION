@@ -15,7 +15,8 @@ Depends:
 Imports:
     torch (>= 0.12.0),
     tuneR,
-    jsonlite
+    jsonlite,
+    hfhub
 Suggests:
     tinytest,
     av,

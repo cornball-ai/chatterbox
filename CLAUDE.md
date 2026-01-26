@@ -117,11 +117,15 @@ Voice embedding extraction for cloning.
 
 ## Model Weights
 
-Weights are automatically downloaded to `~/.cache/chatterbox/`:
-- `t3_cfg.safetensors` - T3 model
-- `s3gen.safetensors` - S3Gen vocoder
-- `ve.safetensors` - Voice encoder
+Weights are automatically downloaded via `hfhub` to the standard HuggingFace cache:
+`~/.cache/huggingface/hub/models--ResembleAI--chatterbox/`
+
+Files:
+- `t3_cfg.safetensors` - T3 model (2.1GB)
+- `s3gen.safetensors` - S3Gen vocoder (1.1GB)
+- `ve.safetensors` - Voice encoder (17MB)
 - `tokenizer.json` - BPE tokenizer
+- `conds.pt` - Pre-computed conditioning tensors
 
 ## PyTorch Migration Notes
 
