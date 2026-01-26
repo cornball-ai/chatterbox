@@ -1068,19 +1068,22 @@ load_s3gen <- function(
     path,
     device = "cpu"
 ) {
-    # Read safetensors
-    state_dict <- read_safetensors(path, device)
+    # Load weights to CPU first to halve peak VRAM usage
+    state_dict <- read_safetensors(path, "cpu")
 
-    # Create model
+    # Create model on CPU
     model <- s3gen()
 
-    # Create and attach vocoder
-    model$mel2wav <- create_s3gen_vocoder(device)
+    # Create vocoder on CPU (will move with model$to())
+    model$mel2wav <- create_s3gen_vocoder("cpu")
 
-    # Load weights
+    # Load weights on CPU
     model <- load_s3gen_weights(model, state_dict)
 
-    # Move to device and eval mode
+    # Free weight dict before moving to device
+    rm(state_dict); gc()
+
+    # Move to target device and set eval mode
     model$to(device = device)
     model$eval()
 

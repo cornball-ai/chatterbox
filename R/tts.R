@@ -51,19 +51,24 @@ load_chatterbox <- function (model, cache_dir = NULL, force = FALSE)
     message("Loading text tokenizer...")
     model$tokenizer <- load_bpe_tokenizer(paths$tokenizer)
 
+    # Load weights to CPU first, then move to device
+    # This halves peak VRAM usage (avoids having weights in both dict and model)
+
     # Load voice encoder
     message("Loading voice encoder...")
-    ve_weights <- read_safetensors(paths$ve, device)
+    ve_weights <- read_safetensors(paths$ve, "cpu")
     model$voice_encoder <- voice_encoder()
     model$voice_encoder <- load_voice_encoder_weights(model$voice_encoder, ve_weights)
+    rm(ve_weights); gc()
     model$voice_encoder$to(device = device)
     model$voice_encoder$eval()
 
     # Load T3 model
     message("Loading T3 text-to-speech model...")
-    t3_weights <- read_safetensors(paths$t3_cfg, device)
+    t3_weights <- read_safetensors(paths$t3_cfg, "cpu")
     model$t3 <- t3_model() # Creates T3Model instance
     model$t3 <- load_t3_weights(model$t3, t3_weights)
+    rm(t3_weights); gc()
     model$t3$to(device = device)
     model$t3$eval()
 
