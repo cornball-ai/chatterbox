@@ -11,7 +11,8 @@ tts(
   exaggeration = 0.5,
   cfg_weight = 0.5,
   temperature = 0.8,
-  top_p = 0.9
+  top_p = 0.9,
+  autocast = NULL
 )
 }
 \arguments{
@@ -28,6 +29,8 @@ tts(
 \item{temperature}{Sampling temperature (default 0.8)}
 
 \item{top_p}{Top-p (nucleus) sampling threshold (default 0.9)}
+
+\item{autocast}{Use mixed precision (float16) on CUDA for faster inference (default TRUE on CUDA)}
 }
 \value{
 List with audio (numeric vector) and sample_rate

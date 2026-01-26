@@ -4,7 +4,13 @@
 \alias{quick_tts}
 \title{Quick TTS - one-line text-to-speech}
 \usage{
-quick_tts(text, reference_audio, output_path = NULL, device = "cpu")
+quick_tts(
+  text,
+  reference_audio,
+  output_path = NULL,
+  device = "cpu",
+  autocast = NULL
+)
 }
 \arguments{
 \item{text}{Text to synthesize}
@@ -14,6 +20,8 @@ quick_tts(text, reference_audio, output_path = NULL, device = "cpu")
 \item{output_path}{Optional output file path. If NULL, returns audio data.}
 
 \item{device}{Device to use}
+
+\item{autocast}{Use mixed precision (float16) on CUDA (default TRUE on CUDA)}
 }
 \value{
 If output_path is NULL, returns list with audio and sample_rate.
