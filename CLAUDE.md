@@ -667,35 +667,34 @@ See `vignettes/performance.md` for detailed comparison.
 
 ### Comparison: Native R vs Container
 
-| Implementation | Precision | Time (~5s audio) | Real-time Factor |
-|----------------|-----------|------------------|------------------|
-| Container (Python) | float16 | ~2.2s | **2.7x** |
-| Native R (traced) | float32 | ~15.6s | **0.35x** |
-| Native R (normal) | float32 | ~34s | **0.15x** |
+| Implementation | Precision | Time | Audio | Real-time Factor |
+|----------------|-----------|------|-------|------------------|
+| Container (Python) | float16 | ~2.2s | 6s | **2.7x** |
+| Native R (traced) | float32 | ~6s | ~6s | **~1x** |
+| Native R (normal) | float32 | ~30s | ~4s | **0.13x** |
 
-**Traced inference (`traced = TRUE`) is 2.2x faster** than normal R inference.
+**Traced inference (`traced = TRUE`) is ~5x faster** than normal R inference.
 
-The container is still ~8x faster due to:
+The container is still ~3x faster due to:
 1. **float16 vs float32** - Half the memory bandwidth and compute
 2. **Python C++ bindings** - Lower per-operation overhead
 3. **Fused kernels** - Python has optimized attention/matmul fusions
 
 ### JIT Trace Optimization (Jan 2026)
 
-The `traced = TRUE` parameter compiles transformer layers and KV projectors to C++ graphs
+The `traced = TRUE` parameter compiles both T3 and S3Gen components to C++ graphs
 using `torch::jit_trace()`, eliminating R-to-C++ boundary overhead.
 
-**How it works:**
-1. Pre-allocate KV cache to max length (350 tokens) with attention mask
-2. Trace each decoder layer and KV projector once (first call)
-3. Generation loop: update cache in R, run traced forward pass
+**What gets traced:**
+1. T3 transformer layers (30 layers) + KV projectors
+2. CFM estimator (56 transformer blocks) with fixed max length padding
 
-**Speedup:** 2.2x faster (0.35x real-time vs 0.15x normal)
+**Speedup:** ~5x faster (~1x real-time vs 0.13x normal)
 
 **Limitations:**
-- Cache limited to 350 tokens (including conditioning ~50-100 tokens)
-- First call has compilation overhead (~5s to trace 30 layers)
-- Long texts may be truncated to fit cache
+- T3 cache limited to 350 tokens (including conditioning ~50-100 tokens)
+- CFM max sequence length 1024 (longer sequences fall back to non-traced)
+- First call has compilation overhead (~10s total)
 
 ### Optimizations Applied (Jan 2026)
 

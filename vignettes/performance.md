@@ -19,11 +19,11 @@ Python container backend.
 | Implementation | Precision | Generation Time | Audio Length | Real-time Factor |
 |----------------|-----------|-----------------|--------------|------------------|
 | Container (Python) | float16 | 2.2s | 6s | **2.7x** |
-| Native R (traced) | float32 | 15.6s | 5.4s | **0.35x** |
-| Native R (normal) | float32 | 34s | 5.2s | **0.15x** |
+| Native R (traced) | float32 | ~6s | ~6s | **~1x** |
+| Native R (normal) | float32 | ~30s | ~4s | **0.13x** |
 
-**Traced inference is 2.2x faster** than normal R inference.
-The container is still approximately **8x faster** than traced native R.
+**Traced inference is ~5x faster** than normal R inference.
+The container is still approximately **3x faster** than traced native R.
 
 ## Why the Difference?
 
@@ -164,12 +164,16 @@ result <- tts(model, text, voice, traced = TRUE)
 
 ### Benchmark
 
-Same hardware, same text (~5s audio):
+Same hardware, same text:
 
-| Mode | Time | Real-time Factor | Speedup |
-|------|------|------------------|---------|
-| Normal | 34.0s | 0.15x | baseline |
-| Traced | 15.6s | 0.35x | **2.2x** |
+| Mode | Time | Audio | Real-time Factor | Speedup |
+|------|------|-------|------------------|---------|
+| Normal | ~30s | ~4s | 0.13x | baseline |
+| Traced | ~6s | ~6s | ~1x | **~5x** |
+
+The traced version includes:
+- T3 transformer layers and KV projectors (30 layers)
+- CFM estimator (56 transformer blocks, 10 Euler steps)
 
 ## Future Improvements
 
