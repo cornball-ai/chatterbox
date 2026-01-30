@@ -1,5 +1,7 @@
-# HuggingFace model download utilities for chatterbox
-# Uses hfhub package for standard HuggingFace cache (~/.cache/huggingface/)
+#' Model Download Utilities
+#'
+#' Download Chatterbox models from HuggingFace using hfhub.
+#' Requires explicit download with user consent (no auto-download).
 
 CHATTERBOX_REPO <- "ResembleAI/chatterbox"
 
@@ -11,56 +13,120 @@ CHATTERBOX_FILES <- c(
     "conds.pt"
 )
 
-#' Download file from HuggingFace Hub
+# Approximate total model size in MB
+.model_size_mb <- 2000
+
+#' Check if Models are Downloaded
 #'
-#' @param repo_id Repository ID (e.g., "ResembleAI/chatterbox")
-#' @param filename Filename to download
-#' @param force Re-download even if file exists
-#' @return Local path to downloaded file
+#' @return TRUE if all model files exist locally
 #' @export
-hf_download <- function (repo_id, filename, force = FALSE)
+#' @examples
+#' models_available()
+models_available <- function ()
+{
+    if (!requireNamespace("hfhub", quietly = TRUE)) {
+        return(FALSE)
+    }
+
+    tryCatch({
+        for (f in CHATTERBOX_FILES) {
+            hfhub::hub_download(CHATTERBOX_REPO, f, local_files_only = TRUE)
+        }
+        TRUE
+    }, error = function(e) FALSE)
+}
+
+#' Download Chatterbox Models from HuggingFace
+#'
+#' Download all Chatterbox model files from HuggingFace.
+#' In interactive sessions, asks for user consent before downloading.
+#'
+#' @param force Re-download even if files exist
+#' @return Named list of local file paths (invisibly)
+#' @export
+#' @examples
+#' \dontrun{
+#' # Download models (~2GB)
+#' download_chatterbox_models()
+#' }
+download_chatterbox_models <- function (force = FALSE)
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
         stop("hfhub package required. Install with: install.packages('hfhub')")
     }
 
-    if (force) {
-        # hfhub doesn't have a force option, but we can delete the local file
-        # This is a simplification - full implementation would need cache inspection
-        message("Downloading: ", filename)
-    } else {
-        message("Using cached: ", filename)
+    # Check if already downloaded
+    if (!force && models_available()) {
+        message("Chatterbox models are already downloaded.")
+        return(invisible(get_model_paths()))
     }
 
-    hfhub::hub_download(repo_id, filename)
+    # Ask for consent (required for CRAN compliance)
+    # Skip prompt if chatterbox.consent option is set
+    if (isTRUE(getOption("chatterbox.consent"))) {
+        # Consent already given programmatically
+    } else if (interactive()) {
+        ans <- utils::askYesNo(
+            paste0("Download Chatterbox models (~", .model_size_mb, " MB) from HuggingFace?"),
+            default = TRUE
+        )
+        if (!isTRUE(ans)) {
+            stop("Download cancelled.", call. = FALSE)
+        }
+    } else {
+        stop(
+            "Cannot download models in non-interactive mode without consent. ",
+            "Run download_chatterbox_models() interactively first, ",
+            "or set options(chatterbox.consent = TRUE) to allow downloads.",
+            call. = FALSE
+        )
+    }
+
+    message("Downloading Chatterbox models from HuggingFace (", CHATTERBOX_REPO, ")...")
+
+    paths <- list()
+    for (f in CHATTERBOX_FILES) {
+        message("  ", f, "...")
+        tryCatch({
+            path <- hfhub::hub_download(CHATTERBOX_REPO, f, force_download = force)
+            name <- tools::file_path_sans_ext(basename(f))
+            paths[[name]] <- path
+        }, error = function(e) {
+            warning("Failed to download ", f, ": ", e$message)
+        })
+    }
+
+    if (length(paths) < length(CHATTERBOX_FILES)) {
+        stop("Failed to download all model files")
+    }
+
+    message("Models downloaded successfully.")
+    invisible(paths)
 }
 
-#' Download all chatterbox model files
+#' Get Paths to Downloaded Model Files
 #'
-#' @param force Re-download all files
 #' @return Named list of local file paths
 #' @export
-download_chatterbox_models <- function (force = FALSE)
+get_model_paths <- function ()
 {
+    if (!requireNamespace("hfhub", quietly = TRUE)) {
+        stop("hfhub package required. Install with: install.packages('hfhub')")
+    }
+
     paths <- list()
     for (f in CHATTERBOX_FILES) {
         name <- tools::file_path_sans_ext(basename(f))
-        paths[[name]] <- hf_download(CHATTERBOX_REPO, f, force)
+        tryCatch({
+            paths[[name]] <- hfhub::hub_download(CHATTERBOX_REPO, f, local_files_only = TRUE)
+        }, error = function(e) {
+            stop(
+                "Model file '", f, "' not found. ",
+                "Run download_chatterbox_models() first.",
+                call. = FALSE
+            )
+        })
     }
 
     paths
-}
-
-#' Check if models are downloaded
-#'
-#' @return Logical indicating if all models are present
-#' @export
-models_available <- function ()
-{
-    tryCatch({
-        for (f in CHATTERBOX_FILES) {
-            hfhub::hub_download(CHATTERBOX_REPO, f)
-        }
-        TRUE
-    }, error = function(e) FALSE)
 }

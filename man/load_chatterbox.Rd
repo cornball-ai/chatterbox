@@ -3,16 +3,15 @@
 \alias{load_chatterbox}
 \title{Load Chatterbox model weights}
 \usage{
-load_chatterbox(model, force = FALSE)
+load_chatterbox(model)
 }
 \arguments{
 \item{model}{Chatterbox model object}
-
-\item{force}{Force re-download of model files}
 }
 \value{
 Chatterbox model with loaded weights
 }
 \description{
-Downloads and loads pretrained weights for all model components.
+Load pretrained weights for all model components.
+Requires prior download via \code{\link{download_chatterbox_models}}.
 }

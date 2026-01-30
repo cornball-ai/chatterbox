@@ -27,13 +27,13 @@ chatterbox <- function (device = "cpu")
 
 #' Load Chatterbox model weights
 #'
-#' Downloads and loads pretrained weights for all model components.
+#' Load pretrained weights for all model components.
+#' Requires prior download via \code{\link{download_chatterbox_models}}.
 #'
 #' @param model Chatterbox model object
-#' @param force Force re-download of model files
 #' @return Chatterbox model with loaded weights
 #' @export
-load_chatterbox <- function (model, force = FALSE)
+load_chatterbox <- function (model)
 {
     if (!inherits(model, "chatterbox")) {
         stop("model must be a chatterbox object")
@@ -42,9 +42,9 @@ load_chatterbox <- function (model, force = FALSE)
     device <- model$device
     message("Loading Chatterbox TTS model to ", device, "...")
 
-    # Download model files (uses standard HuggingFace cache)
-    message("Checking/downloading model files...")
-    paths <- download_chatterbox_models(force)
+    # Get model file paths (requires prior download)
+    message("Loading model files...")
+    paths <- get_model_paths()
 
     # Load tokenizer
     message("Loading text tokenizer...")
