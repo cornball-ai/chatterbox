@@ -1,0 +1,9 @@
+# Get torch paths from installed package
+TORCH_INCLUDE = $(shell "${R_HOME}/bin/Rscript" -e "cat(system.file('include', package='torch'))")
+TORCH_LIB = $(shell "${R_HOME}/bin/Rscript" -e "cat(system.file('lib', package='torch'))")
+
+PKG_CXXFLAGS = -I$(TORCH_INCLUDE) -I$(TORCH_INCLUDE)/torch/csrc/api/include \
+               -D_GLIBCXX_USE_CXX11_ABI=1 -O3
+PKG_LIBS = -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
+
+CXX_STD = CXX17

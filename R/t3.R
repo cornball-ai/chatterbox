@@ -871,6 +871,184 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
 }
 
 # ============================================================================
+# C++ Inference (Native Decode Loop)
+# ============================================================================
+
+#' Extract model weights for C++ decode loop
+#'
+#' Extracts all layer weights into a flat structure suitable for passing
+#' to the C++ decode function. Just creates list references (no copies).
+#'
+#' @param model T3 model
+#' @return List with layers, final_norm, speech_head, speech_emb, speech_pos_emb
+.get_cpp_weights <- function (model)
+{
+    n_layers <- model$tfmr$config$num_hidden_layers
+
+    # Extract per-layer weights: 9 tensors per layer
+    layers <- vector("list", n_layers)
+    for (i in seq_len(n_layers)) {
+        layer <- model$tfmr$layers[[i]]
+        layers[[i]] <- list(
+            layer$input_layernorm$weight,
+            layer$self_attn$q_proj$weight,
+            layer$self_attn$k_proj$weight,
+            layer$self_attn$v_proj$weight,
+            layer$self_attn$o_proj$weight,
+            layer$post_attention_layernorm$weight,
+            layer$mlp$gate_proj$weight,
+            layer$mlp$up_proj$weight,
+            layer$mlp$down_proj$weight
+        )
+    }
+
+    list(
+        layers = layers,
+        final_norm = model$tfmr$norm$weight,
+        speech_head = model$speech_head$weight,
+        speech_emb = model$speech_emb$weight,
+        speech_pos_emb = model$speech_pos_emb$emb$weight
+    )
+}
+
+#' T3 inference with C++ decode loop
+#'
+#' Runs prefill in R, then delegates the entire autoregressive decode loop
+#' to C++ via a single .Call(). Eliminates R->lantern->libtorch per-op
+#' dispatch overhead (~270 matmuls + ~100 elementwise ops per token).
+#'
+#' @param model T3 model
+#' @param cond T3 conditioning
+#' @param text_tokens Tokenized text (tensor)
+#' @param max_new_tokens Maximum speech tokens to generate
+#' @param temperature Sampling temperature
+#' @param cfg_weight Classifier-free guidance weight
+#' @param top_p Nucleus sampling threshold
+#' @param min_p Minimum probability threshold
+#' @param repetition_penalty Repetition penalty
+#' @param max_cache_len Maximum KV cache length
+#' @return Generated speech tokens (0-indexed integer vector)
+#' @export
+t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
+                               temperature = 0.8, cfg_weight = 0.5, top_p = 0.95,
+                               min_p = 0.05, repetition_penalty = 1.2,
+                               max_cache_len = 350L)
+{
+    config <- model$config
+    llama_config <- model$tfmr$config
+    device <- model$text_emb$weight$device
+
+    # Ensure text_tokens is 2D
+    if (text_tokens$dim() == 1L) {
+        text_tokens <- text_tokens$unsqueeze(1L)
+    }
+
+    # Add start/stop text tokens
+    sot <- config$start_text_token
+    eot <- config$stop_text_token
+    text_tokens <- torch::nnf_pad(text_tokens, c(1L, 0L), value = sot)
+    text_tokens <- torch::nnf_pad(text_tokens, c(0L, 1L), value = eot)
+
+    # Double batch for CFG
+    if (cfg_weight > 0.0) {
+        text_tokens <- torch::torch_cat(list(text_tokens, text_tokens), dim = 1L)
+    }
+
+    # Initial speech token (BOS)
+    bos_token <- torch::torch_tensor(
+        matrix(config$start_speech_token, nrow = 1L),
+        device = device, dtype = torch::torch_long()
+    )
+    if (cfg_weight > 0.0) {
+        bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1L)
+    }
+
+    # Prepare initial embeddings
+    prep <- model$prepare_input_embeds(cond, text_tokens, bos_token, cfg_weight)
+    embeds <- prep$embeds
+    cond_len <- embeds$size(2)  # Total conditioning sequence length
+
+    # Create pre-allocated KV cache
+    batch_size <- embeds$size(1)
+    n_layers <- llama_config$num_hidden_layers
+    n_heads <- llama_config$num_attention_heads
+    head_dim <- llama_config$head_dim
+
+    cache <- create_kv_cache(batch_size, n_layers, n_heads, head_dim,
+                             max_cache_len, device)
+
+    # Get RoPE cache
+    rope <- compute_rope_frequencies(head_dim, max_cache_len + 100L,
+                                     theta = llama_config$rope_theta,
+                                     scaling = llama_config$rope_scaling,
+                                     device = device)
+
+    # === PREFILL: First forward pass in R ===
+    torch::with_no_grad({
+        output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
+        past_key_values <- output$past_key_values
+
+        # Initialize pre-allocated cache from first forward
+        init_cache_from_first(cache, past_key_values)
+    })
+
+    # Limit generation to fit in cache
+    max_gen_tokens <- min(max_new_tokens, max_cache_len - cond_len - 1L)
+    if (max_gen_tokens < max_new_tokens) {
+        message(sprintf("Limiting generation to %d tokens (cache size %d, conditioning %d)",
+                       max_gen_tokens, max_cache_len, cond_len))
+    }
+
+    # Extract weights for C++
+    weights <- .get_cpp_weights(model)
+
+    # Initial hidden state: last position of prefill output (already normed)
+    initial_hidden <- output$last_hidden_state[, -1L, , drop = FALSE]
+    # Shape: (B, 1, hidden_size)
+
+    # === DECODE: Entire loop in C++ ===
+    token_ids <- .Call(
+        "cpp_t3_decode",
+        weights$layers,
+        weights$final_norm,
+        weights$speech_head,
+        weights$speech_emb,
+        weights$speech_pos_emb,
+        cache$k_cache,
+        cache$v_cache,
+        initial_hidden,
+        rope$cos,
+        rope$sin,
+        list(
+            cond_len = as.integer(cond_len),
+            max_tokens = as.integer(max_gen_tokens),
+            temperature = as.double(temperature),
+            cfg_weight = as.double(cfg_weight),
+            top_p = as.double(top_p),
+            min_p = as.double(min_p),
+            rep_penalty = as.double(repetition_penalty),
+            stop_token = as.integer(config$stop_speech_token),
+            n_heads = as.integer(n_heads),
+            head_dim = as.integer(head_dim),
+            rms_eps = 1e-5
+        )
+    )
+
+    # token_ids is an integer vector of 0-indexed token IDs (from C++)
+    if (length(token_ids) > 0L) {
+        # Check for EOS and strip it
+        eos_pos <- match(config$stop_speech_token, token_ids)
+        if (!is.na(eos_pos)) {
+            message("EOS detected at step ", eos_pos)
+            token_ids <- token_ids[seq_len(eos_pos - 1L)]
+        }
+        torch::torch_tensor(token_ids, dtype = torch::torch_long(), device = device)
+    } else {
+        torch::torch_tensor(integer(0), device = device)
+    }
+}
+
+# ============================================================================
 # Weight Loading
 # ============================================================================
 
