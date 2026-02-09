@@ -16,7 +16,8 @@ Imports:
     torch (>= 0.12.0),
     tuneR,
     jsonlite,
-    hfhub
+    hfhub,
+    safetensors (>= 0.1.1)
 Suggests:
     tinytest,
     av,
