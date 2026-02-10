@@ -12,32 +12,31 @@ Python container backend.
 
 - **GPU**: RTX 5060 Ti (16GB VRAM, Blackwell architecture)
 - **Model**: Chatterbox TTS (798M parameters)
-- **Test text**: ~20 words generating ~6-8 seconds of audio (~200 tokens)
+- **Precision**: float32 (all backends, including container)
+- **Test text**: "The quick brown fox jumps over the lazy dog." (~10 words)
 
 ## Results Summary
 
-| Implementation | Precision | Generation Time | Audio Length | Real-time Factor |
-|----------------|-----------|-----------------|--------------|------------------|
-| Container (Python) | float16 | 2.2s | 6s | **2.7x** |
-| Native R (traced) | float32 | ~6s | ~6s | **~1x** |
-| Native R (normal) | float32 | ~30s | ~4s | **0.13x** |
+| Backend | Cold Start | Warm Start | Audio | Real-time Factor |
+|---------|-----------|------------|-------|------------------|
+| Container (Python) | 1.1s | 1.3s | 3.1s | **2.5x** |
+| Native R (traced) | 83.8s | 12.6s | 4.0s | **0.32x** |
+| Native R (C++ T3) | 26.6s | 26.7s | 4.2s | **0.16x** |
+| Native R (pure R) | 50.5s | 53.2s | 5.3s | **0.10x** |
 
-**Traced inference is ~5x faster** than normal R inference.
-The container is still approximately **3x faster** than traced native R.
+Cold start includes one-time JIT compilation overhead for traced mode.
+
+### Speedups (warm start, relative to pure R)
+
+| Backend | Speedup |
+|---------|---------|
+| C++ T3 decode | 2.0x |
+| R traced | 4.2x |
+| Container | 41.7x |
 
 ## Why the Difference?
 
-### 1. Precision (float16 vs float32)
-
-The container uses float16 (half precision), which:
-
-- Halves memory bandwidth requirements
-- Enables tensor core acceleration on modern GPUs
-- Reduces VRAM usage (3.4GB vs 3.3GB - similar due to other overhead)
-
-R torch currently lacks easy float16 inference support for custom models.
-
-### 2. R-to-C++ Boundary Overhead
+### 1. R-to-C++ Boundary Overhead
 
 Each tensor operation in R crosses the R/C++ boundary:
 
@@ -48,27 +47,65 @@ x <- x$mul(z)
 x <- nnf_gelu(x)
 ```
 
-Python's tighter C++ integration has lower per-operation overhead. With ~200 tokens
-and ~30 transformer layers, this adds up to significant overhead.
+Python's tighter C++ integration has lower per-operation overhead. With ~100-200
+tokens and ~30 transformer layers, this adds up significantly.
 
-### 3. Autoregressive Generation
+### 2. Autoregressive Generation
 
 Token generation is inherently sequential - each token depends on the previous.
 This means:
 
-- ~200 sequential forward passes through 30 transformer layers
+- ~100-200 sequential forward passes through 30 transformer layers
 - No opportunity for batch parallelism
 - R overhead multiplied by every token
 
+### 3. JIT Tracing
+
+The traced backend compiles transformer layers and CFM estimator into C++ graphs,
+eliminating per-operation R overhead within those modules. The generation loop
+itself still runs in R.
+
+## Native Backend Details
+
+### Pure R (`backend = "r"`)
+
+All inference runs in R. Each tensor operation individually crosses the R/C++
+boundary. ~500ms per token.
+
+### C++ T3 Decode (`backend = "cpp"`)
+
+The T3 autoregressive decode loop runs in C++ via libtorch, eliminating R overhead
+for the token generation phase. S3Gen vocoder still runs in R. ~225ms per token.
+
+Requires libtorch headers at install time (auto-detected by the configure script).
+
+### R Traced (`traced = TRUE`)
+
+Uses `torch::jit_trace()` to compile both T3 transformer layers and CFM estimator
+into C++ graphs.
+
+```r
+result <- generate(model, text, voice, traced = TRUE)
+```
+
+**Cold start** (~84s): Traces 30 T3 transformer layers + KV projectors, plus the
+CFM estimator at fixed max length. This is a one-time cost per session.
+
+**Warm start** (~13s): Runs the traced graphs directly. ~130ms per token.
+
+**Limitations:**
+- T3 cache limited to 350 tokens (including conditioning ~50-100 tokens)
+- CFM max sequence length 1024 (longer sequences fall back to non-traced)
+- Uses more VRAM (~4.2GB vs ~3.1GB) due to cached traced modules
+
 ## Optimizations Applied
 
-The native R implementation includes several optimizations that improved
-performance from 232ms/token to 135ms/token (42% faster):
+The native R implementation includes several optimizations:
 
 ### SDPA (Scaled Dot-Product Attention)
 
 ```r
-# Using fused attention kernel (2.7x faster in isolation)
+# Using fused attention kernel
 torch::torch_scaled_dot_product_attention(q, k, v)
 ```
 
@@ -88,20 +125,6 @@ unique_ids <- unique(as.integer(generated_ids$cpu()))
 logits[1, unique_ids] <- logits[1, unique_ids] / penalty
 ```
 
-### Single Softmax for Min-p Filtering
-
-```r
-# Before: Two softmax calls
-probs1 <- nnf_softmax(logits, dim = -1)
-# ... filter in logit space ...
-probs2 <- nnf_softmax(filtered_logits, dim = -1)
-
-# After: One softmax, filter in probability space
-probs <- nnf_softmax(logits, dim = -1)
-probs[probs < threshold] <- 0
-probs <- probs / probs$sum()  # Simple renormalization
-```
-
 ### CPU-First Weight Loading
 
 ```r
@@ -113,76 +136,49 @@ rm(weights); gc()
 model$to(device = "cuda")
 ```
 
+## Memory Usage
+
+| Backend | Model VRAM | Peak During Generation |
+|---------|-----------|----------------------|
+| Pure R / C++ | 3,112 MB | 3,133 MB |
+| Traced | 4,211 MB | 4,238 MB |
+| Container | ~3,000 MB | ~3,200 MB |
+
+The CUDA caching allocator may hold additional reserved memory between generations.
+Use `cuda_empty_cache()` to release it back to the driver.
+
 ## When to Use Each
-
-### Use Native R When:
-
-- No Docker available or desired
-- Long-running R sessions (model stays cached)
-- Custom fine-tuning or LoRA experimentation
-- Full control over inference parameters
-- Offline operation required
 
 ### Use Container When:
 
-- Speed is critical (10x faster)
-- Short-lived scripts (avoid 17s model load each time)
+- Speed is critical (~10x faster than best native)
 - Production deployments
 - GPU resource management via gpu.ctl
 
-## Memory Usage
+### Use Native R (traced) When:
 
-| Implementation | Peak VRAM | Steady-state VRAM |
-|----------------|-----------|-------------------|
-| Container | ~3.7GB | 3.4GB |
-| Native R (optimized) | ~3.3GB | 3.3GB |
+- No Docker available or desired
+- Long-running R sessions (one-time 84s compilation, then fast)
+- Need full control over inference parameters
 
-The CPU-first loading optimization eliminated the 6GB peak that occurred when
-weights were temporarily held in both the state dict and model.
+### Use Native R (C++ T3) When:
 
-## JIT Trace Optimization (Jan 2026)
+- Traced mode uses too much VRAM
+- Generating very long sequences (>350 tokens)
 
-The `traced = TRUE` parameter enables JIT-traced inference, which compiles R torch
-code to a C++ graph and eliminates per-operation R overhead.
+### Use Native R (pure R) When:
 
-### How it works
-
-1. **Pre-allocated KV cache**: Fixed-size cache (350 tokens) with attention mask
-2. **Traced layers**: Each transformer layer + KV projector is traced once
-3. **Generation loop**: Update cache values and mask in R, run traced forward
-
-```r
-# Enable traced inference
-result <- generate(model, text, voice, traced = TRUE)
-```
-
-### Limitations
-
-- Cache limited to 350 tokens (including conditioning)
-- First call compiles traced modules (one-time overhead)
-- Longer sequences may be truncated
-
-### Benchmark
-
-Same hardware, same text:
-
-| Mode | Time | Audio | Real-time Factor | Speedup |
-|------|------|-------|------------------|---------|
-| Normal | ~30s | ~4s | 0.13x | baseline |
-| Traced | ~6s | ~6s | ~1x | **~5x** |
-
-The traced version includes:
-- T3 transformer layers and KV projectors (30 layers)
-- CFM estimator (56 transformer blocks, 10 Euler steps)
+- libtorch headers not available at install time
+- Debugging or development
+- Custom fine-tuning or LoRA experimentation
 
 ## Future Improvements
 
 Potential optimizations not yet implemented:
 
-1. **float16 inference**: Would require careful dtype management throughout
+1. **float16 inference**: Would halve memory bandwidth requirements
 2. **torch.compile()**: Not available in R torch
 3. **Flash Attention 2**: Requires custom CUDA kernels
-4. **Speculative decoding**: Would add complexity
 
 The R-to-C++ boundary overhead is fundamental and cannot be eliminated without
 changes to R torch itself. JIT tracing helps by batching operations into a single
