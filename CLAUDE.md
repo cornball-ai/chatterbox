@@ -39,7 +39,7 @@ chatterbox
 |----------|---------|
 | `chatterbox(device)` | Create model object |
 | `load_chatterbox(model)` | Load pretrained weights |
-| `tts(model, text, voice)` | Generate speech |
+| `generate(model, text, voice)` | Generate speech |
 | `create_voice_embedding(model, audio)` | Create speaker embedding |
 | `quick_tts(text, ref_audio, output)` | One-liner convenience |
 
@@ -53,11 +53,11 @@ model <- chatterbox("cuda")
 model <- load_chatterbox(model)
 
 # Generate speech with voice cloning
-result <- tts(model, "Hello world!", "reference_voice.wav")
+result <- generate(model, "Hello world!", "reference_voice.wav")
 write_audio(result$audio, result$sample_rate, "output.wav")
 
 # Use traced inference for 2.2x faster generation
-result <- tts(model, "Hello world!", "reference_voice.wav", traced = TRUE)
+result <- generate(model, "Hello world!", "reference_voice.wav", traced = TRUE)
 
 # Or one-liner:
 quick_tts("Hello!", "ref.wav", "out.wav")

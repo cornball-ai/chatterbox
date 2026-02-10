@@ -8,7 +8,7 @@ model <- chatterbox("cpu")
 model <- load_chatterbox(model)
 
 cat("\nGenerating speech...\n")
-result <- tts(model, "Hello, this is a test", "inst/audio/jfk.wav")
+result <- generate(model, "Hello, this is a test", "inst/audio/jfk.wav")
 
 cat(sprintf("\nOutput: %d samples (%.2f sec)\n",
         length(result$audio), length(result$audio) / result$sample_rate))

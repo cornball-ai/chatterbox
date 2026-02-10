@@ -14,7 +14,7 @@ tts_to_file(model, text, voice, output_path, ...)
 
 \item{output_path}{Output file path (WAV format)}
 
-\item{...}{Additional arguments passed to tts()}
+\item{...}{Additional arguments passed to generate()}
 }
 \value{
 Invisibly returns the output path

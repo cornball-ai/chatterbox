@@ -189,9 +189,9 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #' @param autocast Use mixed precision (float16) on CUDA for faster inference (default TRUE on CUDA)
 #' @return List with audio (numeric vector) and sample_rate
 #' @export
-tts <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
-                 temperature = 0.8, top_p = 0.9, autocast = NULL,
-                 traced = FALSE, backend = c("r", "cpp"))
+generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
+                      temperature = 0.8, top_p = 0.9, autocast = NULL,
+                      traced = FALSE, backend = c("r", "cpp"))
 {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
@@ -316,12 +316,12 @@ tts <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 #' @param text Text to synthesize
 #' @param voice Voice embedding or path to reference audio
 #' @param output_path Output file path (WAV format)
-#' @param ... Additional arguments passed to tts()
+#' @param ... Additional arguments passed to generate()
 #' @return Invisibly returns the output path
 #' @export
 tts_to_file <- function (model, text, voice, output_path, ...)
 {
-    result <- tts(model, text, voice, ...)
+    result <- generate(model, text, voice, ...)
     write_audio(result$audio, result$sample_rate, output_path)
     invisible(output_path)
 }
@@ -336,7 +336,7 @@ tts_to_file <- function (model, text, voice, output_path, ...)
 #' @param text Text to synthesize
 #' @param voice Voice embedding
 #' @param chunk_size Maximum tokens per chunk
-#' @param ... Additional arguments passed to tts()
+#' @param ... Additional arguments passed to generate()
 #' @return List with audio and sample_rate
 #' @export
 tts_chunked <- function (model, text, voice, chunk_size = 200, ...)
@@ -356,7 +356,7 @@ tts_chunked <- function (model, text, voice, chunk_size = 200, ...)
                 i, length(sentences),
                 substr(sentence, 1, 50)))
 
-        result <- tts(model, sentence, voice, ...)
+        result <- generate(model, sentence, voice, ...)
         all_audio <- c(all_audio, result$audio)
     }
 
@@ -428,7 +428,7 @@ quick_tts <- function (text, reference_audio, output_path = NULL,
 
     # Generate
     if (is.null(output_path)) {
-        tts(model, text, reference_audio, autocast = autocast)
+        generate(model, text, reference_audio, autocast = autocast)
     } else {
         tts_to_file(model, text, reference_audio, output_path, autocast = autocast)
     }

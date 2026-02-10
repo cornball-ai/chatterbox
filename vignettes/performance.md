@@ -153,7 +153,7 @@ code to a C++ graph and eliminates per-operation R overhead.
 
 ```r
 # Enable traced inference
-result <- tts(model, text, voice, traced = TRUE)
+result <- generate(model, text, voice, traced = TRUE)
 ```
 
 ### Limitations

@@ -39,7 +39,7 @@ cuda_mem("After voice embedding + cleanup")
 cat("\n--- TTS Inference ---\n")
 text <- "Hello, this is a test of the text to speech system."
 
-result <- tts(model, text, voice)
+result <- generate(model, text, voice)
 
 cuda_mem("After TTS")
 
@@ -49,7 +49,7 @@ cuda_mem("After TTS + cleanup")
 
 # Second TTS call - does memory accumulate?
 cat("\n--- Second TTS Inference ---\n")
-result2 <- tts(model, "This is a second test to check for memory accumulation.", voice)
+result2 <- generate(model, "This is a second test to check for memory accumulation.", voice)
 cuda_mem("After 2nd TTS")
 
 gc()
@@ -58,7 +58,7 @@ cuda_mem("After 2nd TTS + cleanup")
 
 # Third TTS call
 cat("\n--- Third TTS Inference ---\n")
-result3 <- tts(model, "And a third test just to be sure.", voice)
+result3 <- generate(model, "And a third test just to be sure.", voice)
 cuda_mem("After 3rd TTS")
 
 gc()

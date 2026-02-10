@@ -26,7 +26,7 @@ text <- "The quick brown fox jumps over the lazy dog."
 # ============================================================================
 cat("\n=== Test 1: C++ backend produces valid tokens ===\n")
 
-result_cpp <- tts(model, text, voice, backend = "cpp")
+result_cpp <- generate(model, text, voice, backend = "cpp")
 n_samples <- length(result_cpp$audio)
 duration <- n_samples / result_cpp$sample_rate
 
@@ -72,18 +72,18 @@ cat(sprintf("PASS: Audio saved to %s\n", outpath))
 cat("\n=== Test 4: Benchmark R vs C++ ===\n")
 
 # Warm up
-tts(model, "Hello", voice, backend = "r")
-tts(model, "Hello", voice, backend = "cpp")
+generate(model, "Hello", voice, backend = "r")
+generate(model, "Hello", voice, backend = "cpp")
 
 n_runs <- 3
 r_times <- numeric(n_runs)
 cpp_times <- numeric(n_runs)
 
 for (i in seq_len(n_runs)) {
-    t_r <- system.time(tts(model, text, voice, backend = "r"))
+    t_r <- system.time(generate(model, text, voice, backend = "r"))
     r_times[i] <- t_r[3]
 
-    t_cpp <- system.time(tts(model, text, voice, backend = "cpp"))
+    t_cpp <- system.time(generate(model, text, voice, backend = "cpp"))
     cpp_times[i] <- t_cpp[3]
 }
 

@@ -1,9 +1,9 @@
 % tinyrox says don't edit this manually, but it can't stop you!
-\name{tts}
-\alias{tts}
+\name{generate}
+\alias{generate}
 \title{Generate speech from text}
 \usage{
-tts(
+generate(
   model,
   text,
   voice,

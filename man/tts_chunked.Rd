@@ -14,7 +14,7 @@ tts_chunked(model, text, voice, chunk_size = 200, ...)
 
 \item{chunk_size}{Maximum tokens per chunk}
 
-\item{...}{Additional arguments passed to tts()}
+\item{...}{Additional arguments passed to generate()}
 }
 \value{
 List with audio and sample_rate

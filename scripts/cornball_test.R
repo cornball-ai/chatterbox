@@ -10,7 +10,7 @@ model <- load_chatterbox(model)
 text <- "cornball AI is doing something for our country!"
 cat(sprintf("\nGenerating: '%s'\n", text))
 
-result <- tts(model, text, "inst/audio/jfk.wav")
+result <- generate(model, text, "inst/audio/jfk.wav")
 
 cat(sprintf("\nOutput: %d samples (%.2f sec)\n",
         length(result$audio), length(result$audio) / result$sample_rate))

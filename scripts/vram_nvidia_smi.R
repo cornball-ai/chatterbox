@@ -37,7 +37,7 @@ cuda_mem("After cleanup")
 # Run TTS
 ref_audio <- "/home/troy/Music/cornball_jfk.wav"
 voice <- create_voice_embedding(model, ref_audio)
-result <- tts(model, "Hello, this is a test.", voice)
+result <- generate(model, "Hello, this is a test.", voice)
 
 cuda_mem("After TTS (before cleanup)")
 
