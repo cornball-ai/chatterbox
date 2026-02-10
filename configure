@@ -1,0 +1,24 @@
+#!/bin/sh
+# Detect libtorch availability from installed torch R package
+
+TORCH_INCLUDE=$("${R_HOME}/bin/Rscript" -e "cat(system.file('include', package='torch'))")
+TORCH_LIB=$("${R_HOME}/bin/Rscript" -e "cat(system.file('lib', package='torch'))")
+
+if [ -n "$TORCH_INCLUDE" ] && [ -n "$TORCH_LIB" ] && \
+   [ -f "$TORCH_INCLUDE/torch/csrc/api/include/torch/torch.h" ]; then
+    echo "* libtorch headers found at $TORCH_INCLUDE"
+    echo "* libtorch libraries found at $TORCH_LIB"
+    echo "* C++ T3 decode backend ENABLED"
+    cat > src/Makevars <<EOF
+PKG_CXXFLAGS = -I${TORCH_INCLUDE} -I${TORCH_INCLUDE}/torch/csrc/api/include \\
+               -DHAVE_LIBTORCH -D_GLIBCXX_USE_CXX11_ABI=1 -O3
+PKG_LIBS = -L${TORCH_LIB} -ltorch -ltorch_cpu -lc10 -Wl,-rpath,${TORCH_LIB}
+CXX_STD = CXX17
+EOF
+else
+    echo "* libtorch not found - C++ T3 decode backend DISABLED"
+    echo "* Package will use pure R inference (backend='r')"
+    cat > src/Makevars <<EOF
+CXX_STD = CXX17
+EOF
+fi

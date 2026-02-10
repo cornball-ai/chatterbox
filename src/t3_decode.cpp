@@ -4,7 +4,10 @@
 // entire decode loop in a single .Call(). Prefill stays in R (one call,
 // no loop overhead).
 //
-// IMPORTANT: Include torch headers before R headers to avoid type conflicts.
+// Requires libtorch headers/libs (detected by configure script).
+// Without libtorch, compiles to a stub that returns an error.
+
+#ifdef HAVE_LIBTORCH
 
 #include <torch/torch.h>
 #include <ATen/Functions.h>
@@ -425,3 +428,21 @@ SEXP cpp_t3_decode(
 }
 
 } // extern "C"
+
+#else // !HAVE_LIBTORCH
+
+#include <R.h>
+#include <Rinternals.h>
+
+extern "C" {
+
+SEXP cpp_t3_decode(SEXP a, SEXP b, SEXP c, SEXP d, SEXP e,
+                   SEXP f, SEXP g, SEXP h, SEXP i, SEXP j, SEXP k) {
+    Rf_error("C++ T3 decode backend not available (libtorch not found at install time). "
+             "Use backend='r' instead.");
+    return R_NilValue;
+}
+
+} // extern "C"
+
+#endif // HAVE_LIBTORCH

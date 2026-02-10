@@ -745,7 +745,6 @@ T3 autoregressive token generation (~135ms per token). Each iteration:
 
 ## Related
 
-- Part of the [cornyverse](https://github.com/cornball-ai/cornyverse) ecosystem
 - Alternative to tts.api container backend for local TTS (no Docker required)
-- Use `tts.api::speech(..., backend = "native")` for unified interface
+- Use `tts.api::tts(..., backend = "native")` for unified interface
 - pytorch-migration skill for migration patterns
