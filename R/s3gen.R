@@ -953,7 +953,7 @@ s3gen <- Rtorch::nn_module(
             output_wavs <- vocoder_result$audio
 
             # Apply fade-in
-            fade_len <- length(self$trim_fade)
+            fade_len <- as.integer(prod(self$trim_fade$size()))
             output_wavs[, 1:fade_len] <- output_wavs[, 1:fade_len] * self$trim_fade
 
             return(list(output_wavs, NULL))
