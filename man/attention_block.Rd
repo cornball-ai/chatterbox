@@ -1,18 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{attention_block}
 \alias{attention_block}
 \title{Attention block for perceiver}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-attention_block(embed_dim = 1024, num_heads = 4)
-}
-\arguments{
-\item{embed_dim}{Embedding dimension (default 1024)}
-
-\item{num_heads}{Number of attention heads (default 4)}
-}
-\value{
-nn_module
+attention_block
 }
 \description{
 Attention block for perceiver
 }
+\keyword{datasets}

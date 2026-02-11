@@ -45,14 +45,14 @@ t3_config_english <- function ()
 #' @param model_dim Embedding dimension
 #' @param init_std Initialization standard deviation
 #' @return nn_module
-learned_position_embeddings <- torch::nn_module(
+learned_position_embeddings <- Rtorch::nn_module(
     "LearnedPositionEmbeddings",
 
     initialize = function (seq_len, model_dim, init_std = 0.02)
     {
-        self$emb <- torch::nn_embedding(seq_len, model_dim)
+        self$emb <- Rtorch::nn_embedding(seq_len, model_dim)
         # GPT-2 style initialization
-        torch::with_no_grad({
+        Rtorch::with_no_grad({
                 self$emb$weight$normal_(mean = 0.0, std = init_std)
             })
     },
@@ -63,7 +63,7 @@ learned_position_embeddings <- torch::nn_module(
         sl <- x$size(2)
         device <- x$device
         # R torch_arange(0, n) is inclusive, so 0 to sl-1 gives sl values
-        indices <- torch::torch_arange(0, sl - 1, device = device, dtype = torch::torch_long())
+        indices <- Rtorch::torch_arange(0, sl - 1, device = device, dtype = Rtorch::torch_long)
         self$emb$forward(indices$add(1L)) # R/torch is 1-indexed for embeddings
     },
 
@@ -73,7 +73,7 @@ learned_position_embeddings <- torch::nn_module(
         device <- self$emb$weight$device
 
         if (!inherits(idx, "torch_tensor")) {
-            idx <- torch::torch_tensor(idx, device = device, dtype = torch::torch_long())
+            idx <- Rtorch::torch_tensor(idx, device = device, dtype = Rtorch::torch_long)
         } else {
             idx <- idx$to(device = device)
         }
@@ -137,7 +137,7 @@ t3_cond_to_device <- function (cond, device)
 #' @param embed_dim Embedding dimension (default 1024)
 #' @param num_heads Number of attention heads (default 4)
 #' @return nn_module
-attention_block <- torch::nn_module(
+attention_block <- Rtorch::nn_module(
     "AttentionBlock",
 
     initialize = function (embed_dim = 1024, num_heads = 4)
@@ -147,15 +147,15 @@ attention_block <- torch::nn_module(
         self$head_dim <- embed_dim %/% num_heads
 
         # Single norm layer (applied to both inputs)
-        self$norm <- torch::nn_layer_norm(embed_dim)
+        self$norm <- Rtorch::nn_layer_norm(embed_dim)
 
         # Q, K, V projections
-        self$to_q <- torch::nn_linear(embed_dim, embed_dim)
-        self$to_k <- torch::nn_linear(embed_dim, embed_dim)
-        self$to_v <- torch::nn_linear(embed_dim, embed_dim)
+        self$to_q <- Rtorch::nn_linear(embed_dim, embed_dim)
+        self$to_k <- Rtorch::nn_linear(embed_dim, embed_dim)
+        self$to_v <- Rtorch::nn_linear(embed_dim, embed_dim)
 
         # Output projection
-        self$proj_out <- torch::nn_linear(embed_dim, embed_dim)
+        self$proj_out <- Rtorch::nn_linear(embed_dim, embed_dim)
     },
 
     forward = function (x1, x2)
@@ -182,9 +182,9 @@ attention_block <- torch::nn_module(
 
         # Scaled dot-product attention
         scale <- 1.0 / sqrt(self$head_dim)
-        attn <- torch::torch_matmul(q, k$transpose(3, 4)) * scale
-        attn <- torch::nnf_softmax(attn, dim = - 1)
-        out <- torch::torch_matmul(attn, v)
+        attn <- Rtorch::torch_matmul(q, k$transpose(3, 4)) * scale
+        attn <- Rtorch::nnf_softmax(attn, dim = - 1)
+        out <- Rtorch::torch_matmul(attn, v)
 
         # Reshape back to (batch, q_len, embed_dim)
         out <- out$transpose(2, 3)$contiguous()$view(c(batch_size, q_len, self$embed_dim))
@@ -205,7 +205,7 @@ attention_block <- torch::nn_module(
 #' @param embed_dim Embedding dimension (default 1024)
 #' @param num_heads Number of attention heads (default 4)
 #' @return nn_module
-perceiver_resampler <- torch::nn_module(
+perceiver_resampler <- Rtorch::nn_module(
     "Perceiver",
 
     initialize = function (num_query_tokens = 32, embed_dim = 1024,
@@ -216,8 +216,8 @@ perceiver_resampler <- torch::nn_module(
 
         # Learnable query tokens (pre_attention_query in Python)
         query_var <- sqrt(3.0) * sqrt(2.0 / (num_query_tokens + num_query_tokens))
-        self$pre_attention_query <- torch::nn_parameter(
-            torch::torch_empty(1, num_query_tokens, embed_dim)$uniform_(- query_var, query_var)
+        self$pre_attention_query <- Rtorch::nn_parameter(
+            Rtorch::torch_empty(1, num_query_tokens, embed_dim)$uniform_(- query_var, query_var)
         )
 
         # Single attention block (reused for cross-attention and self-attention)
@@ -249,7 +249,7 @@ perceiver_resampler <- torch::nn_module(
 #'
 #' @param config T3 configuration
 #' @return nn_module
-t3_cond_enc <- torch::nn_module(
+t3_cond_enc <- Rtorch::nn_module(
     "T3CondEnc",
 
     initialize = function (config = NULL)
@@ -260,12 +260,12 @@ t3_cond_enc <- torch::nn_module(
         self$config <- config
 
         # Speaker embedding projection
-        self$spkr_enc <- torch::nn_linear(config$speaker_embed_size, config$n_channels)
+        self$spkr_enc <- Rtorch::nn_linear(config$speaker_embed_size, config$n_channels)
 
         # Emotion projection
         self$emotion_adv_fc <- NULL
         if (config$emotion_adv) {
-            self$emotion_adv_fc <- torch::nn_linear(1, config$n_channels, bias = FALSE)
+            self$emotion_adv_fc <- Rtorch::nn_linear(1, config$n_channels, bias = FALSE)
         }
 
         # Perceiver resampler
@@ -286,7 +286,7 @@ t3_cond_enc <- torch::nn_module(
         cond_spkr <- cond_spkr$unsqueeze(2)
 
         # Empty tensor for unused conditioning
-        empty <- torch::torch_zeros(c(batch_size, 0, self$config$n_channels), device = device)
+        empty <- Rtorch::torch_zeros(c(batch_size, 0, self$config$n_channels), device = device)
 
         # CLAP not implemented
         cond_clap <- empty
@@ -304,14 +304,14 @@ t3_cond_enc <- torch::nn_module(
         if (!is.null(self$emotion_adv_fc) && !is.null(cond$emotion_adv)) {
             emotion_val <- cond$emotion_adv
             if (!inherits(emotion_val, "torch_tensor")) {
-                emotion_val <- torch::torch_tensor(emotion_val, device = device)
+                emotion_val <- Rtorch::torch_tensor(emotion_val, device = device)
             }
             emotion_val <- emotion_val$view(c(- 1, 1, 1))
             cond_emotion_adv <- self$emotion_adv_fc$forward(emotion_val)
         }
 
         # Concatenate all conditioning
-        torch::torch_cat(list(cond_spkr, cond_clap, cond_prompt_speech_emb, cond_emotion_adv), dim = 2)
+        Rtorch::torch_cat(list(cond_spkr, cond_clap, cond_prompt_speech_emb, cond_emotion_adv), dim = 2)
     }
 )
 
@@ -323,7 +323,7 @@ t3_cond_enc <- torch::nn_module(
 #'
 #' @param config T3 configuration
 #' @return nn_module
-t3_model <- torch::nn_module(
+t3_model <- Rtorch::nn_module(
     "T3Model",
 
     initialize = function (config = NULL)
@@ -341,8 +341,8 @@ t3_model <- torch::nn_module(
         self$cond_enc <- t3_cond_enc(config)
 
         # Token embeddings
-        self$text_emb <- torch::nn_embedding(config$text_tokens_dict_size, self$llama_dim)
-        self$speech_emb <- torch::nn_embedding(config$speech_tokens_dict_size, self$llama_dim)
+        self$text_emb <- Rtorch::nn_embedding(config$text_tokens_dict_size, self$llama_dim)
+        self$speech_emb <- Rtorch::nn_embedding(config$speech_tokens_dict_size, self$llama_dim)
 
         # Position embeddings
         max_text_seq_len <- config$max_text_tokens + 2
@@ -351,8 +351,8 @@ t3_model <- torch::nn_module(
         self$speech_pos_emb <- learned_position_embeddings(max_speech_seq_len, self$llama_dim)
 
         # Output heads
-        self$text_head <- torch::nn_linear(self$llama_dim, config$text_tokens_dict_size, bias = FALSE)
-        self$speech_head <- torch::nn_linear(self$llama_dim, config$speech_tokens_dict_size, bias = FALSE)
+        self$text_head <- Rtorch::nn_linear(self$llama_dim, config$text_tokens_dict_size, bias = FALSE)
+        self$speech_head <- Rtorch::nn_linear(self$llama_dim, config$speech_tokens_dict_size, bias = FALSE)
 
         # Llama backbone
         self$tfmr <- llama_model(llama_cfg)
@@ -397,7 +397,7 @@ t3_model <- torch::nn_module(
         }
 
         # Concatenate: cond + text + speech
-        embeds <- torch::torch_cat(list(cond_emb, text_emb, speech_emb), dim = 2)
+        embeds <- Rtorch::torch_cat(list(cond_emb, text_emb, speech_emb), dim = 2)
 
         list(embeds = embeds, len_cond = len_cond)
     },
@@ -473,21 +473,21 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
     # Add start/stop text tokens
     sot <- config$start_text_token
     eot <- config$stop_text_token
-    text_tokens <- torch::nnf_pad(text_tokens, c(1, 0), value = sot)
-    text_tokens <- torch::nnf_pad(text_tokens, c(0, 1), value = eot)
+    text_tokens <- Rtorch::nnf_pad(text_tokens, c(1, 0), value = sot)
+    text_tokens <- Rtorch::nnf_pad(text_tokens, c(0, 1), value = eot)
 
     # Double batch for CFG
     if (cfg_weight > 0.0) {
-        text_tokens <- torch::torch_cat(list(text_tokens, text_tokens), dim = 1)
+        text_tokens <- Rtorch::torch_cat(list(text_tokens, text_tokens), dim = 1)
     }
 
     # Initial speech token (BOS)
-    bos_token <- torch::torch_tensor(matrix(config$start_speech_token, nrow = 1),
-        device = device, dtype = torch::torch_long())
+    bos_token <- Rtorch::torch_tensor(matrix(config$start_speech_token, nrow = 1),
+        device = device, dtype = Rtorch::torch_long)
 
     # Double BOS token for CFG
     if (cfg_weight > 0.0) {
-        bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1)
+        bos_token <- Rtorch::torch_cat(list(bos_token, bos_token), dim = 1)
     }
 
     # Prepare initial embeddings
@@ -497,11 +497,11 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
     # Double BOS embedding for CFG
     if (cfg_weight > 0.0) {
         bos_emb <- model$speech_emb$forward(bos_token$add(1L)) + model$speech_pos_emb$get_fixed_embedding(0)
-        bos_emb <- torch::torch_cat(list(bos_emb, bos_emb), dim = 1)
+        bos_emb <- Rtorch::torch_cat(list(bos_emb, bos_emb), dim = 1)
     }
 
     # Initial forward pass
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
             output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
             past_key_values <- output$past_key_values
 
@@ -537,7 +537,7 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                 }
 
                 # Single softmax, then apply min-p in prob space
-                probs <- torch::nnf_softmax(logits, dim = -1)
+                probs <- Rtorch::nnf_softmax(logits, dim = -1)
 
                 # Min-p filtering in prob space (avoids second softmax)
                 max_prob <- probs$max()
@@ -548,10 +548,10 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                 probs_filtered <- probs / probs$sum()
 
                 # Top-p (nucleus) sampling
-                sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
+                sorted_result <- Rtorch::torch_sort(probs_filtered, descending = TRUE)
                 sorted_probs <- sorted_result[[1]]
                 sorted_indices <- sorted_result[[2]]
-                cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = - 1)
+                cumsum_probs <- Rtorch::torch_cumsum(sorted_probs, dim = - 1)
 
                 # Remove tokens with cumulative probability above threshold
                 sorted_mask <- cumsum_probs > top_p
@@ -563,11 +563,11 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                 sorted_probs <- sorted_probs / sorted_probs$sum()
 
                 # Sample
-                next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1)
+                next_token_idx <- Rtorch::torch_multinomial(sorted_probs, num_samples = 1)
                 next_token <- sorted_indices$gather(2, next_token_idx)
 
                 predicted[[length(predicted) + 1]] <- next_token
-                generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2)
+                generated_ids <- Rtorch::torch_cat(list(generated_ids, next_token), dim = 2)
 
                 # Check for EOS
                 # Note: sorted_indices returns R 1-indexed values, subtract 1 to get 0-indexed token ID
@@ -583,7 +583,7 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
 
                 # Double for CFG
                 if (cfg_weight > 0.0) {
-                    next_emb <- torch::torch_cat(list(next_emb, next_emb), dim = 1)
+                    next_emb <- Rtorch::torch_cat(list(next_emb, next_emb), dim = 1)
                 }
 
                 # Forward with KV cache
@@ -596,11 +596,11 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
     # Concatenate predicted tokens and convert to 0-indexed token IDs
     # (sorted_indices returns R 1-indexed positions)
     if (length(predicted) > 0) {
-        tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
+        tokens <- Rtorch::torch_cat(predicted, dim = 2)$squeeze(1)
         tokens <- tokens$sub(1L) # Convert to 0-indexed token IDs
         tokens
     } else {
-        torch::torch_tensor(integer(0), device = device)
+        Rtorch::torch_tensor(integer(0), device = device)
     }
 }
 
@@ -631,12 +631,12 @@ get_traced_layers <- function(model, max_cache_len = 350L) {
         head_dim <- config$head_dim
 
         # Example inputs for tracing
-        hidden_states <- torch::torch_randn(batch_size, 1L, config$hidden_size, device = device)
-        position_ids <- torch::torch_zeros(c(batch_size, 1L), dtype = torch::torch_long(), device = device)
+        hidden_states <- Rtorch::torch_randn(batch_size, 1L, config$hidden_size, device = device)
+        position_ids <- Rtorch::torch_zeros(c(batch_size, 1L), dtype = Rtorch::torch_long, device = device)
         rope <- compute_rope_frequencies(head_dim, max_cache_len + 100L, device = device)
-        k_cache <- torch::torch_randn(batch_size, n_heads, max_cache_len, head_dim, device = device)
-        v_cache <- torch::torch_randn(batch_size, n_heads, max_cache_len, head_dim, device = device)
-        valid_mask <- torch::torch_ones(batch_size, 1L, 1L, max_cache_len, dtype = torch::torch_bool(), device = device)
+        k_cache <- Rtorch::torch_randn(batch_size, n_heads, max_cache_len, head_dim, device = device)
+        v_cache <- Rtorch::torch_randn(batch_size, n_heads, max_cache_len, head_dim, device = device)
+        valid_mask <- Rtorch::torch_ones(batch_size, 1L, 1L, max_cache_len, dtype = Rtorch::torch_bool, device = device)
 
         traced_layers <- list()
         traced_kv_projectors <- list()
@@ -644,17 +644,17 @@ get_traced_layers <- function(model, max_cache_len = 350L) {
         for (i in seq_len(n_layers)) {
             # Trace the decoder layer
             wrapper <- traceable_decoder_layer(model$tfmr$layers[[i]], max_cache_len)
-            traced_layers[[i]] <- torch::jit_trace(wrapper, hidden_states, position_ids,
+            traced_layers[[i]] <- Rtorch::jit_trace(wrapper, hidden_states, position_ids,
                                                     rope$cos, rope$sin, k_cache, v_cache, valid_mask)
 
             # Trace the KV projector for this layer
             kv_proj <- traceable_kv_projector(model$tfmr$layers[[i]])
-            traced_kv_projectors[[i]] <- torch::jit_trace(kv_proj, hidden_states, position_ids,
+            traced_kv_projectors[[i]] <- Rtorch::jit_trace(kv_proj, hidden_states, position_ids,
                                                            rope$cos, rope$sin)
         }
 
         # Also trace the final norm
-        traced_norm <- torch::jit_trace(model$tfmr$norm, hidden_states)
+        traced_norm <- Rtorch::jit_trace(model$tfmr$norm, hidden_states)
 
         .traced_cache[[cache_key]] <- list(
             layers = traced_layers,
@@ -698,20 +698,20 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
     # Add start/stop text tokens
     sot <- config$start_text_token
     eot <- config$stop_text_token
-    text_tokens <- torch::nnf_pad(text_tokens, c(1L, 0L), value = sot)
-    text_tokens <- torch::nnf_pad(text_tokens, c(0L, 1L), value = eot)
+    text_tokens <- Rtorch::nnf_pad(text_tokens, c(1L, 0L), value = sot)
+    text_tokens <- Rtorch::nnf_pad(text_tokens, c(0L, 1L), value = eot)
 
     # Double batch for CFG
     if (cfg_weight > 0.0) {
-        text_tokens <- torch::torch_cat(list(text_tokens, text_tokens), dim = 1L)
+        text_tokens <- Rtorch::torch_cat(list(text_tokens, text_tokens), dim = 1L)
     }
 
     # Initial speech token (BOS)
-    bos_token <- torch::torch_tensor(matrix(config$start_speech_token, nrow = 1L),
-        device = device, dtype = torch::torch_long())
+    bos_token <- Rtorch::torch_tensor(matrix(config$start_speech_token, nrow = 1L),
+        device = device, dtype = Rtorch::torch_long)
 
     if (cfg_weight > 0.0) {
-        bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1L)
+        bos_token <- Rtorch::torch_cat(list(bos_token, bos_token), dim = 1L)
     }
 
     # Prepare initial embeddings
@@ -736,7 +736,7 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
                                      scaling = llama_config$rope_scaling,
                                      device = device)
 
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
         # === FIRST TOKEN: Use regular forward to get initial KV cache ===
         output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
         past_key_values <- output$past_key_values
@@ -782,27 +782,27 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
             }
 
             # Sampling (same as original)
-            probs <- torch::nnf_softmax(logits, dim = -1L)
+            probs <- Rtorch::nnf_softmax(logits, dim = -1L)
             max_prob <- probs$max()
             min_threshold <- min_p * max_prob
             probs[probs < min_threshold] <- 0
             probs_filtered <- probs / probs$sum()
 
-            sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
+            sorted_result <- Rtorch::torch_sort(probs_filtered, descending = TRUE)
             sorted_probs <- sorted_result[[1]]
             sorted_indices <- sorted_result[[2]]
-            cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = -1L)
+            cumsum_probs <- Rtorch::torch_cumsum(sorted_probs, dim = -1L)
 
             sorted_mask <- cumsum_probs > top_p
             sorted_mask[, 1L] <- FALSE
             sorted_probs[sorted_mask] <- 0
             sorted_probs <- sorted_probs / sorted_probs$sum()
 
-            next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1L)
+            next_token_idx <- Rtorch::torch_multinomial(sorted_probs, num_samples = 1L)
             next_token <- sorted_indices$gather(2L, next_token_idx)
 
             predicted[[length(predicted) + 1L]] <- next_token
-            generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2L)
+            generated_ids <- Rtorch::torch_cat(list(generated_ids, next_token), dim = 2L)
 
             # Check for EOS
             token_id <- as.integer(next_token$cpu()) - 1L
@@ -815,14 +815,14 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
             next_emb <- model$speech_emb$forward(next_token) + model$speech_pos_emb$get_fixed_embedding(i)
 
             if (cfg_weight > 0.0) {
-                next_emb <- torch::torch_cat(list(next_emb, next_emb), dim = 1L)
+                next_emb <- Rtorch::torch_cat(list(next_emb, next_emb), dim = 1L)
             }
 
             # Current position in cache (0-indexed)
             current_pos <- cond_len + i - 1L
-            position_ids <- torch::torch_tensor(
+            position_ids <- Rtorch::torch_tensor(
                 matrix(current_pos, nrow = batch_size, ncol = 1L),
-                device = device, dtype = torch::torch_long()
+                device = device, dtype = Rtorch::torch_long
             )
 
             # Update valid mask for new position
@@ -862,11 +862,11 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
 
     # Concatenate predicted tokens
     if (length(predicted) > 0L) {
-        tokens <- torch::torch_cat(predicted, dim = 2L)$squeeze(1L)
+        tokens <- Rtorch::torch_cat(predicted, dim = 2L)$squeeze(1L)
         tokens <- tokens$sub(1L)
         tokens
     } else {
-        torch::torch_tensor(integer(0), device = device)
+        Rtorch::torch_tensor(integer(0), device = device)
     }
 }
 
@@ -946,21 +946,21 @@ t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
     # Add start/stop text tokens
     sot <- config$start_text_token
     eot <- config$stop_text_token
-    text_tokens <- torch::nnf_pad(text_tokens, c(1L, 0L), value = sot)
-    text_tokens <- torch::nnf_pad(text_tokens, c(0L, 1L), value = eot)
+    text_tokens <- Rtorch::nnf_pad(text_tokens, c(1L, 0L), value = sot)
+    text_tokens <- Rtorch::nnf_pad(text_tokens, c(0L, 1L), value = eot)
 
     # Double batch for CFG
     if (cfg_weight > 0.0) {
-        text_tokens <- torch::torch_cat(list(text_tokens, text_tokens), dim = 1L)
+        text_tokens <- Rtorch::torch_cat(list(text_tokens, text_tokens), dim = 1L)
     }
 
     # Initial speech token (BOS)
-    bos_token <- torch::torch_tensor(
+    bos_token <- Rtorch::torch_tensor(
         matrix(config$start_speech_token, nrow = 1L),
-        device = device, dtype = torch::torch_long()
+        device = device, dtype = Rtorch::torch_long
     )
     if (cfg_weight > 0.0) {
-        bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1L)
+        bos_token <- Rtorch::torch_cat(list(bos_token, bos_token), dim = 1L)
     }
 
     # Prepare initial embeddings
@@ -984,7 +984,7 @@ t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
                                      device = device)
 
     # === PREFILL: First forward pass in R ===
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
         output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
         past_key_values <- output$past_key_values
 
@@ -1042,9 +1042,9 @@ t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
             message("EOS detected at step ", eos_pos)
             token_ids <- token_ids[seq_len(eos_pos - 1L)]
         }
-        torch::torch_tensor(token_ids, dtype = torch::torch_long(), device = device)
+        Rtorch::torch_tensor(token_ids, dtype = Rtorch::torch_long, device = device)
     } else {
-        torch::torch_tensor(integer(0), device = device)
+        Rtorch::torch_tensor(integer(0), device = device)
     }
 }
 
@@ -1070,7 +1070,7 @@ load_t3_weights <- function (model, state_dict)
     load_llama_weights(model$tfmr, llama_weights, prefix = "")
 
     # Load remaining weights with no_grad
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
             # Load embedding weights
             if ("text_emb.weight" %in% names(state_dict)) {
                 model$text_emb$weight$copy_(state_dict[["text_emb.weight"]])

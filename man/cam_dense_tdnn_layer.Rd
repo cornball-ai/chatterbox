@@ -1,30 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{cam_dense_tdnn_layer}
 \alias{cam_dense_tdnn_layer}
 \title{CAM Dense TDNN Layer}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-cam_dense_tdnn_layer(
-  in_channels,
-  out_channels,
-  bn_channels,
-  kernel_size,
-  dilation = 1
-)
-}
-\arguments{
-\item{in_channels}{Input channels}
-
-\item{out_channels}{Output channels}
-
-\item{bn_channels}{Bottleneck channels}
-
-\item{kernel_size}{Kernel size}
-
-\item{dilation}{Dilation}
-}
-\value{
-nn_module
+cam_dense_tdnn_layer
 }
 \description{
 CAM Dense TDNN Layer
 }
+\keyword{datasets}

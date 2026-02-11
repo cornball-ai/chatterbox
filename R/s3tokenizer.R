@@ -50,7 +50,7 @@ make_non_pad_mask_s3 <- function (lengths, max_len)
 
     # Create range tensor (0 to max_len-1)
     # Note: R torch_arange(0, n) is inclusive on both ends, so use 0 to n-1
-    range_tensor <- torch::torch_arange(0, max_len - 1, device = device, dtype = torch::torch_long())
+    range_tensor <- Rtorch::torch_arange(0, max_len - 1, device = device, dtype = Rtorch::torch_long)
 
     # Broadcast comparison: range < lengths
     lengths <- lengths$view(c(- 1, 1))
@@ -66,7 +66,7 @@ mask_to_bias <- function (mask, dtype)
 {
     # Convert boolean mask to attention bias (-65504 for masked positions)
     # Use -65504 instead of -Inf for float16 compatibility
-    bias <- torch::torch_zeros_like(mask, dtype = dtype)
+    bias <- Rtorch::torch_zeros_like(mask, dtype = dtype)
     bias[!mask] <- -65504.0
     bias
 }
@@ -82,19 +82,19 @@ precompute_freqs_cis <- function (dim, end, theta = 10000.0)
     # Compute inverse frequencies
     # R torch_arange is inclusive, so use end= or subtract 1
     # torch_arange(start=0, end=dim, step=2) gives 0,2,4,...,dim in R vs 0,2,4,...,dim-2 in Python
-    freqs <- 1.0 / (theta ^ (torch::torch_arange(start = 0, end = dim - 1, step = 2, dtype = torch::torch_float32())[1:(dim %/% 2)] / dim))
+    freqs <- 1.0 / (theta ^ (Rtorch::torch_arange(start = 0, end = dim - 1, step = 2, dtype = Rtorch::torch_float32)[1:(dim %/% 2)] / dim))
 
     # Compute position indices (0 to end-1)
-    t <- torch::torch_arange(0, end - 1, dtype = torch::torch_float32())
+    t <- Rtorch::torch_arange(0, end - 1, dtype = Rtorch::torch_float32)
 
     # Outer product
-    freqs <- torch::torch_outer(t, freqs)
+    freqs <- Rtorch::torch_outer(t, freqs)
 
     # Create complex exponential using polar form
-    freqs_cis <- torch::torch_polar(torch::torch_ones_like(freqs), freqs)
+    freqs_cis <- Rtorch::torch_polar(Rtorch::torch_ones_like(freqs), freqs)
 
     # Concatenate for both halves
-    torch::torch_cat(list(freqs_cis, freqs_cis), dim = - 1)
+    Rtorch::torch_cat(list(freqs_cis, freqs_cis), dim = - 1)
 }
 
 #' Apply rotary position embeddings
@@ -106,7 +106,7 @@ precompute_freqs_cis <- function (dim, end, theta = 10000.0)
 apply_rotary_emb_s3 <- function (xq, xk, freqs_cis)
 {
     # Get cos and sin from complex frequencies
-    real_part <- torch::torch_view_as_real(freqs_cis)
+    real_part <- Rtorch::torch_view_as_real(freqs_cis)
     cos_vals <- real_part[,, 1]
     sin_vals <- real_part[,, 2]
 
@@ -119,13 +119,13 @@ apply_rotary_emb_s3 <- function (xq, xk, freqs_cis)
     # Rotate query
     xq_l <- xq[,,, 1:half]
     xq_r <- xq[,,, (half + 1) :D]
-    xq_rot <- torch::torch_cat(list(- xq_r, xq_l), dim = - 1)
+    xq_rot <- Rtorch::torch_cat(list(- xq_r, xq_l), dim = - 1)
     xq_out <- xq * cos_vals + xq_rot * sin_vals
 
     # Rotate key
     xk_l <- xk[,,, 1:half]
     xk_r <- xk[,,, (half + 1) :D]
-    xk_rot <- torch::torch_cat(list(- xk_r, xk_l), dim = - 1)
+    xk_rot <- Rtorch::torch_cat(list(- xk_r, xk_l), dim = - 1)
     xk_out <- xk * cos_vals + xk_rot * sin_vals
 
     list(q = xq_out, k = xk_out)
@@ -147,7 +147,7 @@ s3_log_mel_spectrogram <- function (audio, mel_filters, window, n_fft = 400,
                                     device = "cpu")
 {
     if (!inherits(audio, "torch_tensor")) {
-        audio <- torch::torch_tensor(audio, dtype = torch::torch_float32())
+        audio <- Rtorch::torch_tensor(audio, dtype = Rtorch::torch_float32)
     }
 
     audio <- audio$to(device = device)
@@ -155,7 +155,7 @@ s3_log_mel_spectrogram <- function (audio, mel_filters, window, n_fft = 400,
     mel_filters <- mel_filters$to(device = device)
 
     # Compute STFT
-    stft <- torch::torch_stft(
+    stft <- Rtorch::torch_stft(
         audio,
         n_fft = n_fft,
         hop_length = S3_HOP,
@@ -164,15 +164,15 @@ s3_log_mel_spectrogram <- function (audio, mel_filters, window, n_fft = 400,
     )
 
     # Magnitude squared, drop last frame
-    magnitudes <- torch::torch_abs(stft[,, 1:(stft$size(3) - 1)])$pow(2)
+    magnitudes <- Rtorch::torch_abs(stft[,, 1:(stft$size(3) - 1)])$pow(2)
 
     # Apply mel filterbank
-    mel_spec <- torch::torch_matmul(mel_filters, magnitudes)
+    mel_spec <- Rtorch::torch_matmul(mel_filters, magnitudes)
 
     # Log compression with dynamic range compression
-    log_spec <- torch::torch_clamp(mel_spec, min = 1e-10)$log10()
+    log_spec <- Rtorch::torch_clamp(mel_spec, min = 1e-10)$log10()
     max_spec <- log_spec$max()
-    log_spec <- torch::torch_maximum(log_spec, max_spec - 8.0)
+    log_spec <- Rtorch::torch_maximum(log_spec, max_spec - 8.0)
     log_spec <- (log_spec + 4.0) / 4.0
 
     log_spec
@@ -187,13 +187,13 @@ s3_log_mel_spectrogram <- function (audio, mel_filters, window, n_fft = 400,
 #' @param dim Input dimension (n_audio_state)
 #' @param level Quantization level (default 3)
 #' @return nn_module
-fsq_codebook <- torch::nn_module(
+fsq_codebook <- Rtorch::nn_module(
     "FSQCodebook",
 
     initialize = function (dim, level = 3L)
     {
         self$level <- level
-        self$project_down <- torch::nn_linear(dim, 8L)
+        self$project_down <- Rtorch::nn_linear(dim, 8L)
     },
 
     encode = function (x)
@@ -205,7 +205,7 @@ fsq_codebook <- torch::nn_module(
         x <- x$view(c(- 1, x_shape[length(x_shape)]))
 
         # Project down to 8 dimensions
-        h <- self$project_down$forward(x)$to(dtype = torch::torch_float32())
+        h <- self$project_down$forward(x)$to(dtype = Rtorch::torch_float32)
 
         # Quantize with tanh
         h <- h$tanh()
@@ -215,16 +215,16 @@ fsq_codebook <- torch::nn_module(
         # Compute indices using powers of level
         device <- x$device
         # R torch_arange(0, 8) is inclusive (0-8); use 0 to 7 for 8 values
-        powers <- torch::torch_pow(
+        powers <- Rtorch::torch_pow(
             self$level,
-            torch::torch_arange(0, 7, device = device, dtype = h$dtype)
+            Rtorch::torch_arange(0, 7, device = device, dtype = h$dtype)
         )
 
         # Sum weighted by powers: gives unique index for each combination
-        mu <- torch::torch_sum(h * powers$unsqueeze(1), dim = - 1)
+        mu <- Rtorch::torch_sum(h * powers$unsqueeze(1), dim = - 1)
 
         # Reshape back to (batch, time)
-        mu$view(c(x_shape[1], x_shape[2]))$to(dtype = torch::torch_long())
+        mu$view(c(x_shape[1], x_shape[2]))$to(dtype = Rtorch::torch_long)
     }
 )
 
@@ -233,7 +233,7 @@ fsq_codebook <- torch::nn_module(
 #' @param dim Input dimension
 #' @param codebook_size Codebook size (must be 6561 = 3^8)
 #' @return nn_module
-fsq_vector_quantization <- torch::nn_module(
+fsq_vector_quantization <- Rtorch::nn_module(
     "FSQVectorQuantization",
 
     initialize = function (dim, codebook_size = 6561L)
@@ -258,7 +258,7 @@ fsq_vector_quantization <- torch::nn_module(
 #' @param n_state Hidden dimension
 #' @param n_head Number of heads
 #' @return nn_module
-s3_multi_head_attention <- torch::nn_module(
+s3_multi_head_attention <- Rtorch::nn_module(
     "S3MultiHeadAttention",
 
     initialize = function (n_state, n_head)
@@ -267,10 +267,10 @@ s3_multi_head_attention <- torch::nn_module(
         self$n_state <- n_state
         self$head_dim <- n_state %/% n_head
 
-        self$query <- torch::nn_linear(n_state, n_state)
-        self$key <- torch::nn_linear(n_state, n_state, bias = FALSE)
-        self$value <- torch::nn_linear(n_state, n_state)
-        self$out <- torch::nn_linear(n_state, n_state)
+        self$query <- Rtorch::nn_linear(n_state, n_state)
+        self$key <- Rtorch::nn_linear(n_state, n_state, bias = FALSE)
+        self$value <- Rtorch::nn_linear(n_state, n_state)
+        self$out <- Rtorch::nn_linear(n_state, n_state)
     },
 
     forward = function (x, mask = NULL)
@@ -296,15 +296,15 @@ s3_multi_head_attention <- torch::nn_module(
         v <- v$view(c(batch_size, seq_len, self$n_head, - 1))$permute(c(1, 3, 2, 4))
 
         # Attention
-        qk <- torch::torch_matmul(q, k)
+        qk <- Rtorch::torch_matmul(q, k)
         if (!is.null(mask)) {
             qk <- qk + mask
         }
-        qk <- qk$to(dtype = torch::torch_float32())
-        w <- torch::nnf_softmax(qk, dim = - 1)$to(dtype = q$dtype)
+        qk <- qk$to(dtype = Rtorch::torch_float32)
+        w <- Rtorch::nnf_softmax(qk, dim = - 1)$to(dtype = q$dtype)
 
         # Output
-        out <- torch::torch_matmul(w, v)
+        out <- Rtorch::torch_matmul(w, v)
         out$permute(c(1, 3, 2, 4))$contiguous()$view(c(batch_size, seq_len, D))
     }
 )
@@ -317,7 +317,7 @@ s3_multi_head_attention <- torch::nn_module(
 #' @param n_head Number of heads
 #' @param kernel_size FSMN kernel size (default 31)
 #' @return nn_module
-fsmn_multi_head_attention <- torch::nn_module(
+fsmn_multi_head_attention <- Rtorch::nn_module(
     "FSMNMultiHeadAttention",
 
     initialize = function (n_state, n_head, kernel_size = 31L)
@@ -327,13 +327,13 @@ fsmn_multi_head_attention <- torch::nn_module(
         self$head_dim <- n_state %/% n_head
 
         # Standard attention projections
-        self$query <- torch::nn_linear(n_state, n_state)
-        self$key <- torch::nn_linear(n_state, n_state, bias = FALSE)
-        self$value <- torch::nn_linear(n_state, n_state)
-        self$out <- torch::nn_linear(n_state, n_state)
+        self$query <- Rtorch::nn_linear(n_state, n_state)
+        self$key <- Rtorch::nn_linear(n_state, n_state, bias = FALSE)
+        self$value <- Rtorch::nn_linear(n_state, n_state)
+        self$out <- Rtorch::nn_linear(n_state, n_state)
 
         # FSMN block: depthwise conv for temporal context
-        self$fsmn_block <- torch::nn_conv1d(
+        self$fsmn_block <- Rtorch::nn_conv1d(
             n_state, n_state, kernel_size,
             stride = 1L, padding = 0L, groups = n_state, bias = FALSE
         )
@@ -359,7 +359,7 @@ fsmn_multi_head_attention <- torch::nn_module(
         x <- inputs$transpose(2, 3)
 
         # Pad
-        x <- torch::nnf_pad(x, c(self$left_padding, self$right_padding))
+        x <- Rtorch::nnf_pad(x, c(self$left_padding, self$right_padding))
 
         # Apply depthwise conv
         x <- self$fsmn_block$forward(x)
@@ -403,14 +403,14 @@ fsmn_multi_head_attention <- torch::nn_module(
         k <- k$permute(c(1, 3, 4, 2)) * scale
         v <- v$permute(c(1, 3, 2, 4))
 
-        qk <- torch::torch_matmul(q, k)
+        qk <- Rtorch::torch_matmul(q, k)
         if (!is.null(mask)) {
             qk <- qk + mask
         }
-        qk <- qk$to(dtype = torch::torch_float32())
-        w <- torch::nnf_softmax(qk, dim = - 1)$to(dtype = q$dtype)
+        qk <- qk$to(dtype = Rtorch::torch_float32)
+        w <- Rtorch::nnf_softmax(qk, dim = - 1)$to(dtype = q$dtype)
 
-        out <- torch::torch_matmul(w, v)
+        out <- Rtorch::torch_matmul(w, v)
         out <- out$permute(c(1, 3, 2, 4))$contiguous()$view(c(batch_size, seq_len, D))
 
         list(out = out, fsm_memory = fsm_memory)
@@ -437,21 +437,21 @@ fsmn_multi_head_attention <- torch::nn_module(
 #' @param n_head Number of heads
 #' @param kernel_size FSMN kernel size
 #' @return nn_module
-s3_residual_attention_block <- torch::nn_module(
+s3_residual_attention_block <- Rtorch::nn_module(
     "S3ResidualAttentionBlock",
 
     initialize = function (n_state, n_head, kernel_size = 31L)
     {
         self$attn <- fsmn_multi_head_attention(n_state, n_head, kernel_size)
-        self$attn_ln <- torch::nn_layer_norm(n_state, eps = 1e-6)
+        self$attn_ln <- Rtorch::nn_layer_norm(n_state, eps = 1e-6)
 
         n_mlp <- n_state * 4L
-        self$mlp <- torch::nn_sequential(
-            torch::nn_linear(n_state, n_mlp),
-            torch::nn_gelu(),
-            torch::nn_linear(n_mlp, n_state)
+        self$mlp <- Rtorch::nn_sequential(
+            Rtorch::nn_linear(n_state, n_mlp),
+            Rtorch::nn_gelu(),
+            Rtorch::nn_linear(n_mlp, n_state)
         )
-        self$mlp_ln <- torch::nn_layer_norm(n_state)
+        self$mlp_ln <- Rtorch::nn_layer_norm(n_state)
     },
 
     forward = function (x, mask = NULL, mask_pad = NULL, freqs_cis = NULL)
@@ -478,7 +478,7 @@ s3_residual_attention_block <- torch::nn_module(
 #' @param n_layer Number of transformer layers
 #' @param stride Convolution stride (default 2)
 #' @return nn_module
-s3_audio_encoder <- torch::nn_module(
+s3_audio_encoder <- Rtorch::nn_module(
     "S3AudioEncoderV2",
 
     initialize = function (n_mels, n_state, n_head, n_layer, stride = 2L)
@@ -486,16 +486,16 @@ s3_audio_encoder <- torch::nn_module(
         self$stride <- stride
 
         # Two strided convolutions for downsampling
-        self$conv1 <- torch::nn_conv1d(n_mels, n_state, kernel_size = 3L,
+        self$conv1 <- Rtorch::nn_conv1d(n_mels, n_state, kernel_size = 3L,
             stride = stride, padding = 1L)
-        self$conv2 <- torch::nn_conv1d(n_state, n_state, kernel_size = 3L,
+        self$conv2 <- Rtorch::nn_conv1d(n_state, n_state, kernel_size = 3L,
             stride = 2L, padding = 1L)
 
         # Precompute rotary embeddings
         self$freqs_cis <- precompute_freqs_cis(64L, 2048L)
 
         # Transformer blocks
-        self$blocks <- torch::nn_module_list(
+        self$blocks <- Rtorch::nn_module_list(
             lapply(seq_len(n_layer), function (i)
             {
                     s3_residual_attention_block(n_state, n_head)
@@ -514,18 +514,18 @@ s3_audio_encoder <- torch::nn_module(
 
         # First conv with masking
         mask <- make_non_pad_mask_s3(x_len, T)$unsqueeze(2)$to(dtype = x$dtype, device = device)
-        x <- torch::nnf_gelu(self$conv1(x * mask))
+        x <- Rtorch::nnf_gelu(self$conv1(x * mask))
 
         # Update lengths after first conv
-        x_len <- torch::torch_floor((x_len + 2 - 1 * (3 - 1) - 1) / self$stride + 1)$to(dtype = torch::torch_long())
+        x_len <- Rtorch::torch_floor((x_len + 2 - 1 * (3 - 1) - 1) / self$stride + 1)$to(dtype = Rtorch::torch_long)
         x_slen <- as.integer((T + 2 - 1 * (3 - 1) - 1) / self$stride + 1)
 
         # Second conv with masking
         mask <- make_non_pad_mask_s3(x_len, x_slen)$unsqueeze(2)$to(dtype = x$dtype, device = device)
-        x <- torch::nnf_gelu(self$conv2(x * mask))
+        x <- Rtorch::nnf_gelu(self$conv2(x * mask))
 
         # Update lengths after second conv
-        x_len <- torch::torch_floor((x_len + 2 - 1 * (3 - 1) - 1) / 2 + 1)$to(dtype = torch::torch_long())
+        x_len <- Rtorch::torch_floor((x_len + 2 - 1 * (3 - 1) - 1) / 2 + 1)$to(dtype = Rtorch::torch_long)
         x_slen <- as.integer((x_slen + 2 - 1 * (3 - 1) - 1) / self$stride + 1)
 
         # Create masks for attention
@@ -561,7 +561,7 @@ s3_audio_encoder <- torch::nn_module(
 #' @param config Configuration list (default from s3_tokenizer_config())
 #' @return nn_module
 #' @export
-s3_tokenizer <- torch::nn_module(
+s3_tokenizer <- Rtorch::nn_module(
     "S3TokenizerV2",
 
     initialize = function (config = NULL)
@@ -579,13 +579,13 @@ s3_tokenizer <- torch::nn_module(
             fmin = 0,
             fmax = S3_SR / 2
         )
-        self$mel_filters <- torch::nn_buffer(
-            torch::torch_tensor(mel_fb, dtype = torch::torch_float32())
+        self$mel_filters <- Rtorch::nn_buffer(
+            Rtorch::torch_tensor(mel_fb, dtype = Rtorch::torch_float32)
         )
 
         # Hann window
-        self$window <- torch::nn_buffer(
-            torch::torch_hann_window(400L)
+        self$window <- Rtorch::nn_buffer(
+            Rtorch::torch_hann_window(400L)
         )
 
         # Audio encoder
@@ -637,7 +637,7 @@ s3_tokenizer <- torch::nn_module(
 
         # Handle input
         if (!inherits(wavs, "torch_tensor")) {
-            wavs <- torch::torch_tensor(wavs, dtype = torch::torch_float32())
+            wavs <- Rtorch::torch_tensor(wavs, dtype = Rtorch::torch_float32)
         }
 
         if (wavs$dim() == 1) {
@@ -655,7 +655,7 @@ s3_tokenizer <- torch::nn_module(
         }
 
         # Get lengths
-        mel_lens <- torch::torch_tensor(mel$size(3), device = device)$unsqueeze(1)
+        mel_lens <- Rtorch::torch_tensor(mel$size(3), device = device)$unsqueeze(1)
 
         # Quantize
         result <- self$quantize(mel, mel_lens)
@@ -694,7 +694,7 @@ drop_invalid_tokens <- function (tokens)
 pad_audio_for_tokenizer <- function (wav, sr)
 {
     if (!inherits(wav, "torch_tensor")) {
-        wav <- torch::torch_tensor(wav, dtype = torch::torch_float32())
+        wav <- Rtorch::torch_tensor(wav, dtype = Rtorch::torch_float32)
     }
 
     if (wav$dim() == 1) {
@@ -707,7 +707,7 @@ pad_audio_for_tokenizer <- function (wav, sr)
 
     # Pad if needed
     if (wav$size(2) < intended_len) {
-        wav <- torch::nnf_pad(wav, c(0L, intended_len - wav$size(2)), value = 0)
+        wav <- Rtorch::nnf_pad(wav, c(0L, intended_len - wav$size(2)), value = 0)
     }
 
     wav
@@ -742,7 +742,7 @@ load_s3tokenizer_weights <- function (model, state_dict, prefix = "tokenizer.")
         FALSE
     }
 
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
             # Load mel filters and window (buffers)
             if (paste0(prefix, "_mel_filters") %in% names(state_dict)) {
                 model$mel_filters$copy_(state_dict[[paste0(prefix, "_mel_filters")]])

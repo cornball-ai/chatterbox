@@ -1,24 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{s3_audio_encoder}
 \alias{s3_audio_encoder}
 \title{S3 Audio Encoder V2}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-s3_audio_encoder(n_mels, n_state, n_head, n_layer, stride = 2L)
-}
-\arguments{
-\item{n_mels}{Number of mel bins}
-
-\item{n_state}{Hidden dimension}
-
-\item{n_head}{Number of attention heads}
-
-\item{n_layer}{Number of transformer layers}
-
-\item{stride}{Convolution stride (default 2)}
-}
-\value{
-nn_module
+s3_audio_encoder
 }
 \description{
 S3 Audio Encoder V2
 }
+\keyword{datasets}

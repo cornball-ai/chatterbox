@@ -1,33 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{source_module_hn_nsf}
 \alias{source_module_hn_nsf}
 \title{Source Module for Neural Source Filter}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-source_module_hn_nsf(
-  sample_rate,
-  upsample_scale,
-  harmonic_num = 0,
-  sine_amp = 0.1,
-  add_noise_std = 0.003,
-  voiced_threshold = 0
-)
-}
-\arguments{
-\item{sample_rate}{Sampling rate}
-
-\item{upsample_scale}{Upsampling factor}
-
-\item{harmonic_num}{Number of harmonics}
-
-\item{sine_amp}{Sine amplitude}
-
-\item{add_noise_std}{Noise std}
-
-\item{voiced_threshold}{Voiced threshold}
-}
-\value{
-nn_module
+source_module_hn_nsf
 }
 \description{
 Source Module for Neural Source Filter
 }
+\keyword{datasets}

@@ -8,11 +8,11 @@ read_safetensors(path, device = "cpu")
 \arguments{
 \item{path}{Path to .safetensors file}
 
-\item{device}{Device to load tensors to ("cpu", "cuda", etc.)}
+\item{device}{Device to load tensors to (ignored, CPU only)}
 }
 \value{
 Named list of torch tensors
 }
 \description{
-Read safetensors file
+Loads tensors from a safetensors file as Rtorch tensors.
 }

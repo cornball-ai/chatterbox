@@ -1,20 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{linear_no_subsampling}
 \alias{linear_no_subsampling}
 \title{Linear No Subsampling layer}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-linear_no_subsampling(input_dim = 512, output_dim = 512, dropout_rate = 0.1)
-}
-\arguments{
-\item{input_dim}{Input dimension}
-
-\item{output_dim}{Output dimension}
-
-\item{dropout_rate}{Dropout rate}
-}
-\value{
-nn_module
+linear_no_subsampling
 }
 \description{
 Projects input to model dimension with layer norm and positional encoding.
 }
+\keyword{datasets}

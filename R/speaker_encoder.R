@@ -11,9 +11,9 @@
 #' @return Statistics tensor (batch, channels * 2)
 statistics_pooling <- function (x)
 {
-    mean_x <- torch::torch_mean(x, dim = 3)
-    std_x <- torch::torch_std(x, dim = 3, unbiased = TRUE)
-    torch::torch_cat(list(mean_x, std_x), dim = 2)
+    mean_x <- Rtorch::torch_mean(x, dim = 3)
+    std_x <- Rtorch::torch_std(x, dim = 3, unbiased = TRUE)
+    Rtorch::torch_cat(list(mean_x, std_x), dim = 2)
 }
 
 # ============================================================================
@@ -26,24 +26,24 @@ statistics_pooling <- function (x)
 #' @param planes Output channels
 #' @param stride Stride for downsampling
 #' @return nn_module
-basic_res_block <- torch::nn_module(
+basic_res_block <- Rtorch::nn_module(
     "BasicResBlock",
 
     initialize = function (in_planes, planes, stride = 1)
     {
-        self$conv1 <- torch::nn_conv2d(in_planes, planes, kernel_size = 3,
+        self$conv1 <- Rtorch::nn_conv2d(in_planes, planes, kernel_size = 3,
             stride = c(stride, 1), padding = 1, bias = FALSE)
-        self$bn1 <- torch::nn_batch_norm2d(planes)
-        self$conv2 <- torch::nn_conv2d(planes, planes, kernel_size = 3,
+        self$bn1 <- Rtorch::nn_batch_norm2d(planes)
+        self$conv2 <- Rtorch::nn_conv2d(planes, planes, kernel_size = 3,
             stride = 1, padding = 1, bias = FALSE)
-        self$bn2 <- torch::nn_batch_norm2d(planes)
+        self$bn2 <- Rtorch::nn_batch_norm2d(planes)
 
         # Shortcut connection
         if (stride != 1 || in_planes != planes) {
-            self$shortcut <- torch::nn_sequential(
-                torch::nn_conv2d(in_planes, planes, kernel_size = 1,
+            self$shortcut <- Rtorch::nn_sequential(
+                Rtorch::nn_conv2d(in_planes, planes, kernel_size = 1,
                     stride = c(stride, 1), bias = FALSE),
-                torch::nn_batch_norm2d(planes)
+                Rtorch::nn_batch_norm2d(planes)
             )
         } else {
             self$shortcut <- NULL
@@ -52,7 +52,7 @@ basic_res_block <- torch::nn_module(
 
     forward = function (x)
     {
-        out <- torch::nnf_relu(self$bn1$forward(self$conv1$forward(x)))
+        out <- Rtorch::nnf_relu(self$bn1$forward(self$conv1$forward(x)))
         out <- self$bn2$forward(self$conv2$forward(out))
 
         if (!is.null(self$shortcut)) {
@@ -61,7 +61,7 @@ basic_res_block <- torch::nn_module(
             out <- out + x
         }
 
-        torch::nnf_relu(out)
+        Rtorch::nnf_relu(out)
     }
 )
 
@@ -70,24 +70,24 @@ basic_res_block <- torch::nn_module(
 #' @param m_channels Number of channels
 #' @param feat_dim Input feature dimension (mel bins)
 #' @return nn_module
-fcm_module <- torch::nn_module(
+fcm_module <- Rtorch::nn_module(
     "FCM",
 
     initialize = function (m_channels = 32, feat_dim = 80)
     {
         self$in_planes <- m_channels
 
-        self$conv1 <- torch::nn_conv2d(1, m_channels, kernel_size = 3,
+        self$conv1 <- Rtorch::nn_conv2d(1, m_channels, kernel_size = 3,
             stride = 1, padding = 1, bias = FALSE)
-        self$bn1 <- torch::nn_batch_norm2d(m_channels)
+        self$bn1 <- Rtorch::nn_batch_norm2d(m_channels)
 
         # Two residual layers
         self$layer1 <- self$.make_layer(m_channels, 2, stride = 2)
         self$layer2 <- self$.make_layer(m_channels, 2, stride = 2)
 
-        self$conv2 <- torch::nn_conv2d(m_channels, m_channels, kernel_size = 3,
+        self$conv2 <- Rtorch::nn_conv2d(m_channels, m_channels, kernel_size = 3,
             stride = c(2, 1), padding = 1, bias = FALSE)
-        self$bn2 <- torch::nn_batch_norm2d(m_channels)
+        self$bn2 <- Rtorch::nn_batch_norm2d(m_channels)
 
         self$out_channels <- m_channels * (feat_dim %/% 8)
     },
@@ -102,16 +102,16 @@ fcm_module <- torch::nn_module(
             self$in_planes <- planes
         }
 
-        torch::nn_sequential(!!!layers)
+        do.call(Rtorch::nn_sequential, layers)
     },
 
     forward = function (x)
     {
         x <- x$unsqueeze(2) # Add channel dim
-        out <- torch::nnf_relu(self$bn1$forward(self$conv1$forward(x)))
+        out <- Rtorch::nnf_relu(self$bn1$forward(self$conv1$forward(x)))
         out <- self$layer1$forward(out)
         out <- self$layer2$forward(out)
-        out <- torch::nnf_relu(self$bn2$forward(self$conv2$forward(out)))
+        out <- Rtorch::nnf_relu(self$bn2$forward(self$conv2$forward(out)))
 
         # Reshape: (B, C, H, W) -> (B, C*H, W)
         shape <- out$shape
@@ -128,7 +128,7 @@ fcm_module <- torch::nn_module(
 #' @param dilation Dilation
 #' @param padding Padding (default: computed from kernel_size and dilation)
 #' @return nn_module
-tdnn_layer <- torch::nn_module(
+tdnn_layer <- Rtorch::nn_module(
     "TDNNLayer",
 
     initialize = function (in_channels, out_channels, kernel_size, stride = 1,
@@ -138,15 +138,15 @@ tdnn_layer <- torch::nn_module(
             padding <- ((kernel_size - 1) %/% 2) * dilation
         }
 
-        self$conv <- torch::nn_conv1d(in_channels, out_channels, kernel_size,
+        self$conv <- Rtorch::nn_conv1d(in_channels, out_channels, kernel_size,
             stride = stride, padding = padding,
             dilation = dilation, bias = FALSE)
-        self$bn <- torch::nn_batch_norm1d(out_channels)
+        self$bn <- Rtorch::nn_batch_norm1d(out_channels)
     },
 
     forward = function (x)
     {
-        torch::nnf_relu(self$bn$forward(self$conv$forward(x)))
+        Rtorch::nnf_relu(self$bn$forward(self$conv$forward(x)))
     }
 )
 
@@ -160,25 +160,25 @@ tdnn_layer <- torch::nn_module(
 #' @param dilation Dilation
 #' @param reduction Channel reduction factor
 #' @return nn_module
-cam_layer <- torch::nn_module(
+cam_layer <- Rtorch::nn_module(
     "CAMLayer",
 
     initialize = function (bn_channels, out_channels, kernel_size, stride = 1,
                            padding = 0, dilation = 1, reduction = 2)
     {
-        self$linear_local <- torch::nn_conv1d(bn_channels, out_channels, kernel_size,
+        self$linear_local <- Rtorch::nn_conv1d(bn_channels, out_channels, kernel_size,
             stride = stride, padding = padding,
             dilation = dilation, bias = FALSE)
-        self$linear1 <- torch::nn_conv1d(bn_channels, bn_channels %/% reduction, 1)
-        self$relu <- torch::nn_relu()
-        self$linear2 <- torch::nn_conv1d(bn_channels %/% reduction, out_channels, 1)
-        self$sigmoid <- torch::nn_sigmoid()
+        self$linear1 <- Rtorch::nn_conv1d(bn_channels, bn_channels %/% reduction, 1)
+        self$relu <- Rtorch::nn_relu()
+        self$linear2 <- Rtorch::nn_conv1d(bn_channels %/% reduction, out_channels, 1)
+        self$sigmoid <- Rtorch::nn_sigmoid()
     },
 
     .seg_pooling = function (x, seg_len = 100)
     {
         # Segment-based average pooling
-        pooled <- torch::nnf_avg_pool1d(x, kernel_size = seg_len, stride = seg_len,
+        pooled <- Rtorch::nnf_avg_pool1d(x, kernel_size = seg_len, stride = seg_len,
             ceil_mode = TRUE)
 
         # Expand back to original length
@@ -211,7 +211,7 @@ cam_layer <- torch::nn_module(
 #' @param kernel_size Kernel size
 #' @param dilation Dilation
 #' @return nn_module
-cam_dense_tdnn_layer <- torch::nn_module(
+cam_dense_tdnn_layer <- Rtorch::nn_module(
     "CAMDenseTDNNLayer",
 
     initialize = function (in_channels, out_channels, bn_channels, kernel_size,
@@ -219,18 +219,18 @@ cam_dense_tdnn_layer <- torch::nn_module(
     {
         padding <- ((kernel_size - 1) %/% 2) * dilation
 
-        self$bn1 <- torch::nn_batch_norm1d(in_channels)
-        self$linear1 <- torch::nn_conv1d(in_channels, bn_channels, 1, bias = FALSE)
-        self$bn2 <- torch::nn_batch_norm1d(bn_channels)
+        self$bn1 <- Rtorch::nn_batch_norm1d(in_channels)
+        self$linear1 <- Rtorch::nn_conv1d(in_channels, bn_channels, 1, bias = FALSE)
+        self$bn2 <- Rtorch::nn_batch_norm1d(bn_channels)
         self$cam <- cam_layer(bn_channels, out_channels, kernel_size,
             padding = padding, dilation = dilation)
     },
 
     forward = function (x)
     {
-        out <- torch::nnf_relu(self$bn1$forward(x))
+        out <- Rtorch::nnf_relu(self$bn1$forward(x))
         out <- self$linear1$forward(out)
-        out <- torch::nnf_relu(self$bn2$forward(out))
+        out <- Rtorch::nnf_relu(self$bn2$forward(out))
         self$cam$forward(out)
     }
 )
@@ -244,13 +244,13 @@ cam_dense_tdnn_layer <- torch::nn_module(
 #' @param kernel_size Kernel size
 #' @param dilation Dilation
 #' @return nn_module
-cam_dense_tdnn_block <- torch::nn_module(
+cam_dense_tdnn_block <- Rtorch::nn_module(
     "CAMDenseTDNNBlock",
 
     initialize = function (num_layers, in_channels, out_channels, bn_channels,
                            kernel_size, dilation = 1)
     {
-        self$layers <- torch::nn_module_list()
+        self$layers <- Rtorch::nn_module_list()
 
         for (i in seq_len(num_layers)) {
             layer_in <- in_channels + (i - 1) * out_channels
@@ -265,7 +265,7 @@ cam_dense_tdnn_block <- torch::nn_module(
         for (i in seq_along(self$layers)) {
             layer <- self$layers[[i]]
             out <- layer$forward(x)
-            x <- torch::torch_cat(list(x, out), dim = 2)
+            x <- Rtorch::torch_cat(list(x, out), dim = 2)
         }
         x
     }
@@ -277,18 +277,18 @@ cam_dense_tdnn_block <- torch::nn_module(
 #' @param out_channels Output channels
 #' @param bias Whether to use bias (default FALSE)
 #' @return nn_module
-transit_layer <- torch::nn_module(
+transit_layer <- Rtorch::nn_module(
     "TransitLayer",
 
     initialize = function (in_channels, out_channels, bias = FALSE)
     {
-        self$bn <- torch::nn_batch_norm1d(in_channels)
-        self$conv <- torch::nn_conv1d(in_channels, out_channels, 1, bias = bias)
+        self$bn <- Rtorch::nn_batch_norm1d(in_channels)
+        self$conv <- Rtorch::nn_conv1d(in_channels, out_channels, 1, bias = bias)
     },
 
     forward = function (x)
     {
-        self$conv$forward(torch::nnf_relu(self$bn$forward(x)))
+        self$conv$forward(Rtorch::nnf_relu(self$bn$forward(x)))
     }
 )
 
@@ -297,13 +297,13 @@ transit_layer <- torch::nn_module(
 #' @param in_channels Input channels
 #' @param out_channels Output channels
 #' @return nn_module
-dense_layer <- torch::nn_module(
+dense_layer <- Rtorch::nn_module(
     "DenseLayer",
 
     initialize = function (in_channels, out_channels)
     {
-        self$conv <- torch::nn_conv1d(in_channels, out_channels, 1, bias = FALSE)
-        self$bn <- torch::nn_batch_norm1d(out_channels, affine = FALSE)
+        self$conv <- Rtorch::nn_conv1d(in_channels, out_channels, 1, bias = FALSE)
+        self$bn <- Rtorch::nn_batch_norm1d(out_channels, affine = FALSE)
     },
 
     forward = function (x)
@@ -329,7 +329,7 @@ dense_layer <- torch::nn_module(
 #' @param growth_rate Dense block growth rate (default 32)
 #' @param init_channels Initial TDNN channels (default 128)
 #' @return nn_module
-campplus <- torch::nn_module(
+campplus <- Rtorch::nn_module(
     "CAMPPlus",
 
     initialize = function (feat_dim = 80, embedding_size = 192,
@@ -367,7 +367,7 @@ campplus <- torch::nn_module(
         channels <- channels %/% 2
 
         # Output layers
-        self$out_bn <- torch::nn_batch_norm1d(channels)
+        self$out_bn <- Rtorch::nn_batch_norm1d(channels)
         self$final_channels <- channels
 
         # Final dense layer (after stats pooling)
@@ -396,7 +396,7 @@ campplus <- torch::nn_module(
         x <- self$transit3$forward(x)
 
         # Output norm
-        x <- torch::nnf_relu(self$out_bn$forward(x))
+        x <- Rtorch::nnf_relu(self$out_bn$forward(x))
 
         # Statistics pooling
         x <- statistics_pooling(x)
@@ -411,7 +411,7 @@ campplus <- torch::nn_module(
         # This would normally use torchaudio kaldi features
         # For now, we use our mel spectrogram computation
 
-        self$forward(audio$to(dtype = torch::torch_float32()))
+        self$forward(audio$to(dtype = Rtorch::torch_float32))
     }
 )
 
@@ -432,7 +432,7 @@ compute_xvector_embedding <- function (model, audio, sr)
 
     # Convert to tensor if needed
     if (!inherits(audio, "torch_tensor")) {
-        audio <- torch::torch_tensor(audio, dtype = torch::torch_float32())
+        audio <- Rtorch::torch_tensor(audio, dtype = Rtorch::torch_float32)
     }
 
     # Ensure 2D (batch, time)
@@ -445,7 +445,7 @@ compute_xvector_embedding <- function (model, audio, sr)
     if (sr != target_sr) {
         audio_np <- as.numeric(audio$cpu())
         audio_np <- resample_audio(audio_np, sr, target_sr)
-        audio <- torch::torch_tensor(audio_np, dtype = torch::torch_float32())$unsqueeze(1)
+        audio <- Rtorch::torch_tensor(audio_np, dtype = Rtorch::torch_float32)$unsqueeze(1)
     }
 
     # Compute fbank features (80 mel bins, mimicking Kaldi fbank)
@@ -470,7 +470,7 @@ compute_xvector_embedding <- function (model, audio, sr)
     # Move to device and run inference
     mel <- mel$to(device = device)
 
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
             model$forward(mel)
         })
 }

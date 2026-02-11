@@ -202,7 +202,7 @@ compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
 {
     # Convert to torch tensor if needed
     if (!inherits(y, "torch_tensor")) {
-        y <- torch::torch_tensor(y, dtype = torch::torch_float32())
+        y <- Rtorch::torch_tensor(y, dtype = Rtorch::torch_float32)
     }
 
     # Add batch dimension if needed
@@ -216,25 +216,25 @@ compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
     mel_cache_key <- paste(sr, n_fft, n_mels, fmin, fmax, device$type, sep = "_")
     if (is.null(.mel_cache[[mel_cache_key]])) {
         mel_fb <- create_mel_filterbank(sr, n_fft, n_mels, fmin, fmax)
-        .mel_cache[[mel_cache_key]] <- torch::torch_tensor(mel_fb, dtype = torch::torch_float32())$to(device = device)
+        .mel_cache[[mel_cache_key]] <- Rtorch::torch_tensor(mel_fb, dtype = Rtorch::torch_float32)$to(device = device)
     }
     mel_basis <- .mel_cache[[mel_cache_key]]
 
     # Get or create Hann window (key includes win_size)
     win_key <- paste("hann", win_size, device$type, sep = "_")
     if (is.null(.mel_cache[[win_key]])) {
-        .mel_cache[[win_key]] <- torch::torch_hann_window(win_size)$to(device = device)
+        .mel_cache[[win_key]] <- Rtorch::torch_hann_window(win_size)$to(device = device)
     }
     hann_window <- .mel_cache[[win_key]]
 
     # Pad audio (reflect padding)
     pad_amount <- as.integer((n_fft - hop_size) / 2)
     y <- y$unsqueeze(2) # Add channel dim for padding
-    y <- torch::nnf_pad(y, c(pad_amount, pad_amount), mode = "reflect")
+    y <- Rtorch::nnf_pad(y, c(pad_amount, pad_amount), mode = "reflect")
     y <- y$squeeze(2)
 
     # Compute STFT
-    spec <- torch::torch_stft(
+    spec <- Rtorch::torch_stft(
         y,
         n_fft = n_fft,
         hop_length = hop_size,
@@ -248,14 +248,14 @@ compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
     )
 
     # Convert to magnitude
-    spec <- torch::torch_view_as_real(spec)
-    spec <- torch::torch_sqrt(spec$pow(2)$sum(- 1) + 1e-9)
+    spec <- Rtorch::torch_view_as_real(spec)
+    spec <- Rtorch::torch_sqrt(spec$pow(2)$sum(- 1) + 1e-9)
 
     # Apply mel filterbank
-    spec <- torch::torch_matmul(mel_basis, spec)
+    spec <- Rtorch::torch_matmul(mel_basis, spec)
 
     # Log compression
-    spec <- torch::torch_log(torch::torch_clamp(spec, min = 1e-5))
+    spec <- Rtorch::torch_log(Rtorch::torch_clamp(spec, min = 1e-5))
 
     spec
 }

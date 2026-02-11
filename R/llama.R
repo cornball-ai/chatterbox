@@ -53,21 +53,21 @@ llama_config_520m <- function ()
 #' @param hidden_size Dimension to normalize
 #' @param eps Epsilon for numerical stability
 #' @return nn_module
-llama_rms_norm <- torch::nn_module(
+llama_rms_norm <- Rtorch::nn_module(
     "LlamaRMSNorm",
 
     initialize = function (hidden_size, eps = 1e-5)
     {
         self$eps <- eps
-        self$weight <- torch::nn_parameter(torch::torch_ones(hidden_size))
+        self$weight <- Rtorch::nn_parameter(Rtorch::torch_ones(hidden_size))
     },
 
     forward = function (x)
     {
         input_dtype <- x$dtype
-        x <- x$to(dtype = torch::torch_float32())
+        x <- x$to(dtype = Rtorch::torch_float32)
         variance <- x$pow(2)$mean(dim = - 1, keepdim = TRUE)
-        x <- x * torch::torch_rsqrt(variance + self$eps)
+        x <- x * Rtorch::torch_rsqrt(variance + self$eps)
         self$weight * x$to(dtype = input_dtype)
     }
 )
@@ -89,7 +89,7 @@ compute_rope_frequencies <- function (dim, max_seq_len, theta = 500000.0,
 {
     # Compute inverse frequencies
     # R torch_arange is inclusive; use end= - 1 for Python-like behavior
-    inv_freq <- 1.0 / (theta ^ (torch::torch_arange(start = 0, end = dim - 1, step = 2, device = device)$to(dtype = torch::torch_float32()) / dim))
+    inv_freq <- 1.0 / (theta ^ (Rtorch::torch_arange(start = 0, end = dim - 1, step = 2, device = device)$to(dtype = Rtorch::torch_float32) / dim))
 
     # Apply Llama3-style scaling if specified
     if (!is.null(scaling) && scaling$rope_type == "llama3") {
@@ -97,13 +97,13 @@ compute_rope_frequencies <- function (dim, max_seq_len, theta = 500000.0,
     }
 
     # Compute position indices (0 to max_seq_len-1)
-    t <- torch::torch_arange(0, max_seq_len - 1, device = device)$to(dtype = torch::torch_float32())
+    t <- Rtorch::torch_arange(0, max_seq_len - 1, device = device)$to(dtype = Rtorch::torch_float32)
 
     # Outer product: (seq_len, dim/2)
-    freqs <- torch::torch_outer(t, inv_freq)
+    freqs <- Rtorch::torch_outer(t, inv_freq)
 
     # Create cos and sin caches: (seq_len, dim)
-    emb <- torch::torch_cat(list(freqs, freqs), dim = - 1)
+    emb <- Rtorch::torch_cat(list(freqs, freqs), dim = - 1)
 
     list(
         cos = emb$cos(),
@@ -131,7 +131,7 @@ apply_llama3_rope_scaling <- function (inv_freq, scaling, dim)
 
     # Apply scaling based on wavelength
     device <- inv_freq$device
-    new_inv_freq <- torch::torch_zeros_like(inv_freq)
+    new_inv_freq <- Rtorch::torch_zeros_like(inv_freq)
 
     for (i in seq_len(inv_freq$size(1))) {
         wl <- as.numeric(wavelen[i])
@@ -159,7 +159,7 @@ rotate_half <- function (x)
 {
     x1 <- x[,,, 1:(x$size(4) %/% 2)]
     x2 <- x[,,, (x$size(4) %/% 2 + 1) :x$size(4)]
-    torch::torch_cat(list(- x2, x1), dim = - 1)
+    Rtorch::torch_cat(list(- x2, x1), dim = - 1)
 }
 
 #' Apply rotary position embeddings to Q and K
@@ -196,7 +196,7 @@ apply_rotary_pos_emb <- function (q, k, cos, sin, position_ids)
 #' @param config Model configuration
 #' @param layer_idx Layer index
 #' @return nn_module
-llama_attention <- torch::nn_module(
+llama_attention <- Rtorch::nn_module(
     "LlamaAttention",
 
     initialize = function (config, layer_idx)
@@ -211,10 +211,10 @@ llama_attention <- torch::nn_module(
         self$attention_dropout <- config$attention_dropout
 
         # Projections
-        self$q_proj <- torch::nn_linear(self$hidden_size, self$num_heads * self$head_dim, bias = config$attention_bias)
-        self$k_proj <- torch::nn_linear(self$hidden_size, self$num_key_value_heads * self$head_dim, bias = config$attention_bias)
-        self$v_proj <- torch::nn_linear(self$hidden_size, self$num_key_value_heads * self$head_dim, bias = config$attention_bias)
-        self$o_proj <- torch::nn_linear(self$num_heads * self$head_dim, self$hidden_size, bias = config$attention_bias)
+        self$q_proj <- Rtorch::nn_linear(self$hidden_size, self$num_heads * self$head_dim, bias = config$attention_bias)
+        self$k_proj <- Rtorch::nn_linear(self$hidden_size, self$num_key_value_heads * self$head_dim, bias = config$attention_bias)
+        self$v_proj <- Rtorch::nn_linear(self$hidden_size, self$num_key_value_heads * self$head_dim, bias = config$attention_bias)
+        self$o_proj <- Rtorch::nn_linear(self$num_heads * self$head_dim, self$hidden_size, bias = config$attention_bias)
     },
 
     forward = function (hidden_states, position_ids, rope_cos, rope_sin,
@@ -240,8 +240,8 @@ llama_attention <- torch::nn_module(
 
         # Handle KV cache
         if (!is.null(past_key_value)) {
-            key_states <- torch::torch_cat(list(past_key_value$k, key_states), dim = 3)
-            value_states <- torch::torch_cat(list(past_key_value$v, value_states), dim = 3)
+            key_states <- Rtorch::torch_cat(list(past_key_value$k, key_states), dim = 3)
+            value_states <- Rtorch::torch_cat(list(past_key_value$v, value_states), dim = 3)
         }
 
         new_past_key_value <- list(k = key_states, v = value_states)
@@ -286,7 +286,7 @@ llama_attention <- torch::nn_module(
 #'
 #' @param config Model configuration
 #' @return nn_module
-llama_mlp <- torch::nn_module(
+llama_mlp <- Rtorch::nn_module(
     "LlamaMLP",
 
     initialize = function (config)
@@ -294,12 +294,12 @@ llama_mlp <- torch::nn_module(
         self$hidden_size <- config$hidden_size
         self$intermediate_size <- config$intermediate_size
 
-        self$gate_proj <- torch::nn_linear(self$hidden_size, self$intermediate_size, bias = config$mlp_bias)
-        self$up_proj <- torch::nn_linear(self$hidden_size, self$intermediate_size, bias = config$mlp_bias)
-        self$down_proj <- torch::nn_linear(self$intermediate_size, self$hidden_size, bias = config$mlp_bias)
+        self$gate_proj <- Rtorch::nn_linear(self$hidden_size, self$intermediate_size, bias = config$mlp_bias)
+        self$up_proj <- Rtorch::nn_linear(self$hidden_size, self$intermediate_size, bias = config$mlp_bias)
+        self$down_proj <- Rtorch::nn_linear(self$intermediate_size, self$hidden_size, bias = config$mlp_bias)
 
         # SiLU activation
-        self$act_fn <- function (x) x * torch::torch_sigmoid(x)
+        self$act_fn <- function (x) x * Rtorch::torch_sigmoid(x)
     },
 
     forward = function(x) {
@@ -317,7 +317,7 @@ llama_mlp <- torch::nn_module(
 #' @param config Model configuration
 #' @param layer_idx Layer index
 #' @return nn_module
-llama_decoder_layer <- torch::nn_module(
+llama_decoder_layer <- Rtorch::nn_module(
     "LlamaDecoderLayer",
 
     initialize = function(
@@ -375,7 +375,7 @@ llama_decoder_layer <- torch::nn_module(
 #'
 #' @param config Model configuration (default: 520M)
 #' @return nn_module
-llama_model <- torch::nn_module(
+llama_model <- Rtorch::nn_module(
     "LlamaModel",
 
     initialize = function(config = NULL) {
@@ -385,10 +385,10 @@ llama_model <- torch::nn_module(
         self$config <- config
 
         # Token embeddings (not used when inputs_embeds provided)
-        self$embed_tokens <- torch::nn_embedding(config$vocab_size, config$hidden_size)
+        self$embed_tokens <- Rtorch::nn_embedding(config$vocab_size, config$hidden_size)
 
         # Decoder layers
-        self$layers <- torch::nn_module_list(
+        self$layers <- Rtorch::nn_module_list(
             lapply(seq_len(config$num_hidden_layers) - 1, function(i) {
                     llama_decoder_layer(config, i)
                 })
@@ -450,7 +450,7 @@ llama_model <- torch::nn_module(
                 past_length <- 0
             }
             # R torch_arange is inclusive, so use seq_length - 1 for end to get seq_length values
-            position_ids <- torch::torch_arange(past_length, past_length + seq_length - 1, device = device, dtype = torch::torch_long())
+            position_ids <- Rtorch::torch_arange(past_length, past_length + seq_length - 1, device = device, dtype = Rtorch::torch_long)
             position_ids <- position_ids$unsqueeze(1)$expand(c(batch_size, - 1))
         }
 
@@ -465,13 +465,13 @@ llama_model <- torch::nn_module(
             if (seq_length > 1) {
                 # Create causal mask
                 # Use -65504 instead of -Inf to support float16 (autocast)
-                mask <- torch::torch_full(c(seq_length, seq_length), -65504.0, device = device)
-                mask <- torch::torch_triu(mask, diagonal = 1)
+                mask <- Rtorch::torch_full(c(seq_length, seq_length), -65504.0, device = device)
+                mask <- Rtorch::torch_triu(mask, diagonal = 1)
                 # Add past length
                 if (!is.null(past_key_values)) {
                     past_len <- past_key_values[[1]]$k$size(3)
-                    mask <- torch::torch_cat(list(
-                            torch::torch_zeros(c(seq_length, past_len), device = device),
+                    mask <- Rtorch::torch_cat(list(
+                            Rtorch::torch_zeros(c(seq_length, past_len), device = device),
                             mask
                         ), dim = - 1)
                 }
@@ -561,7 +561,7 @@ load_llama_weights <- function(
     state_dict,
     prefix = "model."
 ) {
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
             # Map HuggingFace weight names to our model
             for (name in names(state_dict)) {
                 # Strip prefix

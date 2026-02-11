@@ -1,20 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{fsmn_multi_head_attention}
 \alias{fsmn_multi_head_attention}
 \title{FSMN Multi-Head Attention}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-fsmn_multi_head_attention(n_state, n_head, kernel_size = 31L)
-}
-\arguments{
-\item{n_state}{Hidden dimension}
-
-\item{n_head}{Number of heads}
-
-\item{kernel_size}{FSMN kernel size (default 31)}
-}
-\value{
-nn_module
+fsmn_multi_head_attention
 }
 \description{
 Multi-head attention with Frequency-domain Self-attention Memory Network
 }
+\keyword{datasets}

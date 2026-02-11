@@ -1,13 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{mish_activation}
 \alias{mish_activation}
 \title{Mish activation}
-\usage{
-mish_activation(in_channels, out_channels, kernel_size = 3L)
+\format{
+An object of class \code{nn_module_generator} of length 1.
 }
-\value{
-nn_module
+\usage{
+mish_activation
 }
 \description{
 Mish activation
 }
+\keyword{datasets}

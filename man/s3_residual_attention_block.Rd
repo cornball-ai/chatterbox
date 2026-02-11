@@ -1,20 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{s3_residual_attention_block}
 \alias{s3_residual_attention_block}
 \title{Residual attention block}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-s3_residual_attention_block(n_state, n_head, kernel_size = 31L)
-}
-\arguments{
-\item{n_state}{Hidden dimension}
-
-\item{n_head}{Number of heads}
-
-\item{kernel_size}{FSMN kernel size}
-}
-\value{
-nn_module
+s3_residual_attention_block
 }
 \description{
 Residual attention block
 }
+\keyword{datasets}

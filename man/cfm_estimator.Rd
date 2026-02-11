@@ -1,29 +1,13 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{cfm_estimator}
 \alias{cfm_estimator}
 \title{CFM Estimator (ConditionalDecoder)}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-cfm_estimator(
-  in_channels = 320L,
-  out_channels = 80L,
-  hidden_dim = 256L,
-  num_mid_blocks = 12L,
-  num_transformer_blocks = 4L
-)
-}
-\arguments{
-\item{in_channels}{Input channels (default 320 = x + mu + spks + cond)}
-
-\item{out_channels}{Output channels (default 80 = mel bins)}
-
-\item{hidden_dim}{Hidden dimension (default 256)}
-
-\item{num_mid_blocks}{Number of mid blocks (default 12)}
-
-\item{num_transformer_blocks}{Transformer blocks per layer (default 4)}
-}
-\value{
-nn_module
+cfm_estimator
 }
 \description{
 UNet-style architecture with:
@@ -31,3 +15,4 @@ UNet-style architecture with:
 - 12 mid blocks (256 -> 256, each with 4 transformer blocks)
 - 1 up block (512 -> 256 with skip connection, 4 transformer blocks)
 }
+\keyword{datasets}

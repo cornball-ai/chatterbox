@@ -1,20 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{rel_position_attention}
 \alias{rel_position_attention}
 \title{Relative Position Multi-Headed Attention}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-rel_position_attention(n_head = 8, n_feat = 512, dropout_rate = 0.1)
-}
-\arguments{
-\item{n_head}{Number of attention heads}
-
-\item{n_feat}{Feature dimension}
-
-\item{dropout_rate}{Dropout rate}
-}
-\value{
-nn_module
+rel_position_attention
 }
 \description{
 Multi-head attention with relative positional encodings.
 }
+\keyword{datasets}

@@ -221,9 +221,9 @@ text_to_tokens <- function (tokenizer, text, normalize = TRUE, device = "cpu")
 
     ids <- tokenize_text(tokenizer, text)
 
-    torch::torch_tensor(
+    Rtorch::torch_tensor(
         matrix(ids, nrow = 1),
-        dtype = torch::torch_long(),
+        dtype = Rtorch::torch_long,
         device = device
     )
 }

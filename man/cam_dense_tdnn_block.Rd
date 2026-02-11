@@ -1,33 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{cam_dense_tdnn_block}
 \alias{cam_dense_tdnn_block}
 \title{CAM Dense TDNN Block (multiple layers with dense connections)}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-cam_dense_tdnn_block(
-  num_layers,
-  in_channels,
-  out_channels,
-  bn_channels,
-  kernel_size,
-  dilation = 1
-)
-}
-\arguments{
-\item{num_layers}{Number of layers}
-
-\item{in_channels}{Input channels}
-
-\item{out_channels}{Output channels per layer}
-
-\item{bn_channels}{Bottleneck channels}
-
-\item{kernel_size}{Kernel size}
-
-\item{dilation}{Dilation}
-}
-\value{
-nn_module
+cam_dense_tdnn_block
 }
 \description{
 CAM Dense TDNN Block (multiple layers with dense connections)
 }
+\keyword{datasets}

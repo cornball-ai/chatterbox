@@ -1,20 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{hifigan_resblock}
 \alias{hifigan_resblock}
 \title{HiFiGAN Residual Block}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-hifigan_resblock(channels = 512, kernel_size = 3, dilations = c(1, 3, 5))
-}
-\arguments{
-\item{channels}{Number of channels}
-
-\item{kernel_size}{Kernel size}
-
-\item{dilations}{List of dilation rates}
-}
-\value{
-nn_module
+hifigan_resblock
 }
 \description{
 HiFiGAN Residual Block
 }
+\keyword{datasets}

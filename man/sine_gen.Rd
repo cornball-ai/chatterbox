@@ -1,30 +1,15 @@
 % tinyrox says don't edit this manually, but it can't stop you!
+\docType{data}
 \name{sine_gen}
 \alias{sine_gen}
 \title{Sine Generator}
+\format{
+An object of class \code{nn_module_generator} of length 1.
+}
 \usage{
-sine_gen(
-  sample_rate,
-  harmonic_num = 0,
-  sine_amp = 0.1,
-  noise_std = 0.003,
-  voiced_threshold = 0
-)
-}
-\arguments{
-\item{sample_rate}{Sampling rate in Hz}
-
-\item{harmonic_num}{Number of harmonics}
-
-\item{sine_amp}{Sine amplitude}
-
-\item{noise_std}{Noise standard deviation}
-
-\item{voiced_threshold}{F0 threshold for voiced/unvoiced}
-}
-\value{
-nn_module
+sine_gen
 }
 \description{
 Generates sine waveforms from F0 for source-filter synthesis
 }
+\keyword{datasets}

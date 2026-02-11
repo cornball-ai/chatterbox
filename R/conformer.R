@@ -14,18 +14,18 @@
 #' @param d_model Model dimension
 #' @param max_len Maximum sequence length
 #' @return nn_module
-espnet_rel_positional_encoding <- torch::nn_module(
+espnet_rel_positional_encoding <- Rtorch::nn_module(
     "EspnetRelPositionalEncoding",
 
     initialize = function (d_model = 512, dropout_rate = 0.1, max_len = 5000)
     {
         self$d_model <- d_model
-        self$dropout <- torch::nn_dropout(dropout_rate)
+        self$dropout <- Rtorch::nn_dropout(dropout_rate)
         self$max_len <- max_len
         self$xscale <- sqrt(d_model) # Scale factor for input
 
         # Pre-compute positional encodings
-        self$pe <- torch::nn_buffer(
+        self$pe <- Rtorch::nn_buffer(
             self$create_pe(max_len, d_model)
         )
     },
@@ -37,32 +37,32 @@ espnet_rel_positional_encoding <- torch::nn_module(
         # Position 0 is at center (index max_len-1)
 
         # Position values: 0, 1, 2, ..., max_len-1
-        position <- torch::torch_arange(0, max_len - 1, dtype = torch::torch_float32())$unsqueeze(2)
+        position <- Rtorch::torch_arange(0, max_len - 1, dtype = Rtorch::torch_float32)$unsqueeze(2)
 
-        div_term <- torch::torch_exp(
-            torch::torch_arange(0, d_model - 1, 2, dtype = torch::torch_float32()) *
+        div_term <- Rtorch::torch_exp(
+            Rtorch::torch_arange(0, d_model - 1, 2, dtype = Rtorch::torch_float32) *
             (- (log(10000.0) / d_model))
         )
 
         # Create positive positions (sin/cos of 0, 1, 2, ..., max_len-1)
-        pe_positive <- torch::torch_zeros(c(max_len, d_model))
-        pe_positive[, seq(1, d_model, by = 2)] <- torch::torch_sin(position * div_term)
-        pe_positive[, seq(2, d_model, by = 2)] <- torch::torch_cos(position * div_term)
+        pe_positive <- Rtorch::torch_zeros(c(max_len, d_model))
+        pe_positive[, seq(1, d_model, by = 2)] <- Rtorch::torch_sin(position * div_term)
+        pe_positive[, seq(2, d_model, by = 2)] <- Rtorch::torch_cos(position * div_term)
 
         # Create negative positions (sin/cos of 0, -1, -2, ..., -(max_len-1))
-        pe_negative <- torch::torch_zeros(c(max_len, d_model))
-        pe_negative[, seq(1, d_model, by = 2)] <- torch::torch_sin(- 1 * position * div_term)
-        pe_negative[, seq(2, d_model, by = 2)] <- torch::torch_cos(- 1 * position * div_term)
+        pe_negative <- Rtorch::torch_zeros(c(max_len, d_model))
+        pe_negative[, seq(1, d_model, by = 2)] <- Rtorch::torch_sin(- 1 * position * div_term)
+        pe_negative[, seq(2, d_model, by = 2)] <- Rtorch::torch_cos(- 1 * position * div_term)
 
         # Flip positive to get [max_len-1, max_len-2, ..., 0]
-        pe_positive <- torch::torch_flip(pe_positive, 1L)
+        pe_positive <- Rtorch::torch_flip(pe_positive, 1L)
 
         # Skip position 0 from negative (it's already in positive)
         pe_negative <- pe_negative[2:max_len,]
 
         # Concatenate: [pe_positive_flipped, pe_negative]
         # Result: positions [+(max_len-1), ..., 0, -1, ..., -(max_len-1)]
-        pe <- torch::torch_cat(list(pe_positive, pe_negative), dim = 1L)
+        pe <- Rtorch::torch_cat(list(pe_positive, pe_negative), dim = 1L)
 
         # Add batch dimension: (1, 2*max_len-1, d_model)
         pe$unsqueeze(1)
@@ -106,16 +106,16 @@ espnet_rel_positional_encoding <- torch::nn_module(
 #' @param output_dim Output dimension
 #' @param dropout_rate Dropout rate
 #' @return nn_module
-linear_no_subsampling <- torch::nn_module(
+linear_no_subsampling <- Rtorch::nn_module(
     "LinearNoSubsampling",
 
     initialize = function (input_dim = 512, output_dim = 512,
                            dropout_rate = 0.1)
     {
-        self$out <- torch::nn_sequential(
-            torch::nn_linear(input_dim, output_dim),
-            torch::nn_layer_norm(output_dim),
-            torch::nn_dropout(dropout_rate)
+        self$out <- Rtorch::nn_sequential(
+            Rtorch::nn_linear(input_dim, output_dim),
+            Rtorch::nn_layer_norm(output_dim),
+            Rtorch::nn_dropout(dropout_rate)
         )
         self$pos_enc <- espnet_rel_positional_encoding(output_dim, dropout_rate)
     },
@@ -144,16 +144,16 @@ linear_no_subsampling <- torch::nn_module(
 #' @param channels Number of channels
 #' @param pre_lookahead_len Look-ahead length (kernel size - 1 for conv1)
 #' @return nn_module
-pre_lookahead_layer <- torch::nn_module(
+pre_lookahead_layer <- Rtorch::nn_module(
     "PreLookaheadLayer",
 
     initialize = function (channels = 512, pre_lookahead_len = 3)
     {
         self$pre_lookahead_len <- pre_lookahead_len
         # conv1 kernel is lookahead + 1
-        self$conv1 <- torch::nn_conv1d(channels, channels, kernel_size = pre_lookahead_len + 1)
+        self$conv1 <- Rtorch::nn_conv1d(channels, channels, kernel_size = pre_lookahead_len + 1)
         # conv2 kernel is 3 (with 2 padding on left)
-        self$conv2 <- torch::nn_conv1d(channels, channels, kernel_size = 3)
+        self$conv2 <- Rtorch::nn_conv1d(channels, channels, kernel_size = 3)
     },
 
     forward = function (x)
@@ -165,13 +165,13 @@ pre_lookahead_layer <- torch::nn_module(
         h <- x$transpose(2L, 3L)$contiguous()
 
         # Look-ahead padding (right side)
-        h <- torch::nnf_pad(h, c(0L, self$pre_lookahead_len), mode = "constant", value = 0.0)
+        h <- Rtorch::nnf_pad(h, c(0L, self$pre_lookahead_len), mode = "constant", value = 0.0)
 
         # Conv1 with leaky relu
-        h <- torch::nnf_leaky_relu(self$conv1$forward(h))
+        h <- Rtorch::nnf_leaky_relu(self$conv1$forward(h))
 
         # Causal padding for conv2 (left side)
-        h <- torch::nnf_pad(h, c(2L, 0L), mode = "constant", value = 0.0)
+        h <- Rtorch::nnf_pad(h, c(2L, 0L), mode = "constant", value = 0.0)
 
         # Conv2
         h <- self$conv2$forward(h)
@@ -196,7 +196,7 @@ pre_lookahead_layer <- torch::nn_module(
 #' @param n_feat Feature dimension
 #' @param dropout_rate Dropout rate
 #' @return nn_module
-rel_position_attention <- torch::nn_module(
+rel_position_attention <- Rtorch::nn_module(
     "RelPositionMultiHeadedAttention",
 
     initialize = function (n_head = 8, n_feat = 512, dropout_rate = 0.1)
@@ -207,19 +207,19 @@ rel_position_attention <- torch::nn_module(
         self$h <- n_head
 
         # Linear projections
-        self$linear_q <- torch::nn_linear(n_feat, n_feat)
-        self$linear_k <- torch::nn_linear(n_feat, n_feat)
-        self$linear_v <- torch::nn_linear(n_feat, n_feat)
-        self$linear_out <- torch::nn_linear(n_feat, n_feat)
+        self$linear_q <- Rtorch::nn_linear(n_feat, n_feat)
+        self$linear_k <- Rtorch::nn_linear(n_feat, n_feat)
+        self$linear_v <- Rtorch::nn_linear(n_feat, n_feat)
+        self$linear_out <- Rtorch::nn_linear(n_feat, n_feat)
 
         # Linear for positional encoding
-        self$linear_pos <- torch::nn_linear(n_feat, n_feat, bias = FALSE)
+        self$linear_pos <- Rtorch::nn_linear(n_feat, n_feat, bias = FALSE)
 
         # Learnable bias for relative position
-        self$pos_bias_u <- torch::nn_parameter(torch::torch_zeros(c(n_head, self$d_k)))
-        self$pos_bias_v <- torch::nn_parameter(torch::torch_zeros(c(n_head, self$d_k)))
+        self$pos_bias_u <- Rtorch::nn_parameter(Rtorch::torch_zeros(c(n_head, self$d_k)))
+        self$pos_bias_v <- Rtorch::nn_parameter(Rtorch::torch_zeros(c(n_head, self$d_k)))
 
-        self$dropout <- torch::nn_dropout(dropout_rate)
+        self$dropout <- Rtorch::nn_dropout(dropout_rate)
     },
 
     forward = function (query, key, value, mask, pos_emb)
@@ -246,10 +246,10 @@ rel_position_attention <- torch::nn_module(
         q_with_bias_v <- q + self$pos_bias_v$unsqueeze(1)$unsqueeze(3)
 
         # Content-based attention: (batch, head, time, time)
-        matrix_ac <- torch::torch_matmul(q_with_bias_u, k$transpose(- 2L, - 1L))
+        matrix_ac <- Rtorch::torch_matmul(q_with_bias_u, k$transpose(- 2L, - 1L))
 
         # Position-based attention: need relative position shift
-        matrix_bd <- torch::torch_matmul(q_with_bias_v, p$transpose(- 2L, - 1L))
+        matrix_bd <- Rtorch::torch_matmul(q_with_bias_v, p$transpose(- 2L, - 1L))
         matrix_bd <- self$rel_shift(matrix_bd)
 
         # Combine and scale
@@ -266,11 +266,11 @@ rel_position_attention <- torch::nn_module(
         }
 
         # Softmax and dropout
-        attn <- torch::nnf_softmax(scores, dim = - 1)
+        attn <- Rtorch::nnf_softmax(scores, dim = - 1)
         attn <- self$dropout$forward(attn)
 
         # Apply attention to values
-        output <- torch::torch_matmul(attn, v)
+        output <- Rtorch::torch_matmul(attn, v)
 
         # Reshape and project output
         output <- output$transpose(2L, 3L)$contiguous()$view(c(batch_size, - 1, self$h * self$d_k))
@@ -288,7 +288,7 @@ rel_position_attention <- torch::nn_module(
 
         # Step 1: Pad left side of last dimension
         # (batch, head, time, pos_len) -> (batch, head, time, pos_len+1)
-        x <- torch::nnf_pad(x, c(1L, 0L))
+        x <- Rtorch::nnf_pad(x, c(1L, 0L))
 
         # Step 2: Reshape to (batch, head, pos_len+1, time)
         x <- x$view(c(batch_size, n_head, pos_len + 1L, time))
@@ -318,21 +318,21 @@ rel_position_attention <- torch::nn_module(
 #' @param n_ffn Hidden dimension
 #' @param dropout_rate Dropout rate
 #' @return nn_module
-positionwise_feedforward <- torch::nn_module(
+positionwise_feedforward <- Rtorch::nn_module(
     "PositionwiseFeedForward",
 
     initialize = function (n_feat = 512, n_ffn = 2048, dropout_rate = 0.1)
     {
-        self$w_1 <- torch::nn_linear(n_feat, n_ffn)
-        self$w_2 <- torch::nn_linear(n_ffn, n_feat)
-        self$dropout <- torch::nn_dropout(dropout_rate)
+        self$w_1 <- Rtorch::nn_linear(n_feat, n_ffn)
+        self$w_2 <- Rtorch::nn_linear(n_ffn, n_feat)
+        self$dropout <- Rtorch::nn_dropout(dropout_rate)
     },
 
     forward = function (x)
     {
         # x: (batch, time, n_feat)
         x <- self$w_1$forward(x)
-        x <- torch::nnf_silu(x)
+        x <- Rtorch::nnf_silu(x)
         x <- self$dropout$forward(x)
         x <- self$w_2$forward(x)
         x
@@ -352,7 +352,7 @@ positionwise_feedforward <- torch::nn_module(
 #' @param n_ffn Feed-forward hidden dimension
 #' @param dropout_rate Dropout rate
 #' @return nn_module
-conformer_encoder_layer <- torch::nn_module(
+conformer_encoder_layer <- Rtorch::nn_module(
     "ConformerEncoderLayer",
 
     initialize = function (n_feat = 512, n_head = 8, n_ffn = 2048,
@@ -365,11 +365,11 @@ conformer_encoder_layer <- torch::nn_module(
         self$feed_forward <- positionwise_feedforward(n_feat, n_ffn, dropout_rate)
 
         # Layer norms (eps=1e-12 to match Python)
-        self$norm_mha <- torch::nn_layer_norm(n_feat, eps = 1e-12)
-        self$norm_ff <- torch::nn_layer_norm(n_feat, eps = 1e-12)
+        self$norm_mha <- Rtorch::nn_layer_norm(n_feat, eps = 1e-12)
+        self$norm_ff <- Rtorch::nn_layer_norm(n_feat, eps = 1e-12)
 
         # Dropout
-        self$dropout <- torch::nn_dropout(dropout_rate)
+        self$dropout <- Rtorch::nn_dropout(dropout_rate)
     },
 
     forward = function (x, mask, pos_emb, mask_pad = NULL)
@@ -413,13 +413,13 @@ conformer_encoder_layer <- torch::nn_module(
 #' @param channels Number of channels
 #' @param stride Upsample factor
 #' @return nn_module
-upsample_1d <- torch::nn_module(
+upsample_1d <- Rtorch::nn_module(
     "Upsample1D",
 
     initialize = function (channels = 512, stride = 2L)
     {
         self$stride <- stride
-        self$conv <- torch::nn_conv1d(channels, channels, kernel_size = 5)
+        self$conv <- Rtorch::nn_conv1d(channels, channels, kernel_size = 5)
     },
 
     forward = function (x, x_lens)
@@ -428,10 +428,10 @@ upsample_1d <- torch::nn_module(
         # x_lens: (batch,)
 
         # Interpolate 2x
-        x <- torch::nnf_interpolate(x, scale_factor = as.double(self$stride), mode = "nearest")
+        x <- Rtorch::nnf_interpolate(x, scale_factor = as.double(self$stride), mode = "nearest")
 
         # Pad left (stride * 2)
-        x <- torch::nnf_pad(x, c(self$stride * 2L, 0L), value = 0.0)
+        x <- Rtorch::nnf_pad(x, c(self$stride * 2L, 0L), value = 0.0)
 
         # Convolution
         x <- self$conv$forward(x)
@@ -460,7 +460,7 @@ upsample_1d <- torch::nn_module(
 #' @param dropout_rate Dropout rate
 #' @param pre_lookahead_len Look-ahead length
 #' @return nn_module
-upsample_conformer_encoder_full <- torch::nn_module(
+upsample_conformer_encoder_full <- Rtorch::nn_module(
     "UpsampleConformerEncoder",
 
     initialize = function (input_size = 512, output_size = 512, num_blocks = 6,
@@ -478,7 +478,7 @@ upsample_conformer_encoder_full <- torch::nn_module(
         self$pre_lookahead_layer <- pre_lookahead_layer(output_size, pre_lookahead_len)
 
         # First set of conformer blocks (before upsample)
-        self$encoders <- torch::nn_module_list(
+        self$encoders <- Rtorch::nn_module_list(
             lapply(seq_len(num_blocks), function (i)
             {
                     conformer_encoder_layer(output_size, n_head, n_ffn, dropout_rate)
@@ -492,7 +492,7 @@ upsample_conformer_encoder_full <- torch::nn_module(
         self$up_embed <- linear_no_subsampling(output_size, output_size, dropout_rate)
 
         # Second set of conformer blocks (after upsample)
-        self$up_encoders <- torch::nn_module_list(
+        self$up_encoders <- Rtorch::nn_module_list(
             lapply(seq_len(num_up_blocks), function (i)
             {
                     conformer_encoder_layer(output_size, n_head, n_ffn, dropout_rate)
@@ -500,7 +500,7 @@ upsample_conformer_encoder_full <- torch::nn_module(
         )
 
         # Final layer norm
-        self$after_norm <- torch::nn_layer_norm(output_size)
+        self$after_norm <- Rtorch::nn_layer_norm(output_size)
 
         # Chunk parameters (not used in inference, but stored)
         self$use_dynamic_chunk <- FALSE
@@ -582,7 +582,7 @@ upsample_conformer_encoder_full <- torch::nn_module(
         batch_size <- lengths$size(1)
 
         # R torch_arange(0, n-1) creates 0..n-1 (n values)
-        range_tensor <- torch::torch_arange(0, max_len - 1, device = device, dtype = torch::torch_long())
+        range_tensor <- Rtorch::torch_arange(0, max_len - 1, device = device, dtype = Rtorch::torch_long)
         range_tensor <- range_tensor$unsqueeze(2) # (max_len, 1) - unsqueeze(2) adds dim at position 2
 
         lengths_expand <- lengths$view(c(1, batch_size)) # (1, batch)
@@ -609,7 +609,7 @@ load_conformer_encoder_weights <- function (model, state_dict,
         if (full_key %in% names(state_dict)) {
             tryCatch({
                     # Must use with_no_grad to avoid autograd error on leaf variables
-                    torch::with_no_grad({
+                    Rtorch::with_no_grad({
                             r_param$copy_(state_dict[[full_key]])
                         })
                     TRUE

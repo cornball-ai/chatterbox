@@ -138,26 +138,26 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
     }
 
     # Convert to tensor
-    audio_tensor <- torch::torch_tensor(samples, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
-    audio_16k <- torch::torch_tensor(samples_16k, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
+    audio_tensor <- Rtorch::torch_tensor(samples, dtype = Rtorch::torch_float32)$unsqueeze(1)$to(device = device)
+    audio_16k <- Rtorch::torch_tensor(samples_16k, dtype = Rtorch::torch_float32)$unsqueeze(1)$to(device = device)
 
     # Get voice encoder embedding using compute_speaker_embedding
     # (handles mel spectrogram computation internally)
     # Note: voice embedding runs in float32 for numerical stability
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
         ve_embedding <- compute_speaker_embedding(model$voice_encoder, audio_16k, 16000)
     })
 
     # Get conditioning prompt speech tokens from S3 tokenizer
     # Python uses speech_cond_prompt_len = 150 tokens max
     cond_prompt_len <- model$t3$config$speech_cond_prompt_len # 150
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
         tok_result <- model$s3gen$tokenizer$forward(audio_16k, max_len = cond_prompt_len)
         cond_prompt_tokens <- tok_result$tokens$to(device = device)
     })
 
     # Create reference dict for S3Gen
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
         ref_dict <- model$s3gen$embed_ref(audio_tensor$squeeze(1), sample_rate, device)
     })
 
@@ -211,7 +211,7 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 
     # Tokenize text
     text_tokens <- tokenize_text(model$tokenizer, text)
-    text_tokens <- torch::torch_tensor(text_tokens, dtype = torch::torch_long())$unsqueeze(1)$to(device = device)
+    text_tokens <- Rtorch::torch_tensor(text_tokens, dtype = Rtorch::torch_long)$unsqueeze(1)$to(device = device)
 
     # Create T3 conditioning with cond_prompt_speech_tokens
     cond <- t3_cond(
@@ -234,8 +234,8 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
     }
 
     if (use_autocast) {
-        torch::with_autocast(device_type = "cuda", {
-            torch::with_no_grad({
+        Rtorch::with_autocast(device_type = "cuda", {
+            Rtorch::with_no_grad({
                 speech_tokens <- inference_fn(
                     model = model$t3,
                     cond = cond,
@@ -247,7 +247,7 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
             })
         })
     } else {
-        torch::with_no_grad({
+        Rtorch::with_no_grad({
             speech_tokens <- inference_fn(
                 model = model$t3,
                 cond = cond,
@@ -268,16 +268,16 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
     }
 
     # Convert to tensor
-    speech_tokens <- torch::torch_tensor(
+    speech_tokens <- Rtorch::torch_tensor(
         as.integer(speech_tokens),
-        dtype = torch::torch_long()
+        dtype = Rtorch::torch_long
     )$unsqueeze(1)$to(device = device)
 
     # Generate waveform with S3Gen
     message("Synthesizing waveform...")
     if (use_autocast) {
-        torch::with_autocast(device_type = "cuda", {
-            torch::with_no_grad({
+        Rtorch::with_autocast(device_type = "cuda", {
+            Rtorch::with_no_grad({
                 result <- model$s3gen$inference(
                     speech_tokens = speech_tokens,
                     ref_dict = voice$ref_dict,
@@ -288,7 +288,7 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
             })
         })
     } else {
-        torch::with_no_grad({
+        Rtorch::with_no_grad({
             result <- model$s3gen$inference(
                 speech_tokens = speech_tokens,
                 ref_dict = voice$ref_dict,

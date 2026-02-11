@@ -13,11 +13,10 @@ Encoding: UTF-8
 Depends:
     R (>= 4.0.0)
 Imports:
-    torch (>= 0.12.0),
+    Rtorch (>= 0.1.0),
     tuneR,
     jsonlite,
-    hfhub,
-    safetensors (>= 0.1.1)
+    hfhub
 Suggests:
     tinytest,
     av,

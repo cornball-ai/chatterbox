@@ -12,7 +12,7 @@
 #'
 #' @param layer Original llama_decoder_layer
 #' @return nn_module
-traceable_kv_projector <- torch::nn_module(
+traceable_kv_projector <- Rtorch::nn_module(
     "TraceableKVProjector",
 
     initialize = function(layer) {
@@ -42,7 +42,7 @@ traceable_kv_projector <- torch::nn_module(
         k <- rotated$k
 
         # Return concatenated K and V: (batch, heads, 1, head_dim * 2)
-        torch::torch_cat(list(k, v), dim = -1L)
+        Rtorch::torch_cat(list(k, v), dim = -1L)
     }
 )
 
@@ -60,7 +60,7 @@ traceable_kv_projector <- torch::nn_module(
 #' @param attn Original llama_attention module
 #' @param max_cache_len Maximum cache length
 #' @return nn_module
-traceable_attention <- torch::nn_module(
+traceable_attention <- Rtorch::nn_module(
     "TraceableAttention",
 
     initialize = function(attn, max_cache_len = 300L) {
@@ -111,10 +111,10 @@ traceable_attention <- torch::nn_module(
         # Create attention mask from valid_mask
         # valid_mask is TRUE where positions are valid
         # We need 0 for valid, -inf for invalid
-        attn_mask <- torch::torch_where(
+        attn_mask <- Rtorch::torch_where(
             valid_mask,
-            torch::torch_zeros(1L, device = query_states$device, dtype = query_states$dtype),
-            torch::torch_full(c(1L), -65504.0, device = query_states$device, dtype = query_states$dtype)
+            Rtorch::torch_zeros(1L, device = query_states$device, dtype = query_states$dtype),
+            Rtorch::torch_full(c(1L), -65504.0, device = query_states$device, dtype = query_states$dtype)
         )
 
         # SDPA with mask
@@ -146,7 +146,7 @@ traceable_attention <- torch::nn_module(
 #' @param layer Original llama_decoder_layer
 #' @param max_cache_len Maximum cache length
 #' @return nn_module
-traceable_decoder_layer <- torch::nn_module(
+traceable_decoder_layer <- Rtorch::nn_module(
     "TraceableDecoderLayer",
 
     initialize = function(layer, max_cache_len = 300L) {
@@ -191,12 +191,12 @@ traceable_decoder_layer <- torch::nn_module(
 #' @param tfmr Original llama_model
 #' @param max_cache_len Maximum cache length
 #' @return nn_module
-traceable_transformer_cached <- torch::nn_module(
+traceable_transformer_cached <- Rtorch::nn_module(
     "TraceableTransformerCached",
 
     initialize = function(tfmr, max_cache_len = 300L) {
         self$n_layers <- length(tfmr$layers)
-        self$layers <- torch::nn_module_list(
+        self$layers <- Rtorch::nn_module_list(
             lapply(seq_len(self$n_layers), function(i) {
                 traceable_decoder_layer(tfmr$layers[[i]], max_cache_len)
             })
@@ -231,7 +231,7 @@ traceable_transformer_cached <- torch::nn_module(
 #'
 #' @param tfmr Original llama_model
 #' @return nn_module
-traceable_transformer_first <- torch::nn_module(
+traceable_transformer_first <- Rtorch::nn_module(
     "TraceableTransformerFirst",
 
     initialize = function(tfmr) {
@@ -273,19 +273,19 @@ traceable_transformer_first <- torch::nn_module(
 #' @return List with k_cache, v_cache, valid_mask
 create_kv_cache <- function(batch_size, n_layers, n_heads, head_dim, max_len, device) {
     # Stacked caches: (n_layers, batch, heads, max_len, head_dim)
-    k_cache <- torch::torch_zeros(
+    k_cache <- Rtorch::torch_zeros(
         c(n_layers, batch_size, n_heads, max_len, head_dim),
         device = device
     )
-    v_cache <- torch::torch_zeros(
+    v_cache <- Rtorch::torch_zeros(
         c(n_layers, batch_size, n_heads, max_len, head_dim),
         device = device
     )
 
     # Valid mask: (batch, 1, 1, max_len) - shared across layers
-    valid_mask <- torch::torch_zeros(
+    valid_mask <- Rtorch::torch_zeros(
         c(batch_size, 1L, 1L, max_len),
-        dtype = torch::torch_bool(),
+        dtype = Rtorch::torch_bool,
         device = device
     )
 

@@ -1,7 +1,5 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
-useDynLib(chatterbox, .registration = TRUE)
-
 export(chatterbox)
 export(compute_mel_spectrogram)
 export(compute_mel_spectrogram_ve)
@@ -11,6 +9,7 @@ export(create_s3gen_vocoder)
 export(create_voice_embedding)
 export(decode_tokens)
 export(download_chatterbox_models)
+export(generate)
 export(get_model_paths)
 export(load_bpe_tokenizer)
 export(load_campplus_weights)
@@ -28,7 +27,6 @@ export(s3_tokenizer)
 export(t3_inference)
 export(t3_inference_cpp)
 export(text_to_tokens)
-export(generate)
 export(tts_chunked)
 export(tts_to_file)
 export(write_audio)

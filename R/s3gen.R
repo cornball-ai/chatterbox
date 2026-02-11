@@ -24,7 +24,7 @@ make_pad_mask <- function (lengths, max_len = NULL)
 
     # Create range tensor (0 to max_len-1)
     # R torch_arange(0, n) is inclusive, so 0 to n-1 gives n values
-    range_tensor <- torch::torch_arange(0, max_len - 1, device = device, dtype = torch::torch_long())$unsqueeze(1)
+    range_tensor <- Rtorch::torch_arange(0, max_len - 1, device = device, dtype = Rtorch::torch_long)$unsqueeze(1)
 
     # Compare with lengths
     lengths <- lengths$view(c(1, batch_size))
@@ -60,7 +60,7 @@ upsample_conformer_encoder <- function (input_size = 512, output_size = 512,
 #' Sinusoidal positional embedding for timesteps
 #' @param dim Output dimension
 #' @return nn_module
-sinusoidal_pos_emb <- torch::nn_module(
+sinusoidal_pos_emb <- Rtorch::nn_module(
     "SinusoidalPosEmb",
 
     initialize = function (dim = 320L)
@@ -77,8 +77,8 @@ sinusoidal_pos_emb <- torch::nn_module(
         half_dim <- self$dim %/% 2L
 
         # emb = exp(arange(half_dim) * -log(10000) / (half_dim - 1))
-        emb <- torch::torch_exp(
-            torch::torch_arange(0, half_dim - 1, device = device, dtype = torch::torch_float32()) *
+        emb <- Rtorch::torch_exp(
+            Rtorch::torch_arange(0, half_dim - 1, device = device, dtype = Rtorch::torch_float32) *
             (- log(10000) / (half_dim - 1))
         )
 
@@ -86,7 +86,7 @@ sinusoidal_pos_emb <- torch::nn_module(
         emb <- scale * x$unsqueeze(2) * emb$unsqueeze(1)
 
         # cat(sin, cos)
-        torch::torch_cat(list(emb$sin(), emb$cos()), dim = - 1L)
+        Rtorch::torch_cat(list(emb$sin(), emb$cos()), dim = - 1L)
     }
 )
 
@@ -94,14 +94,14 @@ sinusoidal_pos_emb <- torch::nn_module(
 #' @param in_channels Input channels
 #' @param time_embed_dim Output dimension
 #' @return nn_module
-timestep_embedding <- torch::nn_module(
+timestep_embedding <- Rtorch::nn_module(
     "TimestepEmbedding",
 
     initialize = function (in_channels = 320L, time_embed_dim = 1024L)
     {
-        self$linear_1 <- torch::nn_linear(in_channels, time_embed_dim)
-        self$act <- torch::nn_silu()
-        self$linear_2 <- torch::nn_linear(time_embed_dim, time_embed_dim)
+        self$linear_1 <- Rtorch::nn_linear(in_channels, time_embed_dim)
+        self$act <- Rtorch::nn_silu()
+        self$linear_2 <- Rtorch::nn_linear(time_embed_dim, time_embed_dim)
     },
 
     forward = function (sample)
@@ -120,13 +120,13 @@ timestep_embedding <- torch::nn_module(
 #' @param stride Stride (default 1)
 #' @param dilation Dilation (default 1)
 #' @return nn_module
-causal_conv1d <- torch::nn_module(
+causal_conv1d <- Rtorch::nn_module(
     "CausalConv1d",
 
     initialize = function (in_channels, out_channels, kernel_size, stride = 1L,
                            dilation = 1L)
     {
-        self$conv <- torch::nn_conv1d(
+        self$conv <- Rtorch::nn_conv1d(
             in_channels, out_channels, kernel_size,
             stride = stride, padding = 0L, dilation = dilation
         )
@@ -136,14 +136,14 @@ causal_conv1d <- torch::nn_module(
 
     forward = function (x)
     {
-        x <- torch::nnf_pad(x, self$causal_padding)
+        x <- Rtorch::nnf_pad(x, self$causal_padding)
         self$conv$forward(x)
     }
 )
 
 #' Transpose layer for use in sequential
 #' @return nn_module
-transpose_layer <- torch::nn_module(
+transpose_layer <- Rtorch::nn_module(
     "Transpose",
 
     forward = function (x)
@@ -154,12 +154,12 @@ transpose_layer <- torch::nn_module(
 
 #' Mish activation
 #' @return nn_module
-mish_activation <- torch::nn_module(
+mish_activation <- Rtorch::nn_module(
     "Mish",
 
     forward = function (x)
     {
-        x * torch::torch_tanh(torch::nnf_softplus(x))
+        x * Rtorch::torch_tanh(Rtorch::nnf_softplus(x))
     }
 )
 
@@ -168,13 +168,13 @@ mish_activation <- torch::nn_module(
 #' @param out_channels Output channels
 #' @param kernel_size Kernel size
 #' @return nn_module
-causal_block1d <- torch::nn_module(
+causal_block1d <- Rtorch::nn_module(
     "CausalBlock1D",
 
     initialize = function (in_channels, out_channels, kernel_size = 3L)
     {
         self$conv <- causal_conv1d(in_channels, out_channels, kernel_size)
-        self$norm <- torch::nn_layer_norm(out_channels)
+        self$norm <- Rtorch::nn_layer_norm(out_channels)
         self$mish <- mish_activation()
     },
 
@@ -196,15 +196,15 @@ causal_block1d <- torch::nn_module(
 #' @param out_channels Output channels
 #' @param time_embed_dim Time embedding dimension
 #' @return nn_module
-causal_resnet_block1d <- torch::nn_module(
+causal_resnet_block1d <- Rtorch::nn_module(
     "CausalResnetBlock1D",
 
     initialize = function (in_channels, out_channels, time_embed_dim = 1024L)
     {
         # Time embedding projection: Mish -> Linear
-        self$mlp <- torch::nn_sequential(
+        self$mlp <- Rtorch::nn_sequential(
             mish_activation(),
-            torch::nn_linear(time_embed_dim, out_channels)
+            Rtorch::nn_linear(time_embed_dim, out_channels)
         )
 
         # Two causal blocks
@@ -212,7 +212,7 @@ causal_resnet_block1d <- torch::nn_module(
         self$block2 <- causal_block1d(out_channels, out_channels)
 
         # Residual projection (1x1 conv always - Python has res_conv even for same channels)
-        self$res_conv <- torch::nn_conv1d(in_channels, out_channels, 1L)
+        self$res_conv <- Rtorch::nn_conv1d(in_channels, out_channels, 1L)
     },
 
     forward = function (x, mask, time_emb)
@@ -230,7 +230,7 @@ causal_resnet_block1d <- torch::nn_module(
 #' @param num_heads Number of attention heads
 #' @param head_dim Head dimension (default 64)
 #' @return nn_module
-cfm_attention <- torch::nn_module(
+cfm_attention <- Rtorch::nn_module(
     "CFMAttention",
 
     initialize = function (dim, num_heads = 8L, head_dim = 64L)
@@ -241,14 +241,14 @@ cfm_attention <- torch::nn_module(
         self$scale <- head_dim ^ (- 0.5)
 
         # Project from dim to inner_dim (256 -> 512)
-        self$to_q <- torch::nn_linear(dim, self$inner_dim, bias = FALSE)
-        self$to_k <- torch::nn_linear(dim, self$inner_dim, bias = FALSE)
-        self$to_v <- torch::nn_linear(dim, self$inner_dim, bias = FALSE)
+        self$to_q <- Rtorch::nn_linear(dim, self$inner_dim, bias = FALSE)
+        self$to_k <- Rtorch::nn_linear(dim, self$inner_dim, bias = FALSE)
+        self$to_v <- Rtorch::nn_linear(dim, self$inner_dim, bias = FALSE)
 
         # to_out is a ModuleList in Python (with dropout after linear)
         # For simplicity, just use linear (no dropout in inference)
-        self$to_out <- torch::nn_module_list(list(
-                torch::nn_linear(self$inner_dim, dim)
+        self$to_out <- Rtorch::nn_module_list(list(
+                Rtorch::nn_linear(self$inner_dim, dim)
             ))
     },
 
@@ -268,15 +268,15 @@ cfm_attention <- torch::nn_module(
         v <- v$view(c(batch_size, seq_len, self$heads, self$head_dim))$transpose(2L, 3L)
 
         # Attention scores
-        scores <- torch::torch_matmul(q, k$transpose(- 2L, - 1L)) * self$scale
+        scores <- Rtorch::torch_matmul(q, k$transpose(- 2L, - 1L)) * self$scale
 
         # Apply mask if provided
         if (!is.null(attention_mask)) {
             scores <- scores + attention_mask
         }
 
-        attn <- torch::nnf_softmax(scores, dim = - 1L)
-        out <- torch::torch_matmul(attn, v)
+        attn <- Rtorch::nnf_softmax(scores, dim = - 1L)
+        out <- Rtorch::torch_matmul(attn, v)
 
         # Reshape back to (B, T, inner_dim)
         out <- out$transpose(2L, 3L)$contiguous()$view(c(batch_size, seq_len, - 1L))
@@ -289,18 +289,18 @@ cfm_attention <- torch::nn_module(
 #' @param dim_in Input dimension
 #' @param dim_out Output dimension
 #' @return nn_module
-gelu_with_proj <- torch::nn_module(
+gelu_with_proj <- Rtorch::nn_module(
     "GELUWithProj",
 
     initialize = function (dim_in, dim_out)
     {
-        self$proj <- torch::nn_linear(dim_in, dim_out)
+        self$proj <- Rtorch::nn_linear(dim_in, dim_out)
     },
 
     forward = function (x)
     {
         x <- self$proj$forward(x)
-        torch::nnf_gelu(x, approximate = "tanh")
+        Rtorch::nnf_gelu(x, approximate = "tanh")
     }
 )
 
@@ -309,7 +309,7 @@ gelu_with_proj <- torch::nn_module(
 #' @param dim Input dimension
 #' @param hidden_dim Hidden dimension (typically 4x dim)
 #' @return nn_module
-feed_forward <- torch::nn_module(
+feed_forward <- Rtorch::nn_module(
     "FeedForward",
 
     initialize = function (dim, hidden_dim = NULL)
@@ -320,10 +320,10 @@ feed_forward <- torch::nn_module(
         # net[0]: GELU with projection (dim -> hidden_dim)
         # net[1]: Dropout (skipped in inference)
         # net[2]: Linear (hidden_dim -> dim)
-        self$net <- torch::nn_module_list(list(
+        self$net <- Rtorch::nn_module_list(list(
                 gelu_with_proj(dim, hidden_dim),
-                torch::nn_identity(), # Dropout placeholder
-                torch::nn_linear(hidden_dim, dim)
+                Rtorch::nn_identity(), # Dropout placeholder
+                Rtorch::nn_linear(hidden_dim, dim)
             ))
     },
 
@@ -340,14 +340,14 @@ feed_forward <- torch::nn_module(
 #' @param dim Hidden dimension
 #' @param num_heads Number of attention heads
 #' @return nn_module
-basic_transformer_block <- torch::nn_module(
+basic_transformer_block <- Rtorch::nn_module(
     "BasicTransformerBlock",
 
     initialize = function (dim, num_heads = 8L)
     {
-        self$norm1 <- torch::nn_layer_norm(dim)
+        self$norm1 <- Rtorch::nn_layer_norm(dim)
         self$attn1 <- cfm_attention(dim, num_heads)
-        self$norm3 <- torch::nn_layer_norm(dim)
+        self$norm3 <- Rtorch::nn_layer_norm(dim)
         self$ff <- feed_forward(dim)
     },
 
@@ -380,7 +380,7 @@ basic_transformer_block <- torch::nn_module(
 #' @param num_mid_blocks Number of mid blocks (default 12)
 #' @param num_transformer_blocks Transformer blocks per layer (default 4)
 #' @return nn_module
-cfm_estimator <- torch::nn_module(
+cfm_estimator <- Rtorch::nn_module(
     "CFMEstimator",
 
     initialize = function (in_channels = 320L, out_channels = 80L,
@@ -395,18 +395,18 @@ cfm_estimator <- torch::nn_module(
 
         # Down block: resnet + 4 transformers + causal conv (no actual downsampling)
         self$down_resnet <- causal_resnet_block1d(in_channels, hidden_dim)
-        self$down_transformers <- torch::nn_module_list(
+        self$down_transformers <- Rtorch::nn_module_list(
             lapply(1:num_transformer_blocks, function (i) basic_transformer_block(hidden_dim))
         )
         self$down_conv <- causal_conv1d(hidden_dim, hidden_dim, 3L)
 
         # Mid blocks: 12 x (resnet + 4 transformers)
-        self$mid_resnets <- torch::nn_module_list(
+        self$mid_resnets <- Rtorch::nn_module_list(
             lapply(1:num_mid_blocks, function(i) causal_resnet_block1d(hidden_dim, hidden_dim))
         )
-        self$mid_transformers <- torch::nn_module_list(
+        self$mid_transformers <- Rtorch::nn_module_list(
             lapply(1:num_mid_blocks, function(i) {
-                    torch::nn_module_list(
+                    Rtorch::nn_module_list(
                         lapply(1:num_transformer_blocks, function(j) basic_transformer_block(hidden_dim))
                     )
                 })
@@ -415,13 +415,13 @@ cfm_estimator <- torch::nn_module(
         # Up block: causal conv + resnet (512->256) + 4 transformers
         self$up_conv <- causal_conv1d(hidden_dim, hidden_dim, 3L)
         self$up_resnet <- causal_resnet_block1d(hidden_dim * 2L, hidden_dim) # Skip connection doubles channels
-        self$up_transformers <- torch::nn_module_list(
+        self$up_transformers <- Rtorch::nn_module_list(
             lapply(1:num_transformer_blocks, function(i) basic_transformer_block(hidden_dim))
         )
 
         # Final block and projection
         self$final_block <- causal_block1d(hidden_dim, hidden_dim)
-        self$final_proj <- torch::nn_conv1d(hidden_dim, out_channels, 1L)
+        self$final_proj <- Rtorch::nn_conv1d(hidden_dim, out_channels, 1L)
     },
 
     forward = function(x, mask, mu, t, spks = NULL, cond = NULL) {
@@ -440,13 +440,13 @@ cfm_estimator <- torch::nn_module(
         t_emb <- self$time_mlp$forward(t_emb)
 
         # Pack inputs: x + mu + spks + cond -> (B, 320, T)
-        h <- torch::torch_cat(list(x, mu), dim = 2L)
+        h <- Rtorch::torch_cat(list(x, mu), dim = 2L)
         if (!is.null(spks)) {
             spks_exp <- spks$unsqueeze(3L)$expand(c(- 1L, - 1L, seq_len))
-            h <- torch::torch_cat(list(h, spks_exp), dim = 2L)
+            h <- Rtorch::torch_cat(list(h, spks_exp), dim = 2L)
         }
         if (!is.null(cond)) {
-            h <- torch::torch_cat(list(h, cond), dim = 2L)
+            h <- Rtorch::torch_cat(list(h, cond), dim = 2L)
         }
 
         # Down block
@@ -472,7 +472,7 @@ cfm_estimator <- torch::nn_module(
 
         # Up block (Python order: concat -> resnet -> transformers -> conv)
         # Concat skip connection first
-        h <- torch::torch_cat(list(h, hidden_skip), dim = 2L)
+        h <- Rtorch::torch_cat(list(h, hidden_skip), dim = 2L)
         # Resnet
         h <- self$up_resnet$forward(h, mask, t_emb)
         # Transformers
@@ -511,7 +511,7 @@ cfm_estimator <- torch::nn_module(
 # Fixed max sequence length for CFM tracing (avoids retracing per length)
 CFM_MAX_SEQ_LEN <- 1024L
 
-causal_cfm <- torch::nn_module(
+causal_cfm <- Rtorch::nn_module(
     "CausalConditionalCFM",
 
     initialize = function(
@@ -527,8 +527,8 @@ causal_cfm <- torch::nn_module(
         self$estimator <- cfm_estimator(in_channels, out_channels)
 
         # Pre-computed noise for reproducibility
-        self$rand_noise <- torch::nn_buffer(
-            torch::torch_randn(c(1, 80, 50 * 300))
+        self$rand_noise <- Rtorch::nn_buffer(
+            Rtorch::torch_randn(c(1, 80, 50 * 300))
         )
 
         # Flag for using traced estimator
@@ -543,15 +543,15 @@ causal_cfm <- torch::nn_module(
             message("Tracing CFM estimator (one-time, max_len=", CFM_MAX_SEQ_LEN, ")...")
 
             # Create example inputs at fixed max length
-            x_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
-            mask_in <- torch::torch_ones(c(2L, 1L, CFM_MAX_SEQ_LEN), device = device)
-            mu_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
-            t_in <- torch::torch_tensor(c(0.5, 0.5), device = device)
-            spks_in <- torch::torch_randn(c(2L, 80L), device = device)
-            cond_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
+            x_in <- Rtorch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
+            mask_in <- Rtorch::torch_ones(c(2L, 1L, CFM_MAX_SEQ_LEN), device = device)
+            mu_in <- Rtorch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
+            t_in <- Rtorch::torch_tensor(c(0.5, 0.5), device = device)
+            spks_in <- Rtorch::torch_randn(c(2L, 80L), device = device)
+            cond_in <- Rtorch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
 
             self$estimator$eval()
-            traced <- torch::jit_trace(self$estimator, x_in, mask_in, mu_in, t_in, spks_in, cond_in)
+            traced <- Rtorch::jit_trace(self$estimator, x_in, mask_in, mu_in, t_in, spks_in, cond_in)
             .cfm_traced_cache[[cache_key]] <- traced
         }
 
@@ -574,9 +574,9 @@ causal_cfm <- torch::nn_module(
         z <- self$rand_noise[,, 1:seq_len]$to(device = device)$to(dtype = mu$dtype) * temperature
 
         # Time span with cosine schedule
-        t_span <- torch::torch_linspace(0, 1, n_timesteps + 1, device = device, dtype = mu$dtype)
+        t_span <- Rtorch::torch_linspace(0, 1, n_timesteps + 1, device = device, dtype = mu$dtype)
         if (self$t_scheduler == "cosine") {
-            t_span <- 1 - torch::torch_cos(t_span * 0.5 * pi)
+            t_span <- 1 - Rtorch::torch_cos(t_span * 0.5 * pi)
         }
 
         # Euler solver
@@ -605,10 +605,10 @@ causal_cfm <- torch::nn_module(
             pad_len <- CFM_MAX_SEQ_LEN - seq_len
 
             # Pad inputs to max length
-            x_padded <- torch::nnf_pad(x, c(0L, pad_len), value = 0)
-            mu_padded <- torch::nnf_pad(mu, c(0L, pad_len), value = 0)
-            mask_padded <- torch::nnf_pad(mask, c(0L, pad_len), value = 0)
-            cond_padded <- torch::nnf_pad(cond, c(0L, pad_len), value = 0)
+            x_padded <- Rtorch::nnf_pad(x, c(0L, pad_len), value = 0)
+            mu_padded <- Rtorch::nnf_pad(mu, c(0L, pad_len), value = 0)
+            mask_padded <- Rtorch::nnf_pad(mask, c(0L, pad_len), value = 0)
+            cond_padded <- Rtorch::nnf_pad(cond, c(0L, pad_len), value = 0)
 
             estimator_fn <- function(x_in, mask_in, mu_in, t_in, spks_in, cond_in) {
                 # Run traced estimator and slice output
@@ -635,12 +635,12 @@ causal_cfm <- torch::nn_module(
         work_len <- if (traced && seq_len <= CFM_MAX_SEQ_LEN) CFM_MAX_SEQ_LEN else seq_len
 
         # Pre-allocate tensors for CFG (batch size 2)
-        x_in <- torch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
-        mask_in <- torch::torch_zeros(c(2L, 1L, work_len), device = device, dtype = dtype)
-        mu_in <- torch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
-        t_in <- torch::torch_zeros(2L, device = device, dtype = dtype)
-        spks_in <- torch::torch_zeros(c(2L, 80L), device = device, dtype = dtype)
-        cond_in <- torch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
+        x_in <- Rtorch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
+        mask_in <- Rtorch::torch_zeros(c(2L, 1L, work_len), device = device, dtype = dtype)
+        mu_in <- Rtorch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
+        t_in <- Rtorch::torch_zeros(2L, device = device, dtype = dtype)
+        spks_in <- Rtorch::torch_zeros(c(2L, 80L), device = device, dtype = dtype)
+        cond_in <- Rtorch::torch_zeros(c(2L, 80L, work_len), device = device, dtype = dtype)
 
         for (step in 2:length(t_span)) {
             # Classifier-Free Guidance: conditional and unconditional paths
@@ -684,7 +684,7 @@ causal_cfm <- torch::nn_module(
             }
         }
 
-        x$to(dtype = torch::torch_float32())
+        x$to(dtype = Rtorch::torch_float32)
     }
 )
 
@@ -701,7 +701,7 @@ causal_cfm <- torch::nn_module(
 #' @param input_frame_rate Input frame rate for audio processing
 #' @param token_mel_ratio Ratio of tokens to mel frames
 #' @return nn_module
-causal_masked_diff_xvec <- torch::nn_module(
+causal_masked_diff_xvec <- Rtorch::nn_module(
     "CausalMaskedDiffWithXvec",
 
     initialize = function(
@@ -720,16 +720,16 @@ causal_masked_diff_xvec <- torch::nn_module(
         self$pre_lookahead_len <- 3
 
         # Token embedding
-        self$input_embedding <- torch::nn_embedding(vocab_size, input_size)
+        self$input_embedding <- Rtorch::nn_embedding(vocab_size, input_size)
 
         # Speaker embedding projection
-        self$spk_embed_affine_layer <- torch::nn_linear(spk_embed_dim, output_size)
+        self$spk_embed_affine_layer <- Rtorch::nn_linear(spk_embed_dim, output_size)
 
         # Encoder
         self$encoder <- upsample_conformer_encoder(input_size, input_size, 6)
 
         # Encoder output projection
-        self$encoder_proj <- torch::nn_linear(input_size, output_size)
+        self$encoder_proj <- Rtorch::nn_linear(input_size, output_size)
 
         # Flow matching decoder
         self$decoder <- causal_cfm(in_channels = 320, out_channels = output_size, spk_emb_dim = output_size)
@@ -749,18 +749,18 @@ causal_masked_diff_xvec <- torch::nn_module(
         device <- token$device
 
         # Normalize and project speaker embedding
-        embedding <- torch::nnf_normalize(embedding, dim = 2)
+        embedding <- Rtorch::nnf_normalize(embedding, dim = 2)
         embedding <- self$spk_embed_affine_layer$forward(embedding)
 
         # Concatenate prompt and speech tokens
-        token <- torch::torch_cat(list(prompt_token, token), dim = 2)
+        token <- Rtorch::torch_cat(list(prompt_token, token), dim = 2)
         token_len <- prompt_token_len + token_len
 
         # Create mask
         mask <- (!make_pad_mask(token_len))$unsqueeze(3)$to(dtype = embedding$dtype, device = device)
 
         # Clamp tokens to valid range (ensure Long dtype preserved)
-        token <- torch::torch_clamp(token, min = 0L, max = as.integer(self$vocab_size - 1))$to(dtype = torch::torch_long())
+        token <- Rtorch::torch_clamp(token, min = 0L, max = as.integer(self$vocab_size - 1))$to(dtype = Rtorch::torch_long)
 
         # Embed tokens
         token <- self$input_embedding$forward(token$add(1L)) * mask# +1 for R indexing
@@ -784,7 +784,7 @@ causal_masked_diff_xvec <- torch::nn_module(
         h <- self$encoder_proj$forward(h)
 
         # Prepare conditioning (resize prompt_feat to match expected mel_len1)
-        conds <- torch::torch_zeros(c(1, mel_len1 + mel_len2, self$output_size),
+        conds <- Rtorch::torch_zeros(c(1, mel_len1 + mel_len2, self$output_size),
             device = device, dtype = h$dtype)
         # Truncate or pad prompt_feat to mel_len1
         prompt_feat_len <- prompt_feat$size(2)
@@ -796,7 +796,7 @@ causal_masked_diff_xvec <- torch::nn_module(
         conds <- conds$transpose(2, 3)
 
         # Create mask for decoder
-        dec_mask <- torch::torch_ones(c(1, 1, mel_len1 + mel_len2), device = device, dtype = h$dtype)
+        dec_mask <- Rtorch::torch_ones(c(1, 1, mel_len1 + mel_len2), device = device, dtype = h$dtype)
 
         # Run decoder
         h <- h$transpose(2, 3)
@@ -813,7 +813,7 @@ causal_masked_diff_xvec <- torch::nn_module(
         # Extract generated portion (after prompt)
         feat <- feat[,, (mel_len1 + 1) :(mel_len1 + mel_len2)]
 
-        list(feat$to(dtype = torch::torch_float32()), NULL)
+        list(feat$to(dtype = Rtorch::torch_float32), NULL)
     }
 )
 
@@ -824,7 +824,7 @@ causal_masked_diff_xvec <- torch::nn_module(
 #' S3Gen Token to Waveform
 #'
 #' @return nn_module
-s3gen <- torch::nn_module(
+s3gen <- Rtorch::nn_module(
     "S3Gen",
 
     initialize = function() {
@@ -845,10 +845,10 @@ s3gen <- torch::nn_module(
 
         # Fade-in to reduce artifacts
         n_trim <- S3GEN_SR %/% 50# 20ms
-        trim_fade <- torch::torch_zeros(2 * n_trim)
-        fade_in <- (torch::torch_cos(torch::torch_linspace(pi, 0, n_trim)) + 1) / 2
+        trim_fade <- Rtorch::torch_zeros(2 * n_trim)
+        fade_in <- (Rtorch::torch_cos(Rtorch::torch_linspace(pi, 0, n_trim)) + 1) / 2
         trim_fade[(n_trim + 1) :(2 * n_trim)] <- fade_in
-        self$trim_fade <- torch::nn_buffer(trim_fade)
+        self$trim_fade <- Rtorch::nn_buffer(trim_fade)
     },
 
 #' Embed reference audio
@@ -863,7 +863,7 @@ s3gen <- torch::nn_module(
 
         # Convert to tensor
         if (!inherits(ref_wav, "torch_tensor")) {
-            ref_wav <- torch::torch_tensor(ref_wav, dtype = torch::torch_float32())
+            ref_wav <- Rtorch::torch_tensor(ref_wav, dtype = Rtorch::torch_float32)
         }
 
         if (ref_wav$dim() == 1) {
@@ -872,9 +872,9 @@ s3gen <- torch::nn_module(
 
         # Resample to 24kHz for mel extraction
         if (ref_sr != S3GEN_SR) {
-            ref_wav_24 <- torch::torch_tensor(
+            ref_wav_24 <- Rtorch::torch_tensor(
                 resample_audio(as.numeric(ref_wav$cpu()), ref_sr, S3GEN_SR),
-                dtype = torch::torch_float32()
+                dtype = Rtorch::torch_float32
             )$unsqueeze(1)
         } else {
             ref_wav_24 <- ref_wav
@@ -885,9 +885,9 @@ s3gen <- torch::nn_module(
         ref_mels <- ref_mels$transpose(2, 3)$to(device = device)
 
         # Resample to 16kHz for speaker encoder and tokenizer
-        ref_wav_16 <- torch::torch_tensor(
+        ref_wav_16 <- Rtorch::torch_tensor(
             resample_audio(as.numeric(ref_wav$cpu()), ref_sr, 16000),
-            dtype = torch::torch_float32()
+            dtype = Rtorch::torch_float32
         )$unsqueeze(1)$to(device = device)
 
         # Speaker embedding (xvector)
@@ -931,7 +931,7 @@ s3gen <- torch::nn_module(
             speech_tokens <- speech_tokens$unsqueeze(1)
         }
         speech_tokens <- speech_tokens$to(device = device)
-        speech_token_len <- torch::torch_tensor(speech_tokens$size(2), device = device)
+        speech_token_len <- Rtorch::torch_tensor(speech_tokens$size(2), device = device)
 
         # Flow inference (tokens -> mel)
         result <- self$flow$forward(
@@ -982,7 +982,7 @@ load_cfm_estimator_weights <- function(estimator, state_dict, prefix = "") {
         full_key <- paste0(prefix, key)
         if (full_key %in% names(state_dict)) {
             tryCatch({
-                    torch::with_no_grad({
+                    Rtorch::with_no_grad({
                             r_param$copy_(state_dict[[full_key]])
                         })
                     loaded <<- loaded + 1L
@@ -1090,7 +1090,7 @@ load_s3gen_weights <- function(
     model,
     state_dict
 ) {
-    torch::with_no_grad({
+    Rtorch::with_no_grad({
             # Helper to copy weight if exists
             copy_if_exists <- function(
                 r_param,
