@@ -241,7 +241,6 @@ compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
         win_length = win_size,
         window = hann_window,
         center = center,
-        pad_mode = "reflect",
         normalized = FALSE,
         onesided = TRUE,
         return_complex = TRUE

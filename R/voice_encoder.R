@@ -84,7 +84,6 @@ compute_ve_mel <- function (wav, config = voice_encoder_config())
         win_length = config$win_size,
         window = hann_window,
         center = FALSE, # We padded manually
-        pad_mode = "reflect",
         normalized = FALSE,
         onesided = TRUE,
         return_complex = TRUE

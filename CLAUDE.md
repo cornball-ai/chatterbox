@@ -2,6 +2,10 @@
 
 Pure R port of [Chatterbox TTS](https://github.com/resemble-ai/chatterbox) using torch. No Python dependencies - runs entirely in R.
 
+## Rtorch Boundary Rule
+
+**0-index issues are dealt with strictly at the boundary.** All index conversion (0-indexed ATen ↔ 1-indexed R) happens in Rtorch's C++ layer, never in downstream R code. Chatterbox code always uses 1-indexed values — if an index mismatch appears, fix it in Rtorch, not here.
+
 ## Python Reference
 
 **Target version**: chatterbox-tts 0.1.4 (PyPI)
