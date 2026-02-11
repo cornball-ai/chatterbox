@@ -2,18 +2,17 @@
 # Full benchmark: cold start + warm start for R, C++, and container backends
 #
 # Measures:
-#   - Cold start: first run after loading (includes tracing/compilation overhead)
+#   - Cold start: first run after loading (includes compilation overhead)
 #   - Warm start: mean of subsequent runs
-#   - VRAM usage via cuda_memory_stats()
+#   - VRAM usage via nvidia-smi
 
 library(chatterbox)
-library(torch)
 
 # ============================================================================
 # Setup
 # ============================================================================
 
-device <- if (cuda_is_available()) "cuda" else "cpu"
+device <- "cuda"
 cat(sprintf("Device: %s\n", device))
 cat(sprintf("GPU: %s\n", system("nvidia-smi --query-gpu=name --format=csv,noheader", intern = TRUE)))
 
@@ -26,9 +25,8 @@ cat(sprintf("Reference: %s\n", ref_audio))
 cat(sprintf("Warm runs per backend: %d\n", n_warm))
 
 vram_mb <- function() {
-    cuda_synchronize()
-    stats <- cuda_memory_stats()
-    stats$allocated_bytes$all$current / 1024^2
+    as.numeric(system("nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits",
+                      intern = TRUE))
 }
 
 # ============================================================================
@@ -43,8 +41,8 @@ t_load <- system.time({
 cat(sprintf("Model load time: %.1fs\n", t_load[3]))
 
 voice <- create_voice_embedding(model, ref_audio)
-gc(); cuda_empty_cache()
-cat(sprintf("VRAM after load: %.0f MB allocated\n", vram_mb()))
+gc()
+cat(sprintf("VRAM after load: %.0f MB\n", vram_mb()))
 
 # ============================================================================
 # Benchmark function
@@ -54,7 +52,7 @@ run_benchmark <- function(label, fn, n_warm = 3) {
     cat(sprintf("\n=== %s ===\n", label))
 
     # Cold start
-    gc(); cuda_empty_cache()
+    gc()
     t_cold <- system.time(result <- fn())
     cold_time <- t_cold[3]
     if (is.list(result) && "audio" %in% names(result)) {
@@ -63,13 +61,13 @@ run_benchmark <- function(label, fn, n_warm = 3) {
         cold_dur <- 0
     }
     cat(sprintf("  Cold:  %6.2fs  (%.1fs audio)\n", cold_time, cold_dur))
-    rm(result); gc(); cuda_empty_cache()
+    rm(result); gc()
 
     # Warm starts
     warm_times <- numeric(n_warm)
     warm_durs <- numeric(n_warm)
     for (i in seq_len(n_warm)) {
-        gc(); cuda_empty_cache()
+        gc()
         t <- system.time(result <- fn())
         warm_times[i] <- t[3]
         if (is.list(result) && "audio" %in% names(result)) {
@@ -78,7 +76,7 @@ run_benchmark <- function(label, fn, n_warm = 3) {
         cat(sprintf("  Warm %d: %6.2fs  (%.1fs audio)\n", i, warm_times[i], warm_durs[i]))
         rm(result)
     }
-    gc(); cuda_empty_cache()
+    gc()
 
     list(
         label = label,
@@ -92,7 +90,7 @@ run_benchmark <- function(label, fn, n_warm = 3) {
 }
 
 # ============================================================================
-# Native benchmarks
+# Native benchmarks (R and C++ backends)
 # ============================================================================
 
 r_result <- run_benchmark("R backend", function() {
@@ -103,16 +101,12 @@ cpp_result <- run_benchmark("C++ backend", function() {
     generate(model, text, voice, backend = "cpp")
 }, n_warm)
 
-traced_result <- run_benchmark("R traced", function() {
-    generate(model, text, voice, backend = "r", traced = TRUE)
-}, n_warm)
-
-# Peak VRAM during generation
-gc(); cuda_empty_cache()
+# VRAM snapshot during generation
+gc()
 baseline_vram <- vram_mb()
 dummy <- generate(model, text, voice, backend = "r")
 peak_vram <- vram_mb()
-rm(dummy); gc(); cuda_empty_cache()
+rm(dummy); gc()
 steady_vram <- vram_mb()
 cat(sprintf("\nVRAM: baseline=%.0f MB, peak=%.0f MB, steady=%.0f MB\n",
     baseline_vram, peak_vram, steady_vram))
@@ -123,8 +117,9 @@ cat(sprintf("\nVRAM: baseline=%.0f MB, peak=%.0f MB, steady=%.0f MB\n",
 
 cat("\n=== Unloading native model ===\n")
 rm(model, voice)
-gc(); cuda_empty_cache()
-cat(sprintf("VRAM after unload: %.0f MB allocated\n", vram_mb()))
+gc()
+Sys.sleep(2)  # let GPU memory settle
+cat(sprintf("VRAM after unload: %.0f MB\n", vram_mb()))
 
 # Container benchmark
 cat("\n=== Container (HTTP API) ===\n")
@@ -177,9 +172,10 @@ cat("                    BENCHMARK RESULTS\n")
 cat("============================================================\n")
 cat(sprintf("Text: \"%s\"\n", text))
 cat(sprintf("GPU: %s\n", system("nvidia-smi --query-gpu=name --format=csv,noheader", intern = TRUE)))
+cat(sprintf("Backend: Rtorch (native R + libtorch)\n"))
 cat(sprintf("Precision: float32 (all backends)\n\n"))
 
-results <- list(r_result, cpp_result, traced_result, container_result)
+results <- list(r_result, cpp_result, container_result)
 
 cat(sprintf("%-12s  %10s  %10s  %10s  %10s\n",
     "Backend", "Cold Start", "Warm Mean", "Audio", "RT Factor"))
@@ -198,7 +194,6 @@ for (r in results) {
 
 cat(sprintf("\nSpeedups (warm start, vs R backend):\n"))
 cat(sprintf("  C++ backend: %.1fx\n", r_result$warm_mean / cpp_result$warm_mean))
-cat(sprintf("  R traced:    %.1fx\n", r_result$warm_mean / traced_result$warm_mean))
 if (!is.na(container_result$warm_mean)) {
     cat(sprintf("  Container:   %.1fx\n", r_result$warm_mean / container_result$warm_mean))
 }

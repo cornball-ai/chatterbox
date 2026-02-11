@@ -33,3 +33,5 @@ export(write_audio)
 
 S3method(print,chatterbox)
 S3method(print,voice_embedding)
+
+useDynLib(chatterbox, .registration = TRUE)
