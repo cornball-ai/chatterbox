@@ -445,7 +445,7 @@ compute_xvector_embedding <- function (model, audio, sr)
     if (sr != target_sr) {
         audio_np <- as.numeric(audio$cpu())
         audio_np <- resample_audio(audio_np, sr, target_sr)
-        audio <- Rtorch::torch_tensor(audio_np, dtype = Rtorch::torch_float32)$unsqueeze(1)
+        audio <- Rtorch::torch_tensor(audio_np, dtype = Rtorch::torch_float32, device = device)$unsqueeze(1)
     }
 
     # Compute fbank features (80 mel bins, mimicking Kaldi fbank)

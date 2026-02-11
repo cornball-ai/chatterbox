@@ -304,7 +304,7 @@ t3_cond_enc <- Rtorch::nn_module(
         if (!is.null(self$emotion_adv_fc) && !is.null(cond$emotion_adv)) {
             emotion_val <- cond$emotion_adv
             if (!inherits(emotion_val, "torch_tensor")) {
-                emotion_val <- Rtorch::torch_tensor(emotion_val, dtype = Rtorch::torch_float32)
+                emotion_val <- Rtorch::torch_tensor(emotion_val, dtype = Rtorch::torch_float32, device = device)
             }
             emotion_val <- emotion_val$view(c(- 1, 1, 1))
             cond_emotion_adv <- self$emotion_adv_fc$forward(emotion_val)

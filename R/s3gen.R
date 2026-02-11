@@ -682,6 +682,9 @@ causal_cfm <- Rtorch::nn_module(
             if (step < length(t_span)) {
                 dt <- t_span[step + 1] - t_span[step]
             }
+
+            # Free intermediate tensors between Euler steps to avoid OOM
+            gc()
         }
 
         x$to(dtype = Rtorch::torch_float32)

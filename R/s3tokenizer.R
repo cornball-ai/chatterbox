@@ -492,7 +492,7 @@ s3_audio_encoder <- Rtorch::nn_module(
             stride = 2L, padding = 1L)
 
         # Precompute rotary embeddings
-        self$freqs_cis <- precompute_freqs_cis(64L, 2048L)
+        self$freqs_cis <- Rtorch::nn_buffer(precompute_freqs_cis(64L, 2048L))
 
         # Transformer blocks
         self$blocks <- Rtorch::nn_module_list(

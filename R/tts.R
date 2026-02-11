@@ -234,7 +234,7 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
     }
 
     if (use_autocast) {
-        Rtorch::with_autocast(device_type = "cuda", {
+        Rtorch::with_autocast(device_type = "cuda", code = {
             Rtorch::with_no_grad({
                 speech_tokens <- inference_fn(
                     model = model$t3,
@@ -273,10 +273,19 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
         dtype = Rtorch::torch_long
     )$unsqueeze(1)$to(device = device)
 
+    # Offload T3 and voice encoder to CPU to free VRAM for S3Gen.
+    # Also drop conditioning tensors no longer needed.
+    if (grepl("^cuda", device)) {
+        model$t3$to(device = "cpu")
+        model$voice_encoder$to(device = "cpu")
+        rm(cond, text_tokens)
+        gc(); gc()
+    }
+
     # Generate waveform with S3Gen
     message("Synthesizing waveform...")
     if (use_autocast) {
-        Rtorch::with_autocast(device_type = "cuda", {
+        Rtorch::with_autocast(device_type = "cuda", code = {
             Rtorch::with_no_grad({
                 result <- model$s3gen$inference(
                     speech_tokens = speech_tokens,
@@ -299,8 +308,14 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
         })
     }
 
-    # Convert to numeric
+    # Convert to numeric (moves to CPU)
     audio_samples <- as.numeric(audio$squeeze()$cpu())
+
+    # Restore T3 and voice encoder to GPU for reuse
+    if (grepl("^cuda", device)) {
+        model$t3$to(device = device)
+        model$voice_encoder$to(device = device)
+    }
 
     message("Done! Generated ", round(length(audio_samples) / S3GEN_SR, 2), " seconds of audio.")
 
