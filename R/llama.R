@@ -292,13 +292,11 @@ llama_mlp <- Rtorch::nn_module(
         self$up_proj <- Rtorch::nn_linear(self$hidden_size, self$intermediate_size, bias = config$mlp_bias)
         self$down_proj <- Rtorch::nn_linear(self$intermediate_size, self$hidden_size, bias = config$mlp_bias)
 
-        # SiLU activation
-        self$act_fn <- function (x) x * Rtorch::torch_sigmoid(x)
     },
 
     forward = function(x) {
         # SwiGLU: down(silu(gate(x)) * up(x))
-        self$down_proj$forward(self$act_fn(self$gate_proj$forward(x)) * self$up_proj$forward(x))
+        self$down_proj$forward(Rtorch::nnf_silu(self$gate_proj$forward(x)) * self$up_proj$forward(x))
     }
 )
 

@@ -673,46 +673,31 @@ Effective weight: `w = g * v / ||v||`
 
 See `vignettes/performance.md` for detailed comparison.
 
-### Comparison: Native R vs Container (Feb 2026)
+### Comparison: Native R (Rtorch) vs Container (Feb 2026)
 
 All backends use float32 precision, including the container.
 
-| Backend | Cold Start | Warm Start | Audio | Real-time Factor |
-|---------|-----------|------------|-------|------------------|
-| Container (Python) | 1.1s | 1.3s | 3.1s | **2.5x** |
-| Native R (traced) | 83.8s | 12.6s | 4.0s | **0.32x** |
-| Native R (C++ T3) | 26.6s | 26.7s | 4.2s | **0.16x** |
-| Native R (pure R) | 50.5s | 53.2s | 5.3s | **0.10x** |
+| Backend | Cold Start | Warm Start | Audio | Real-time Factor | VRAM |
+|---------|-----------|------------|-------|------------------|------|
+| Container (Python) | 1.4s | 1.3s | 3.2s | **2.5x** | 3,205 MB |
+| Native R (Rtorch) | 4.3s | 3.6s | 4.8s | **1.3x** | 3,114 MB |
+| Native R + compile | 3.9s | 4.0s | 4.5s | **1.1x** | 4,575 MB |
 
-Speedups (warm start, vs pure R): C++ T3 2.0x, traced 4.2x, container 42x.
+Container is ~2.8x faster than native R (warm start).
 
-The container is ~10x faster than traced native due to:
-1. **Python C++ bindings** - Lower per-operation overhead
-2. **Fused kernels** - Python has optimized attention/matmul fusions
+### torchlang Compilation
 
-### JIT Trace Optimization
-
-The `traced = TRUE` parameter compiles both T3 and S3Gen components to C++ graphs
-using `torch::jit_trace()`, eliminating R-to-C++ boundary overhead.
-
-**What gets traced:**
-1. T3 transformer layers (30 layers) + KV projectors
-2. CFM estimator (56 transformer blocks) with fixed max length padding
-
-**Cold start:** ~84s (one-time JIT compilation per session)
-**Warm start:** ~13s (~130ms/token)
-
-**Limitations:**
-- T3 cache limited to 350 tokens (including conditioning ~50-100 tokens)
-- CFM max sequence length 1024 (longer sequences fall back to non-traced)
-- Uses ~1.1GB more VRAM than non-traced (4.2GB vs 3.1GB)
+`load_chatterbox(model, compiled = TRUE)` compiles 114 sub-modules (30 MLP,
+28 Mish, 56 GELU) via `Rtorch::compile()`. In practice this doesn't help
+because individual modules are already dominated by libtorch CUDA kernel
+execution time. The bottleneck is per-token R loop overhead, not module
+dispatch. Compiled mode also uses ~1.5 GB more VRAM.
 
 ### Main Bottleneck
 
-T3 autoregressive token generation. Per-token cost by backend:
-- Pure R: ~500ms/token
-- C++ T3: ~225ms/token
-- Traced: ~130ms/token
+T3 autoregressive token generation (~30ms/token with Rtorch). The per-token
+cost is R control flow between sequential forward passes, not individual
+tensor operations.
 
 ### When to Use Native R
 
@@ -720,10 +705,11 @@ T3 autoregressive token generation. Per-token cost by backend:
 - Long-running R sessions (model stays cached)
 - Custom fine-tuning or LoRA experimentation
 - Full control over inference parameters
+- Already faster than real-time (1.3x RT factor)
 
 ### When to Use Container
 
-- Speed is critical (~10x faster than best native)
+- Speed is critical (~2.8x faster than native)
 - Production deployments
 - GPU resource management via gpu.ctl
 

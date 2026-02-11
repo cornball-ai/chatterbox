@@ -31,9 +31,11 @@ chatterbox <- function (device = "cpu")
 #' Requires prior download via \code{\link{download_chatterbox_models}}.
 #'
 #' @param model Chatterbox model object
+#' @param compiled If TRUE, compile eligible sub-modules using
+#'   \code{Rtorch::compile()} for fused kernel execution.
 #' @return Chatterbox model with loaded weights
 #' @export
-load_chatterbox <- function (model)
+load_chatterbox <- function (model, compiled = FALSE)
 {
     if (!inherits(model, "chatterbox")) {
         stop("model must be a chatterbox object")
@@ -76,7 +78,130 @@ load_chatterbox <- function (model)
     model$s3gen <- load_s3gen(paths$s3gen, device)
 
     model$loaded <- TRUE
+
+    if (compiled) {
+        message("Compiling model sub-modules...")
+        model <- compile_chatterbox(model)
+    }
+
     message("Chatterbox TTS model loaded successfully!")
+
+    model
+}
+
+# ============================================================================
+# Compilation
+# ============================================================================
+
+#' Compile a sub-module's forward method
+#'
+#' Traces the module with Rtorch::compile() and patches its forward
+#' method to use the compiled path. Returns the module unchanged if
+#' graph breaks are detected.
+#'
+#' @param module An nn_module
+#' @param label Human-readable name for messages
+#' @param ... Named example tensors matching forward() signature
+#' @return The module (forward patched in place if compilation succeeded)
+compile_module_forward <- function (module, label = NULL, ...)
+{
+    compiled <- tryCatch(
+        Rtorch::compile(module, ...),
+        error = function (e) {
+            if (!is.null(label)) message("  skip: ", label, " (", conditionMessage(e), ")")
+            NULL
+        }
+    )
+    if (is.null(compiled)) return(module)
+
+    if (length(compiled$graph_breaks) > 0) {
+        reasons <- vapply(compiled$graph_breaks, `[[`, character(1), "reason")
+        if (!is.null(label)) {
+            message("  skip: ", label, " (graph breaks: ", paste(reasons, collapse = "; "), ")")
+        }
+        return(module)
+    }
+
+    # Patch forward to use compiled fn
+    env <- attr(module, ".module_env")
+    env$forward <- function (...) compiled$fn(...)
+    if (!is.null(label)) message("  compiled: ", label)
+    module
+}
+
+#' Compile chatterbox model sub-modules
+#'
+#' Walks the loaded model and compiles eligible sub-modules using
+#' Rtorch's torchlang compiler. Compiled modules fuse elementwise
+#' operation chains into single kernel calls.
+#'
+#' @param model A loaded chatterbox model
+#' @return The model with compiled sub-modules
+#' @export
+compile_chatterbox <- function (model)
+{
+    device <- model$device
+    llama_dim <- 1024L
+    cfm_dim <- 256L
+
+    # Example tensors for tracing
+    ex_llama <- Rtorch::torch_randn(c(1L, 1L, llama_dim), device = device)
+    ex_cfm <- Rtorch::torch_randn(c(1L, 1L, cfm_dim), device = device)
+    ex_mish <- Rtorch::torch_randn(c(1L, cfm_dim, 10L), device = device)
+
+    # -- T3 Llama MLP layers (30 instances) --
+    message("  T3 Llama MLP layers...")
+    layers <- model$t3$tfmr$layers
+    for (i in seq_along(layers)) {
+        layer <- layers[[i]]
+        compile_module_forward(layer$mlp, label = sprintf("llama_mlp[%d]", i), x = ex_llama)
+    }
+
+    # -- CFM estimator sub-modules --
+    est <- model$s3gen$flow$decoder$estimator
+    if (!is.null(est)) {
+        # Mish activation inside causal blocks
+        # These are nested: resnet -> block1/block2 -> mish
+        message("  CFM mish activations...")
+        compile_mish <- function (block, prefix) {
+            if (!is.null(block$block1$mish)) {
+                compile_module_forward(block$block1$mish, label = paste0(prefix, ".block1.mish"),
+                                       x = ex_mish)
+            }
+            if (!is.null(block$block2$mish)) {
+                compile_module_forward(block$block2$mish, label = paste0(prefix, ".block2.mish"),
+                                       x = ex_mish)
+            }
+        }
+
+        if (!is.null(est$down_resnet)) compile_mish(est$down_resnet, "down_resnet")
+        for (i in seq_along(est$mid_resnets)) {
+            compile_mish(est$mid_resnets[[i]], sprintf("mid_resnets[%d]", i))
+        }
+        if (!is.null(est$up_resnet)) compile_mish(est$up_resnet, "up_resnet")
+
+        # GELU projections inside transformer feed-forward nets
+        message("  CFM GELU projections...")
+        compile_gelu <- function (tfm_block, prefix) {
+            gelu_mod <- tfm_block$ff$net[[1]]
+            if (!is.null(gelu_mod)) {
+                compile_module_forward(gelu_mod, label = paste0(prefix, ".ff.gelu"),
+                                       x = ex_cfm)
+            }
+        }
+
+        for (i in seq_along(est$down_transformers)) {
+            compile_gelu(est$down_transformers[[i]], sprintf("down_tfm[%d]", i))
+        }
+        for (i in seq_along(est$mid_transformers)) {
+            for (j in seq_along(est$mid_transformers[[i]])) {
+                compile_gelu(est$mid_transformers[[i]][[j]], sprintf("mid_tfm[%d][%d]", i, j))
+            }
+        }
+        for (i in seq_along(est$up_transformers)) {
+            compile_gelu(est$up_transformers[[i]], sprintf("up_tfm[%d]", i))
+        }
+    }
 
     model
 }

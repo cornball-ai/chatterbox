@@ -1,9 +1,10 @@
 #!/usr/bin/env r
-# GPU Benchmark: Rtorch vs Python container
+# GPU Benchmark: Rtorch vs Rtorch+compile vs Python container
 #
 # Compares CUDA inference across:
-#   1. Rtorch (native R + libtorch, current rtorch-port branch)
-#   2. Python container (chatterbox-tts:blackwell via HTTP API)
+#   1. Rtorch (native R + libtorch)
+#   2. Rtorch + compile (fused kernels via torchlang)
+#   3. Python container (chatterbox-tts:blackwell via HTTP API)
 
 library(chatterbox)
 
@@ -12,14 +13,61 @@ ref_audio <- system.file("audio", "jfk.wav", package = "chatterbox")
 n_warm <- 5
 
 cat("============================================================\n")
-cat("           GPU BENCHMARK: Rtorch vs Python\n")
+cat("     GPU BENCHMARK: Rtorch vs Compiled vs Python\n")
 cat("============================================================\n")
 cat(sprintf("GPU: %s\n", system("nvidia-smi --query-gpu=name --format=csv,noheader", intern = TRUE)))
 cat(sprintf("Text: \"%s\"\n", text))
 cat(sprintf("Warm runs: %d\n\n", n_warm))
 
+# Helper: benchmark a loaded model
+bench_model <- function(model, voice, label) {
+    cat(sprintf("\n=== %s ===\n", label))
+
+    # Cold
+    gc(); Rtorch::cuda_empty_cache()
+    t0 <- proc.time()
+    result <- generate(model, text, voice)
+    cold <- (proc.time() - t0)[3]
+    cold_dur <- length(result$audio) / result$sample_rate
+    cat(sprintf("  Cold:   %6.2fs  (%.1fs audio)\n", cold, cold_dur))
+    rm(result); gc(); Rtorch::cuda_empty_cache()
+
+    vram <- Rtorch::cuda_memory_stats()["allocated_current"] / 1024^2
+
+    # Warm (tryCatch each run to tolerate OOM)
+    times <- numeric(0)
+    durs <- numeric(0)
+    for (i in seq_len(n_warm)) {
+        gc(); Rtorch::cuda_empty_cache()
+        res <- tryCatch({
+            t0 <- proc.time()
+            result <- generate(model, text, voice)
+            elapsed <- (proc.time() - t0)[3]
+            dur <- length(result$audio) / result$sample_rate
+            rm(result)
+            list(time = elapsed, dur = dur)
+        }, error = function(e) {
+            cat(sprintf("  Warm %d: FAILED (%s)\n", i, conditionMessage(e)))
+            NULL
+        })
+        if (!is.null(res)) {
+            times <- c(times, res$time)
+            durs <- c(durs, res$dur)
+            cat(sprintf("  Warm %d: %6.2fs  (%.1fs audio)\n", i, res$time, res$dur))
+        }
+    }
+    gc(); Rtorch::cuda_empty_cache()
+
+    if (length(times) == 0) {
+        cat("  No successful warm runs\n")
+        return(list(cold = cold, warm = NA, dur = NA, vram = vram))
+    }
+    cat(sprintf("  (%d/%d warm runs succeeded)\n", length(times), n_warm))
+    list(cold = cold, warm = mean(times), dur = mean(durs), vram = vram)
+}
+
 # ============================================================================
-# 1. Rtorch backend (CUDA)
+# 1. Rtorch (no compilation)
 # ============================================================================
 
 cat("=== Loading Rtorch model ===\n")
@@ -32,43 +80,34 @@ cat(sprintf("Model load: %.1fs\n", t_load[3]))
 voice <- create_voice_embedding(model, ref_audio)
 gc()
 
-cat("\n=== Rtorch (CUDA, float32) ===\n")
+res_plain <- bench_model(model, voice, "Rtorch (CUDA, float32)")
 
-# Cold
-gc()
-t0 <- proc.time()
-result <- generate(model, text, voice)
-cold <- (proc.time() - t0)[3]
-cold_dur <- length(result$audio) / result$sample_rate
-cat(sprintf("  Cold:   %6.2fs  (%.1fs audio)\n", cold, cold_dur))
-rm(result); gc()
-
-# Warm
-rtorch_times <- numeric(n_warm)
-rtorch_durs <- numeric(n_warm)
-for (i in seq_len(n_warm)) {
-    gc()
-    t0 <- proc.time()
-    result <- generate(model, text, voice)
-    rtorch_times[i] <- (proc.time() - t0)[3]
-    rtorch_durs[i] <- length(result$audio) / result$sample_rate
-    cat(sprintf("  Warm %d: %6.2fs  (%.1fs audio)\n", i, rtorch_times[i], rtorch_durs[i]))
-    rm(result)
-}
-gc()
-
-rtorch_warm <- mean(rtorch_times)
-rtorch_dur <- mean(rtorch_durs)
-
-# VRAM (allocated by libtorch caching allocator, not nvidia-smi total)
-vram_rtorch <- Rtorch::cuda_memory_stats()["allocated_current"] / 1024^2
-
-# Unload
 rm(model, voice); gc()
+Rtorch::cuda_empty_cache()
 Sys.sleep(2)
 
 # ============================================================================
-# 2. Python container (HTTP API, CUDA, float32)
+# 2. Rtorch + compile (fused kernels)
+# ============================================================================
+
+cat("\n=== Loading Rtorch model + compile ===\n")
+t_compile <- system.time({
+    model_c <- chatterbox("cuda")
+    model_c <- load_chatterbox(model_c, compiled = TRUE)
+})
+cat(sprintf("Model load + compile: %.1fs\n", t_compile[3]))
+
+voice_c <- create_voice_embedding(model_c, ref_audio)
+gc()
+
+res_compiled <- bench_model(model_c, voice_c, "Rtorch + compile (CUDA, float32)")
+
+rm(model_c, voice_c); gc()
+Rtorch::cuda_empty_cache()
+Sys.sleep(2)
+
+# ============================================================================
+# 3. Python container (HTTP API, CUDA, float32)
 # ============================================================================
 
 cat("\n=== Python container ===\n")
@@ -77,9 +116,10 @@ health <- tryCatch(
     error = function(e) NULL
 )
 
+py_cold <- NA; py_warm <- NA; py_dur <- NA; vram_py <- NA
+
 if (is.null(health) || !grepl("healthy", paste(health, collapse = ""))) {
     cat("Container not available, skipping.\n")
-    py_cold <- NA; py_warm <- NA; py_dur <- NA
 } else {
     cat("Container healthy.\n")
 
@@ -124,14 +164,13 @@ if (is.null(health) || !grepl("healthy", paste(health, collapse = ""))) {
     py_warm <- mean(py_times)
     py_dur <- mean(py_durs_vec)
 
+    vram_py <- as.numeric(
+        jsonlite::fromJSON(paste(health, collapse = ""))$memory_info$gpu_memory_allocated_mb
+    )
+
     unlink(tmp_body)
     unlink(tmp_wav)
 }
-
-# VRAM for container
-vram_py <- as.numeric(
-    jsonlite::fromJSON(paste(health, collapse = ""))$memory_info$gpu_memory_allocated_mb
-)
 
 # ============================================================================
 # Results
@@ -144,25 +183,41 @@ cat("============================================================\n")
 cat(sprintf("GPU: %s\n", system("nvidia-smi --query-gpu=name --format=csv,noheader", intern = TRUE)))
 cat(sprintf("Precision: float32 (all backends)\n\n"))
 
-cat(sprintf("%-20s  %10s  %10s  %10s  %10s  %10s\n",
+cat(sprintf("%-22s  %10s  %10s  %10s  %10s  %10s\n",
     "Backend", "Cold Start", "Warm Mean", "Audio", "RT Factor", "VRAM"))
-cat(sprintf("%-20s  %10s  %10s  %10s  %10s  %10s\n",
+cat(sprintf("%-22s  %10s  %10s  %10s  %10s  %10s\n",
     "-------", "----------", "---------", "-----", "---------", "----"))
 
-# Rtorch
-rtf_rtorch <- rtorch_dur / rtorch_warm
-cat(sprintf("%-20s  %9.2fs  %9.2fs  %9.1fs  %9.2fx  %7.0f MB\n",
-    "Rtorch (R+libtorch)", cold, rtorch_warm, rtorch_dur, rtf_rtorch, vram_rtorch))
+row <- function(label, r) {
+    if (is.na(r$warm)) {
+        cat(sprintf("%-22s  %9.2fs  %10s  %10s  %10s  %7.0f MB\n",
+            label, r$cold, "N/A", "N/A", "N/A", r$vram))
+    } else {
+        rtf <- r$dur / r$warm
+        cat(sprintf("%-22s  %9.2fs  %9.2fs  %9.1fs  %9.2fx  %7.0f MB\n",
+            label, r$cold, r$warm, r$dur, rtf, r$vram))
+    }
+}
 
-# Python
+row("Rtorch", res_plain)
+row("Rtorch + compile", res_compiled)
+
 if (!is.na(py_warm)) {
     rtf_py <- py_dur / py_warm
-    cat(sprintf("%-20s  %9.2fs  %9.2fs  %9.1fs  %9.2fx  %7.0f MB\n",
+    cat(sprintf("%-22s  %9.2fs  %9.2fs  %9.1fs  %9.2fx  %7.0f MB\n",
         "Python (container)", py_cold, py_warm, py_dur, rtf_py, vram_py))
 }
 
-cat(sprintf("\nSpeedup: Python is %.1fx faster than Rtorch (warm start)\n",
-    rtorch_warm / py_warm))
-cat(sprintf("Per-token: Rtorch ~%.0fms, Python ~%.0fms\n",
-    rtorch_warm / (rtorch_dur * 25 / 4) * 1000,  # ~25 tokens/s, 4s audio
-    py_warm / (py_dur * 25 / 4) * 1000))
+# Comparisons
+if (!is.na(res_plain$warm) && !is.na(res_compiled$warm)) {
+    cat(sprintf("\nCompiled vs plain: %.2fx speedup (warm start)\n",
+        res_plain$warm / res_compiled$warm))
+}
+if (!is.na(py_warm) && !is.na(res_plain$warm)) {
+    cat(sprintf("Python vs plain:   %.2fx speedup (warm start)\n",
+        res_plain$warm / py_warm))
+}
+if (!is.na(py_warm) && !is.na(res_compiled$warm)) {
+    cat(sprintf("Python vs compiled: %.2fx speedup (warm start)\n",
+        res_compiled$warm / py_warm))
+}
