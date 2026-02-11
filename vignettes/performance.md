@@ -4,9 +4,10 @@ title: Performance Comparison: Native R vs Container
 
 # Performance Comparison
 
-The chatterbox package provides native R inference for the Chatterbox TTS model.
-This vignette compares performance between the native R implementation and the
-Python container backend.
+The chatterbox package provides native R inference for the Chatterbox TTS model
+using [Rtorch](https://github.com/cornball-ai/Rtorch) for direct libtorch
+bindings. This vignette compares performance between the native R implementation
+and the Python container backend.
 
 ## Test Configuration
 
@@ -14,6 +15,7 @@ Python container backend.
 - **Model**: Chatterbox TTS (798M parameters)
 - **Precision**: float32 (all backends, including container)
 - **Test text**: "The quick brown fox jumps over the lazy dog." (~10 words)
+- **Tensor library**: Rtorch 0.1.0 (raw `.Call()` to libtorch, no Rcpp/lantern)
 
 ## Results Summary
 
@@ -38,58 +40,63 @@ Cold start includes one-time JIT compilation overhead for traced mode.
 
 ### 1. R-to-C++ Boundary Overhead
 
-Each tensor operation in R crosses the R/C++ boundary:
+Each tensor operation in R crosses the R/C++ boundary via `.Call()`:
 
 ```r
-# Each of these is a separate C++ call
+# Each of these is a separate .Call() into libtorch
 x <- x$add(y)
 x <- x$mul(z)
-x <- nnf_gelu(x)
+x <- Rtorch::nnf_gelu(x)
 ```
 
-Python's tighter C++ integration has lower per-operation overhead. With ~100-200
-tokens and ~30 transformer layers, this adds up significantly.
+Rtorch eliminates the intermediate layers that the `torch` R package uses
+(R7 dispatch, lantern shim, Rcpp glue), bringing per-operation overhead
+from ~10 us down to ~1.4 us. But Python's pybind11 path is still faster
+at ~0.5 us per operation. With ~100-200 tokens and ~30 transformer layers,
+this adds up.
 
 ### 2. Autoregressive Generation
 
-Token generation is inherently sequential - each token depends on the previous.
-This means:
+Token generation is inherently sequential -- each token depends on the
+previous. This means:
 
 - ~100-200 sequential forward passes through 30 transformer layers
 - No opportunity for batch parallelism
-- R overhead multiplied by every token
+- Per-operation overhead multiplied by every token
 
 ### 3. JIT Tracing
 
-The traced backend compiles transformer layers and CFM estimator into C++ graphs,
-eliminating per-operation R overhead within those modules. The generation loop
-itself still runs in R.
+The traced backend compiles transformer layers and CFM estimator into C++
+graphs, eliminating per-operation R overhead within those modules. The
+generation loop itself still runs in R.
 
 ## Native Backend Details
 
 ### Pure R (`backend = "r"`)
 
-All inference runs in R. Each tensor operation individually crosses the R/C++
-boundary. ~500ms per token.
+All inference runs in R. Each tensor operation individually crosses the
+R/C++ boundary via Rtorch's `.Call()` interface. ~500ms per token.
 
 ### C++ T3 Decode (`backend = "cpp"`)
 
-The T3 autoregressive decode loop runs in C++ via libtorch, eliminating R overhead
-for the token generation phase. S3Gen vocoder still runs in R. ~225ms per token.
+The T3 autoregressive decode loop runs in C++ via libtorch, eliminating R
+overhead for the token generation phase. S3Gen vocoder still runs in R.
+~225ms per token.
 
-Requires libtorch headers at install time (auto-detected by the configure script).
+Requires libtorch headers at install time (auto-detected by the configure
+script).
 
 ### R Traced (`traced = TRUE`)
 
-Uses `torch::jit_trace()` to compile both T3 transformer layers and CFM estimator
+Uses `jit_trace()` to compile both T3 transformer layers and CFM estimator
 into C++ graphs.
 
 ```r
 result <- generate(model, text, voice, traced = TRUE)
 ```
 
-**Cold start** (~84s): Traces 30 T3 transformer layers + KV projectors, plus the
-CFM estimator at fixed max length. This is a one-time cost per session.
+**Cold start** (~84s): Traces 30 T3 transformer layers + KV projectors, plus
+the CFM estimator at fixed max length. This is a one-time cost per session.
 
 **Warm start** (~13s): Runs the traced graphs directly. ~130ms per token.
 
@@ -100,17 +107,14 @@ CFM estimator at fixed max length. This is a one-time cost per session.
 
 ## Optimizations Applied
 
-The native R implementation includes several optimizations:
-
 ### SDPA (Scaled Dot-Product Attention)
 
 ```r
-# Using fused attention kernel
-torch::torch_scaled_dot_product_attention(q, k, v)
+Rtorch::torch_scaled_dot_product_attention(q, k, v)
 ```
 
-Note: This function exists in R torch but is not exported. We access it via
-`get()` from the torch namespace.
+Calls libtorch's fused SDPA kernel which selects the best available
+implementation (Flash Attention, efficient attention, or math fallback).
 
 ### Vectorized Repetition Penalty
 
@@ -136,6 +140,20 @@ rm(weights); gc()
 model$to(device = "cuda")
 ```
 
+### T3/VE Offloading During S3Gen
+
+After T3 token generation completes, the T3 model and voice encoder are
+moved to CPU and the CUDA cache is cleared before S3Gen inference. This
+reduces peak VRAM during the vocoder pass:
+
+```r
+model$t3$to(device = "cpu")
+model$voice_encoder$to(device = "cpu")
+gc(); gc()
+Rtorch::cuda_empty_cache()
+# ... S3Gen inference ...
+```
+
 ## Memory Usage
 
 | Backend | Model VRAM | Peak During Generation |
@@ -144,8 +162,10 @@ model$to(device = "cuda")
 | Traced | 4,211 MB | 4,238 MB |
 | Container | ~3,000 MB | ~3,200 MB |
 
-The CUDA caching allocator may hold additional reserved memory between generations.
-Use `cuda_empty_cache()` to release it back to the driver.
+The CUDA caching allocator may hold additional reserved memory between
+generations. Use `Rtorch::cuda_empty_cache()` to release it back to the
+driver. Use `Rtorch::cuda_memory_stats()` for per-process allocated/reserved
+breakdown.
 
 ## When to Use Each
 
@@ -172,14 +192,30 @@ Use `cuda_empty_cache()` to release it back to the driver.
 - Debugging or development
 - Custom fine-tuning or LoRA experimentation
 
+## Reproducing
+
+Run the benchmark script from the chatterbox package directory:
+
+```bash
+r scripts/benchmark_gpu.R
+```
+
+This compares Rtorch CUDA inference against the Python container (if
+running). For VRAM profiling:
+
+```bash
+r scripts/vram_profile.R
+```
+
 ## Future Improvements
 
 Potential optimizations not yet implemented:
 
 1. **float16 inference**: Would halve memory bandwidth requirements
-2. **torch.compile()**: Not available in R torch
-3. **Flash Attention 2**: Requires custom CUDA kernels
+2. **Fused kernels**: Custom CUDA kernels for attention + FFN blocks
+3. **Flash Attention 2**: Requires custom CUDA kernels beyond SDPA
 
-The R-to-C++ boundary overhead is fundamental and cannot be eliminated without
-changes to R torch itself. JIT tracing helps by batching operations into a single
-C++ graph execution.
+The R-to-C++ boundary overhead (~1.4 us per `.Call()`) is the floor for
+Rtorch. JIT tracing helps by batching operations into a single C++ graph
+execution. The remaining ~3x gap vs Python is in per-call overhead and
+Python's optimized kernel dispatch.

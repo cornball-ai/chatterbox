@@ -280,6 +280,7 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
         model$voice_encoder$to(device = "cpu")
         rm(cond, text_tokens)
         gc(); gc()
+        Rtorch::cuda_empty_cache()
     }
 
     # Generate waveform with S3Gen

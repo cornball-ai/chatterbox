@@ -1,133 +1,142 @@
 #!/usr/bin/env r
-# Profile VRAM usage at each step of chatterbox model loading
+# VRAM profiling: measure GPU memory at each stage of inference
+#
+# Uses libtorch's CUDACachingAllocator stats for accurate per-process
+# measurement (allocated = active tensors, reserved = allocated + cache).
 
-library(torch)
+library(chatterbox)
 
-# Helper to get CUDA memory stats
-cuda_mem <- function(label = "") {
-    if (cuda_is_available()) {
-        allocated <- cuda_memory_stats()$allocated_bytes$all$current / 1024^3
-        reserved <- cuda_memory_stats()$reserved_bytes$all$current / 1024^3
-        cat(sprintf("%s: %.2f GB allocated, %.2f GB reserved\n", label, allocated, reserved))
-        invisible(allocated)
-    } else {
-        cat(label, ": CUDA not available\n")
-        invisible(0)
-    }
+MB <- 1024^2
+
+report <- function (label) {
+    gc(); gc()
+    stats <- Rtorch::cuda_memory_stats()
+    alloc <- stats["allocated_current"] / MB
+    resrv <- stats["reserved_current"] / MB
+    cat(sprintf("  %-45s %6.0f MB alloc  %6.0f MB reserved\n", label, alloc, resrv))
+    c(alloc = alloc, reserved = resrv)
 }
 
-# Count parameters in a module
-count_params <- function(module) {
-    params <- module$parameters
-    total <- 0
-    for (p in params) {
-        total <- total + prod(p$shape)
-    }
-    total
-}
+cat("============================================================\n")
+cat("             VRAM Profile: Chatterbox on CUDA\n")
+cat("============================================================\n")
+cat(sprintf("GPU: %s\n", system("nvidia-smi --query-gpu=name --format=csv,noheader", intern = TRUE)))
+cat(sprintf("Total VRAM: %.0f MB\n\n",
+    Rtorch::cuda_mem_info()["total"] / MB))
 
-cat("=== VRAM Profile for Chatterbox Loading ===\n\n")
+text <- "The quick brown fox jumps over the lazy dog."
+ref_audio <- system.file("audio", "jfk.wav", package = "chatterbox")
 
-cuda_mem("Initial")
+cat("Stage-by-stage GPU memory (allocated / reserved):\n")
+mem0 <- report("Baseline")
 
-# Source the package
-rhydrogen::load_all("/home/troy/chatterbox")
+model <- chatterbox("cuda")
+paths <- get_model_paths()
 
-cuda_mem("After load_all")
-
-# Get model paths
-paths <- download_chatterbox_models()
-cat("\nModel files:\n")
-for (name in names(paths)) {
-    if (file.exists(paths[[name]])) {
-        size <- file.info(paths[[name]])$size / 1024^2
-        cat(sprintf("  %s: %.1f MB\n", name, size))
-    }
-}
-
-device <- "cuda"
-cat("\n=== Loading Components ===\n\n")
+# Tokenizer (CPU only)
+model$tokenizer <- chatterbox:::load_bpe_tokenizer(paths$tokenizer)
+report("Tokenizer loaded (CPU)")
 
 # Voice encoder
-cat("--- Voice Encoder ---\n")
-cuda_mem("Before VE weights")
-ve_weights <- read_safetensors(paths$ve, device)
-cuda_mem("After VE weights load")
-cat(sprintf("VE weights count: %d tensors\n", length(ve_weights)))
-
-ve_model <- voice_encoder()
-cuda_mem("After VE model create")
-
-ve_model <- load_voice_encoder_weights(ve_model, ve_weights)
-cuda_mem("After VE weights assign")
-
-ve_model$to(device = device)
-cuda_mem("After VE to(cuda)")
-
-ve_params <- count_params(ve_model)
-cat(sprintf("VE parameters: %d (%.1f MB @ float32)\n", ve_params, ve_params * 4 / 1024^2))
-
-# Clear weights dict
-rm(ve_weights)
-gc()
-cuda_empty_cache()
-cuda_mem("After VE cleanup")
+ve_weights <- chatterbox:::read_safetensors(paths$ve, "cpu")
+model$voice_encoder <- chatterbox:::voice_encoder()
+model$voice_encoder <- chatterbox:::load_voice_encoder_weights(model$voice_encoder, ve_weights)
+rm(ve_weights); gc()
+report("Voice encoder loaded (CPU)")
+model$voice_encoder$to(device = "cuda")
+model$voice_encoder$eval()
+mem_ve <- report("Voice encoder on CUDA")
 
 # T3 model
-cat("\n--- T3 Model ---\n")
-cuda_mem("Before T3 weights")
-t3_weights <- read_safetensors(paths$t3_cfg, device)
-cuda_mem("After T3 weights load")
-cat(sprintf("T3 weights count: %d tensors\n", length(t3_weights)))
+t3_weights <- chatterbox:::read_safetensors(paths$t3_cfg, "cpu")
+model$t3 <- chatterbox:::t3_model()
+model$t3 <- chatterbox:::load_t3_weights(model$t3, t3_weights)
+rm(t3_weights); gc()
+report("T3 loaded (CPU)")
+model$t3$to(device = "cuda")
+model$t3$eval()
+mem_t3 <- report("T3 on CUDA")
 
-t3_model_inst <- t3_model()
-cuda_mem("After T3 model create")
+# S3Gen
+model$s3gen <- chatterbox:::load_s3gen(paths$s3gen, "cuda")
+model$loaded <- TRUE
+mem_s3 <- report("S3Gen on CUDA (all loaded)")
 
-t3_model_inst <- load_t3_weights(t3_model_inst, t3_weights)
-cuda_mem("After T3 weights assign")
-
-t3_model_inst$to(device = device)
-cuda_mem("After T3 to(cuda)")
-
-t3_params <- count_params(t3_model_inst)
-cat(sprintf("T3 parameters: %d (%.1f MB @ float32)\n", t3_params, t3_params * 4 / 1024^2))
-
-rm(t3_weights)
+# Voice embedding
+voice <- create_voice_embedding(model, ref_audio)
 gc()
-cuda_empty_cache()
-cuda_mem("After T3 cleanup")
+mem_voice <- report("After voice embedding")
 
-# S3Gen model
-cat("\n--- S3Gen Model ---\n")
-cuda_mem("Before S3Gen weights")
-s3_weights <- read_safetensors(paths$s3gen, device)
-cuda_mem("After S3Gen weights load")
-cat(sprintf("S3Gen weights count: %d tensors\n", length(s3_weights)))
-
-s3_model <- s3gen()
-cuda_mem("After S3Gen model create")
-
-s3_model$mel2wav <- create_s3gen_vocoder(device)
-cuda_mem("After vocoder create")
-
-voc_params <- count_params(s3_model$mel2wav)
-cat(sprintf("Vocoder parameters: %d (%.1f MB @ float32)\n", voc_params, voc_params * 4 / 1024^2))
-
-s3_model <- load_s3gen_weights(s3_model, s3_weights)
-cuda_mem("After S3Gen weights assign")
-
-s3_model$to(device = device)
-cuda_mem("After S3Gen to(cuda)")
-
-s3_params <- count_params(s3_model)
-cat(sprintf("S3Gen parameters (total): %d (%.1f MB @ float32)\n", s3_params, s3_params * 4 / 1024^2))
-
-rm(s3_weights)
+# T3 inference
+text_tokens <- chatterbox:::tokenize_text(model$tokenizer, text)
+text_tokens <- Rtorch::torch_tensor(text_tokens, dtype = Rtorch::torch_long)$unsqueeze(1)$to(device = "cuda")
+cond <- chatterbox:::t3_cond(
+    speaker_emb = voice$ve_embedding,
+    cond_prompt_speech_tokens = voice$cond_prompt_speech_tokens,
+    emotion_adv = 0.5
+)
+Rtorch::with_no_grad({
+    speech_tokens <- chatterbox:::t3_inference(
+        model = model$t3, cond = cond,
+        text_tokens = text_tokens,
+        cfg_weight = 0.5, temperature = 0.8, top_p = 0.9
+    )
+})
 gc()
-cuda_empty_cache()
-cuda_mem("After S3Gen cleanup")
+mem_t3_inf <- report("After T3 inference")
 
-cat("\n=== Summary ===\n")
-total_params <- ve_params + t3_params + s3_params
-cat(sprintf("Total parameters: %d (%.1f MB @ float32)\n", total_params, total_params * 4 / 1024^2))
-cuda_mem("Final")
+# Offload T3 + VE
+model$t3$to(device = "cpu")
+model$voice_encoder$to(device = "cpu")
+rm(cond, text_tokens); gc(); gc()
+report("After T3/VE offloaded (cache dirty)")
+Rtorch::cuda_empty_cache()
+mem_offload <- report("After T3/VE offloaded + cache clear")
+
+# S3Gen inference
+speech_tokens <- chatterbox:::drop_invalid_tokens(speech_tokens)
+speech_tokens_t <- Rtorch::torch_tensor(
+    as.integer(speech_tokens), dtype = Rtorch::torch_long
+)$unsqueeze(1)$to(device = "cuda")
+
+Rtorch::with_no_grad({
+    result <- model$s3gen$inference(
+        speech_tokens = speech_tokens_t,
+        ref_dict = voice$ref_dict,
+        finalize = TRUE
+    )
+})
+gc()
+mem_s3_inf <- report("After S3Gen inference")
+
+audio <- as.numeric(result[[1]]$squeeze()$cpu())
+rm(result, speech_tokens_t); gc()
+Rtorch::cuda_empty_cache()
+mem_post <- report("After audio extracted + cache clear")
+
+# Restore T3/VE
+model$t3$to(device = "cuda")
+model$voice_encoder$to(device = "cuda")
+gc()
+mem_restore <- report("After T3/VE restored to CUDA")
+
+# Summary
+cat("\n")
+cat("============================================================\n")
+cat("                       SUMMARY\n")
+cat("============================================================\n")
+cat(sprintf("Voice encoder weights:       %5.0f MB\n", mem_ve[1]))
+cat(sprintf("T3 weights:                  %5.0f MB\n", mem_t3[1] - mem_ve[1]))
+cat(sprintf("S3Gen weights:               %5.0f MB\n", mem_s3[1] - mem_t3[1]))
+cat(sprintf("All weights (allocated):     %5.0f MB\n", mem_s3[1]))
+cat(sprintf("Voice embedding overhead:    %5.0f MB\n", mem_voice[1] - mem_s3[1]))
+cat(sprintf("T3 inference peak reserved:  %5.0f MB\n", mem_t3_inf[2]))
+cat(sprintf("After T3/VE offload+clear:   %5.0f MB alloc, %5.0f MB reserved\n",
+    mem_offload[1], mem_offload[2]))
+cat(sprintf("S3Gen inference peak resrvd: %5.0f MB\n", mem_s3_inf[2]))
+cat(sprintf("Post-inference + clear:      %5.0f MB alloc, %5.0f MB reserved\n",
+    mem_post[1], mem_post[2]))
+cat(sprintf("Steady state (all on GPU):   %5.0f MB alloc, %5.0f MB reserved\n",
+    mem_restore[1], mem_restore[2]))
+cat(sprintf("\nGenerated %.1fs audio (%d tokens)\n",
+    length(audio) / 24000, length(speech_tokens)))
