@@ -3,10 +3,13 @@
 \alias{load_chatterbox}
 \title{Load Chatterbox model weights}
 \usage{
-load_chatterbox(model)
+load_chatterbox(model, compiled = FALSE)
 }
 \arguments{
 \item{model}{Chatterbox model object}
+
+\item{compiled}{If TRUE, compile eligible sub-modules using
+\code{Rtorch::compile()} for fused kernel execution.}
 }
 \value{
 Chatterbox model with loaded weights
