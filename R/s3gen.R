@@ -1010,8 +1010,8 @@ s3gen <- torch::nn_module(
             # MeanFlow uses random noise per call instead of pre-computed buffer
             noised_mels <- torch::torch_randn(
                 c(1L, 80L, as.integer(speech_tokens$size(2)) * 2L),
-                dtype = speech_tokens$dtype, device = device
-            )$to(dtype = torch::torch_float32())
+                dtype = torch::torch_float32(), device = device
+            )
         }
 
         # Flow inference (tokens -> mel)
