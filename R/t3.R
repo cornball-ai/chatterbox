@@ -1143,3 +1143,600 @@ load_t3_weights <- function (model, state_dict)
     model
 }
 
+# ============================================================================
+# Turbo Configuration
+# ============================================================================
+
+#' Create T3 turbo configuration (GPT-2 backbone)
+#'
+#' @return List with T3 turbo configuration
+t3_config_turbo <- function ()
+{
+    list(
+        start_text_token = NULL, # GPT-2 tokenizer handles this
+        stop_text_token = NULL,
+        text_tokens_dict_size = 50276,
+        max_text_tokens = 2048,
+
+        start_speech_token = 6561,
+        stop_speech_token = 6562,
+        speech_tokens_dict_size = 6563,
+        max_speech_tokens = 4096,
+
+        llama_config_name = "GPT2_medium",
+        input_pos_emb = NULL, # GPT-2 turbo has no extra position embeddings
+        speech_cond_prompt_len = 375,
+
+        encoder_type = "voice_encoder",
+        speaker_embed_size = 256,
+        use_perceiver_resampler = FALSE,
+        emotion_adv = FALSE,
+
+        n_channels = 1024,
+        is_gpt = TRUE
+    )
+}
+
+# ============================================================================
+# GPT-2 Model
+# ============================================================================
+
+#' GPT-2 Layer Normalization
+#'
+#' @param hidden_size Dimension
+#' @param eps Epsilon
+#' @return nn_module
+gpt2_layer_norm <- torch::nn_module(
+    "GPT2LayerNorm",
+
+    initialize = function (hidden_size, eps = 1e-5)
+    {
+        self$weight <- torch::nn_parameter(torch::torch_ones(hidden_size))
+        self$bias <- torch::nn_parameter(torch::torch_zeros(hidden_size))
+        self$eps <- eps
+    },
+
+    forward = function (x)
+    {
+        torch::nnf_layer_norm(x, self$weight$shape, self$weight, self$bias, eps = self$eps)
+    }
+)
+
+#' GPT-2 Attention (combined QKV projection)
+#'
+#' @param config GPT-2 config
+#' @return nn_module
+gpt2_attention <- torch::nn_module(
+    "GPT2Attention",
+
+    initialize = function (config)
+    {
+        self$n_heads <- config$n_head
+        self$head_dim <- config$hidden_size %/% config$n_head
+        self$hidden_size <- config$hidden_size
+
+        # Combined QKV projection
+        self$c_attn <- torch::nn_linear(config$hidden_size, 3L * config$hidden_size)
+        # Output projection
+        self$c_proj <- torch::nn_linear(config$hidden_size, config$hidden_size)
+    },
+
+    forward = function (hidden_states, past_key_value = NULL, use_cache = FALSE)
+    {
+        batch_size <- hidden_states$size(1)
+        seq_len <- hidden_states$size(2)
+
+        # Combined QKV
+        qkv <- self$c_attn$forward(hidden_states)
+        chunks <- qkv$split(self$hidden_size, dim = 3L)
+        q <- chunks[[1]]
+        k <- chunks[[2]]
+        v <- chunks[[3]]
+
+        # Reshape to (B, heads, seq, head_dim)
+        q <- q$view(c(batch_size, seq_len, self$n_heads, self$head_dim))$transpose(2L, 3L)
+        k <- k$view(c(batch_size, seq_len, self$n_heads, self$head_dim))$transpose(2L, 3L)
+        v <- v$view(c(batch_size, seq_len, self$n_heads, self$head_dim))$transpose(2L, 3L)
+
+        # Handle KV cache
+        if (!is.null(past_key_value)) {
+            k <- torch::torch_cat(list(past_key_value[[1]], k), dim = 3L)
+            v <- torch::torch_cat(list(past_key_value[[2]], v), dim = 3L)
+        }
+
+        new_cache <- NULL
+        if (use_cache) {
+            new_cache <- list(k, v)
+        }
+
+        # Scaled dot-product attention (use SDPA if available)
+        sdpa <- tryCatch(get_sdpa(), error = function(e) NULL)
+        if (!is.null(sdpa)) {
+            # SDPA handles causal masking when is_causal=TRUE
+            attn_output <- sdpa(q, k, v, is_causal = (seq_len > 1L && is.null(past_key_value)))
+        } else {
+            scale <- 1.0 / sqrt(self$head_dim)
+            scores <- torch::torch_matmul(q, k$transpose(-2L, -1L)) * scale
+
+            # Causal mask for prefill (not needed for single-token with cache)
+            total_len <- k$size(3)
+            if (seq_len > 1L) {
+                causal_mask <- torch::torch_ones(c(seq_len, total_len),
+                    device = hidden_states$device, dtype = torch::torch_bool())
+                causal_mask <- torch::torch_triu(causal_mask, diagonal = total_len - seq_len + 1L)
+                scores <- scores$masked_fill(causal_mask$unsqueeze(1)$unsqueeze(1), -1e9)
+            }
+
+            attn_weights <- torch::nnf_softmax(scores, dim = -1L)
+            attn_output <- torch::torch_matmul(attn_weights, v)
+        }
+
+        # Reshape back
+        attn_output <- attn_output$transpose(2L, 3L)$contiguous()$view(
+            c(batch_size, -1L, self$hidden_size)
+        )
+
+        # Output projection
+        attn_output <- self$c_proj$forward(attn_output)
+
+        list(attn_output = attn_output, past_key_value = new_cache)
+    }
+)
+
+#' GPT-2 MLP (GELU activation)
+#'
+#' @param config GPT-2 config
+#' @return nn_module
+gpt2_mlp <- torch::nn_module(
+    "GPT2MLP",
+
+    initialize = function (config)
+    {
+        intermediate_size <- config$hidden_size * 4L
+        self$c_fc <- torch::nn_linear(config$hidden_size, intermediate_size)
+        self$c_proj <- torch::nn_linear(intermediate_size, config$hidden_size)
+    },
+
+    forward = function (x)
+    {
+        x <- self$c_fc$forward(x)
+        x <- torch::nnf_gelu(x, approximate = "tanh") # gelu_new
+        self$c_proj$forward(x)
+    }
+)
+
+#' GPT-2 Transformer Block
+#'
+#' @param config GPT-2 config
+#' @return nn_module
+gpt2_block <- torch::nn_module(
+    "GPT2Block",
+
+    initialize = function (config)
+    {
+        self$ln_1 <- gpt2_layer_norm(config$hidden_size, config$layer_norm_epsilon)
+        self$attn <- gpt2_attention(config)
+        self$ln_2 <- gpt2_layer_norm(config$hidden_size, config$layer_norm_epsilon)
+        self$mlp <- gpt2_mlp(config)
+    },
+
+    forward = function (hidden_states, past_key_value = NULL, use_cache = FALSE)
+    {
+        # Pre-norm attention
+        residual <- hidden_states
+        hidden_states <- self$ln_1$forward(hidden_states)
+        attn_result <- self$attn$forward(hidden_states, past_key_value, use_cache)
+        hidden_states <- residual + attn_result$attn_output
+
+        # Pre-norm MLP
+        residual <- hidden_states
+        hidden_states <- self$ln_2$forward(hidden_states)
+        hidden_states <- residual + self$mlp$forward(hidden_states)
+
+        list(
+            hidden_states = hidden_states,
+            past_key_value = attn_result$past_key_value
+        )
+    }
+)
+
+#' GPT-2 Model Configuration
+#'
+#' @return List with GPT-2 medium config
+gpt2_config <- function ()
+{
+    list(
+        hidden_size = 1024L,
+        n_head = 16L,
+        n_layer = 24L,
+        n_positions = 8196L,
+        vocab_size = 50276L,
+        layer_norm_epsilon = 1e-5
+    )
+}
+
+#' GPT-2 Model (transformer backbone)
+#'
+#' @param config GPT-2 configuration
+#' @return nn_module
+gpt2_model <- torch::nn_module(
+    "GPT2Model",
+
+    initialize = function (config = NULL)
+    {
+        if (is.null(config)) {
+            config <- gpt2_config()
+        }
+        self$config <- config
+
+        # Token embeddings (wte) - will be deleted after loading, not used for inference
+        self$wte <- torch::nn_embedding(config$vocab_size, config$hidden_size)
+        # Position embeddings (wpe)
+        self$wpe <- torch::nn_embedding(config$n_positions, config$hidden_size)
+
+        # Transformer blocks
+        self$h <- torch::nn_module_list(
+            lapply(seq_len(config$n_layer), function(i) gpt2_block(config))
+        )
+
+        # Final layer norm
+        self$ln_f <- gpt2_layer_norm(config$hidden_size, config$layer_norm_epsilon)
+    },
+
+    forward = function (inputs_embeds = NULL, past_key_values = NULL,
+                         use_cache = FALSE, output_hidden_states = FALSE)
+    {
+        hidden_states <- inputs_embeds
+
+        new_past_key_values <- list()
+
+        for (i in seq_along(self$h)) {
+            past_kv <- if (!is.null(past_key_values)) past_key_values[[i]] else NULL
+            result <- self$h[[i]]$forward(hidden_states, past_kv, use_cache)
+            hidden_states <- result$hidden_states
+            if (use_cache) {
+                new_past_key_values[[i]] <- result$past_key_value
+            }
+        }
+
+        hidden_states <- self$ln_f$forward(hidden_states)
+
+        list(
+            last_hidden_state = hidden_states,
+            past_key_values = if (use_cache) new_past_key_values else NULL
+        )
+    }
+)
+
+# ============================================================================
+# T3 Turbo Model
+# ============================================================================
+
+#' T3 Token-to-Token TTS model (Turbo variant with GPT-2 backbone)
+#'
+#' @param config T3 turbo configuration
+#' @return nn_module
+t3_model_turbo <- torch::nn_module(
+    "T3ModelTurbo",
+
+    initialize = function (config = NULL)
+    {
+        if (is.null(config)) {
+            config <- t3_config_turbo()
+        }
+        self$config <- config
+
+        # GPT-2 backbone
+        gpt2_cfg <- gpt2_config()
+        self$tfmr <- gpt2_model(gpt2_cfg)
+
+        # Conditioning encoder (no perceiver, no emotion)
+        self$cond_enc <- t3_cond_enc(config)
+
+        # Token embeddings
+        self$text_emb <- torch::nn_embedding(config$text_tokens_dict_size, config$n_channels)
+        self$speech_emb <- torch::nn_embedding(config$speech_tokens_dict_size, config$n_channels)
+
+        # No position embeddings for turbo
+
+        # Output head (with bias for GPT-2)
+        self$speech_head <- torch::nn_linear(config$n_channels, config$speech_tokens_dict_size)
+    },
+
+    prepare_conditioning = function (cond)
+    {
+        # For turbo/GPT-2: embed speech tokens without position embeddings
+        if (!is.null(cond$cond_prompt_speech_tokens) && is.null(cond$cond_prompt_speech_emb)) {
+            tokens <- cond$cond_prompt_speech_tokens
+            cond$cond_prompt_speech_emb <- self$speech_emb$forward(tokens$add(1L))
+        }
+        self$cond_enc$forward(cond)
+    },
+
+    prepare_input_embeds = function (cond, text_tokens, speech_tokens)
+    {
+        # Prepare conditioning embeddings
+        cond_emb <- self$prepare_conditioning(cond)
+
+        # Text embeddings (no position embeddings for turbo)
+        text_emb <- self$text_emb$forward(text_tokens$add(1L))
+
+        # Speech embeddings (no position embeddings for turbo)
+        speech_emb <- self$speech_emb$forward(speech_tokens$add(1L))
+
+        len_cond <- cond_emb$size(2)
+
+        if (cond_emb$size(1) != text_emb$size(1)) {
+            cond_emb <- cond_emb$expand(c(text_emb$size(1), -1L, -1L))
+        }
+
+        embeds <- torch::torch_cat(list(cond_emb, text_emb, speech_emb), dim = 2L)
+
+        list(embeds = embeds, len_cond = len_cond)
+    }
+)
+
+# ============================================================================
+# T3 Turbo Weight Loading
+# ============================================================================
+
+#' Load T3 turbo weights from safetensors
+#'
+#' @param model T3 turbo model
+#' @param state_dict Named list of tensors
+#' @return Model with loaded weights
+load_t3_turbo_weights <- function (model, state_dict)
+{
+    torch::with_no_grad({
+        copy_if_exists <- function (r_param, key)
+        {
+            if (key %in% names(state_dict)) {
+                tryCatch({
+                    r_param$copy_(state_dict[[key]])
+                    TRUE
+                }, error = function(e) {
+                    warning("Failed to copy ", key, ": ", e$message)
+                    FALSE
+                })
+            } else {
+                FALSE
+            }
+        }
+
+        # Token embeddings
+        copy_if_exists(model$text_emb$weight, "text_emb.weight")
+        copy_if_exists(model$speech_emb$weight, "speech_emb.weight")
+
+        # Speech head (with bias for GPT-2)
+        copy_if_exists(model$speech_head$weight, "speech_head.weight")
+        copy_if_exists(model$speech_head$bias, "speech_head.bias")
+
+        # Conditioning encoder
+        copy_if_exists(model$cond_enc$spkr_enc$weight, "cond_enc.spkr_enc.weight")
+        copy_if_exists(model$cond_enc$spkr_enc$bias, "cond_enc.spkr_enc.bias")
+
+        # GPT-2 backbone
+        # wpe (position embeddings - part of GPT-2 internal, we load but don't use externally)
+        copy_if_exists(model$tfmr$wpe$weight, "tfmr.wpe.weight")
+
+        # Final layer norm
+        copy_if_exists(model$tfmr$ln_f$weight, "tfmr.ln_f.weight")
+        copy_if_exists(model$tfmr$ln_f$bias, "tfmr.ln_f.bias")
+
+        # Transformer layers
+        n_layers <- length(model$tfmr$h)
+        for (i in seq_len(n_layers)) {
+            prefix <- paste0("tfmr.h.", i - 1L, ".")
+            layer <- model$tfmr$h[[i]]
+
+            # Layer norms
+            copy_if_exists(layer$ln_1$weight, paste0(prefix, "ln_1.weight"))
+            copy_if_exists(layer$ln_1$bias, paste0(prefix, "ln_1.bias"))
+            copy_if_exists(layer$ln_2$weight, paste0(prefix, "ln_2.weight"))
+            copy_if_exists(layer$ln_2$bias, paste0(prefix, "ln_2.bias"))
+
+            # Attention (combined c_attn)
+            copy_if_exists(layer$attn$c_attn$weight, paste0(prefix, "attn.c_attn.weight"))
+            copy_if_exists(layer$attn$c_attn$bias, paste0(prefix, "attn.c_attn.bias"))
+            copy_if_exists(layer$attn$c_proj$weight, paste0(prefix, "attn.c_proj.weight"))
+            copy_if_exists(layer$attn$c_proj$bias, paste0(prefix, "attn.c_proj.bias"))
+
+            # MLP
+            copy_if_exists(layer$mlp$c_fc$weight, paste0(prefix, "mlp.c_fc.weight"))
+            copy_if_exists(layer$mlp$c_fc$bias, paste0(prefix, "mlp.c_fc.bias"))
+            copy_if_exists(layer$mlp$c_proj$weight, paste0(prefix, "mlp.c_proj.weight"))
+            copy_if_exists(layer$mlp$c_proj$bias, paste0(prefix, "mlp.c_proj.bias"))
+        }
+    })
+
+    # Delete wte (not used for inference, saves memory)
+    model$tfmr$wte <- NULL
+
+    model
+}
+
+# ============================================================================
+# T3 Turbo Inference
+# ============================================================================
+
+#' Run T3 turbo inference to generate speech tokens
+#'
+#' Uses GPT-2 backbone without CFG. Simpler sampling with top-k and
+#' repetition penalty.
+#'
+#' @param model T3 turbo model
+#' @param cond T3 conditioning
+#' @param text_tokens Tokenized text (tensor)
+#' @param max_new_tokens Maximum speech tokens to generate
+#' @param temperature Sampling temperature
+#' @param top_k Top-k sampling
+#' @param top_p Nucleus sampling threshold
+#' @param repetition_penalty Repetition penalty
+#' @return Generated speech tokens (0-indexed)
+#' @export
+t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
+                                 temperature = 0.8, top_k = 1000L, top_p = 0.95,
+                                 repetition_penalty = 1.2)
+{
+    config <- model$config
+    device <- model$speech_emb$weight$device
+
+    # Ensure text_tokens is 2D
+    if (text_tokens$dim() == 1L) {
+        text_tokens <- text_tokens$unsqueeze(1L)
+    }
+
+    # No start/stop text token wrapping - GPT-2 tokenizer handles this
+
+    # Initial speech token (BOS) - no CFG for turbo
+    speech_start <- torch::torch_tensor(
+        matrix(config$start_speech_token, nrow = 1L),
+        device = device, dtype = torch::torch_long()
+    )
+
+    # Prepare initial embeddings (no CFG)
+    prep <- model$prepare_input_embeds(cond, text_tokens, speech_start)
+    embeds <- prep$embeds
+
+    torch::with_no_grad({
+        # Initial forward pass
+        output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
+        past_key_values <- output$past_key_values
+
+        generated_tokens <- list()
+
+        # Get first logits from last position
+        hidden <- output$last_hidden_state[, -1L, , drop = FALSE]
+        logits <- model$speech_head$forward(hidden)$squeeze(2L) # (B, vocab)
+
+        # Process first token
+        first_token <- .turbo_sample_token(
+            logits, speech_start, temperature, top_k, top_p, repetition_penalty
+        )
+        generated_tokens[[1L]] <- first_token
+        current_token <- first_token
+
+        # Check EOS
+        token_id <- as.integer(current_token$cpu()) - 1L
+        if (token_id == config$stop_speech_token) {
+            message("EOS at step 1")
+        } else {
+            # Generation loop
+            for (i in seq_len(max_new_tokens)) {
+                # Embed current token (no position embeddings for turbo)
+                current_emb <- model$speech_emb$forward(current_token)
+
+                # Forward with KV cache
+                output <- model$tfmr$forward(
+                    inputs_embeds = current_emb,
+                    past_key_values = past_key_values,
+                    use_cache = TRUE
+                )
+                past_key_values <- output$past_key_values
+
+                # Get logits
+                logits <- model$speech_head$forward(output$last_hidden_state)$squeeze(2L)
+
+                # Build generated_ids for repetition penalty
+                gen_ids <- torch::torch_cat(generated_tokens, dim = 2L)
+
+                # Sample
+                next_token <- .turbo_sample_token(
+                    logits, gen_ids, temperature, top_k, top_p, repetition_penalty
+                )
+
+                generated_tokens[[length(generated_tokens) + 1L]] <- next_token
+                current_token <- next_token
+
+                # Check EOS
+                token_id <- as.integer(next_token$cpu()) - 1L
+                if (token_id == config$stop_speech_token) {
+                    message("EOS at step ", i + 1L)
+                    break
+                }
+            }
+        }
+    })
+
+    if (length(generated_tokens) > 0L) {
+        tokens <- torch::torch_cat(generated_tokens, dim = 2L)$squeeze(1L)
+        # Convert to 0-indexed
+        tokens <- tokens$sub(1L)
+
+        # Remove EOS if present at end
+        token_vals <- as.integer(tokens$cpu())
+        if (length(token_vals) > 0L && token_vals[length(token_vals)] == config$stop_speech_token) {
+            tokens <- tokens[1:(tokens$size(1) - 1L)]
+        }
+
+        tokens
+    } else {
+        torch::torch_tensor(integer(0), device = device)
+    }
+}
+
+#' Sample a token using turbo logit processors
+#' @param logits (B, vocab_size) logits
+#' @param generated_ids Previous token IDs for repetition penalty
+#' @param temperature Temperature
+#' @param top_k Top-k
+#' @param top_p Top-p
+#' @param repetition_penalty Repetition penalty
+#' @return Token tensor (B, 1)
+#' @keywords internal
+.turbo_sample_token <- function (logits, generated_ids, temperature, top_k, top_p,
+                                  repetition_penalty)
+{
+    # Repetition penalty
+    if (repetition_penalty != 1.0 && generated_ids$numel() > 0L) {
+        unique_ids <- unique(as.integer(generated_ids$cpu()))
+        # Filter valid indices
+        unique_ids <- unique_ids[unique_ids >= 1L & unique_ids <= logits$size(2)]
+        if (length(unique_ids) > 0L) {
+            penalty_logits <- logits[1L, unique_ids]
+            # Apply penalty: divide positive logits, multiply negative
+            pos_mask <- penalty_logits > 0
+            neg_mask <- !pos_mask
+            if (any(as.logical(pos_mask$cpu()))) {
+                logits[1L, unique_ids[as.logical(pos_mask$cpu())]] <-
+                    logits[1L, unique_ids[as.logical(pos_mask$cpu())]] / repetition_penalty
+            }
+            if (any(as.logical(neg_mask$cpu()))) {
+                logits[1L, unique_ids[as.logical(neg_mask$cpu())]] <-
+                    logits[1L, unique_ids[as.logical(neg_mask$cpu())]] * repetition_penalty
+            }
+        }
+    }
+
+    # Temperature
+    if (temperature > 0 && temperature != 1.0) {
+        logits <- logits / temperature
+    }
+
+    # Top-k filtering
+    if (top_k > 0L && top_k < logits$size(2)) {
+        topk_result <- torch::torch_topk(logits, top_k)
+        min_val <- topk_result[[1]][, -1L]$min()
+        logits[logits < min_val] <- -Inf
+    }
+
+    # Top-p filtering
+    if (top_p < 1.0) {
+        sorted_result <- torch::torch_sort(logits, descending = TRUE)
+        sorted_logits <- sorted_result[[1]]
+        sorted_indices <- sorted_result[[2]]
+        cumprobs <- torch::torch_cumsum(torch::nnf_softmax(sorted_logits, dim = -1L), dim = -1L)
+
+        # Remove tokens with cumulative probability above threshold
+        sorted_mask <- cumprobs > top_p
+        sorted_mask[, 1L] <- FALSE
+        # Scatter back
+        indices_to_remove <- sorted_mask$scatter(2L, sorted_indices, sorted_mask)
+        logits[indices_to_remove] <- -Inf
+    }
+
+    # Sample
+    probs <- torch::nnf_softmax(logits, dim = -1L)
+    torch::torch_multinomial(probs, num_samples = 1L) # (B, 1)
+}
+

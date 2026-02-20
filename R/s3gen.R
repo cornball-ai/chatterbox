@@ -2,7 +2,8 @@
 # Flow matching decoder + HiFiGAN vocoder
 
 # Constants
-S3GEN_SR <- 24000# Output sample rate
+S3GEN_SR <- 24000 # Output sample rate
+S3GEN_SIL <- 4299 # Silence token for turbo
 
 # ============================================================================
 # Utility Functions
@@ -385,13 +386,26 @@ cfm_estimator <- torch::nn_module(
 
     initialize = function (in_channels = 320L, out_channels = 80L,
                            hidden_dim = 256L, num_mid_blocks = 12L,
-                           num_transformer_blocks = 4L)
+                           num_transformer_blocks = 4L, meanflow = FALSE)
     {
-        self$static_chunk_size <- 0L# For attention mask
+        self$static_chunk_size <- 0L # For attention mask
+        self$meanflow <- meanflow
 
         # Time embeddings: sinusoidal -> MLP
         self$time_embeddings <- sinusoidal_pos_emb(320L)
         self$time_mlp <- timestep_embedding(320L, 1024L)
+
+        # MeanFlow time embedding mixer (diagonal init)
+        self$time_embed_mixer <- NULL
+        if (meanflow) {
+            self$time_embed_mixer <- torch::nn_linear(1024L * 2L, 1024L, bias = FALSE)
+            # Diagonal initialization: identity for first half, zeros for second
+            torch::with_no_grad({
+                target_weight <- torch::torch_zeros(c(1024L, 2048L))
+                target_weight[, 1:1024] <- torch::torch_eye(1024L)
+                self$time_embed_mixer$weight$copy_(target_weight)
+            })
+        }
 
         # Down block: resnet + 4 transformers + causal conv (no actual downsampling)
         self$down_resnet <- causal_resnet_block1d(in_channels, hidden_dim)
@@ -424,13 +438,14 @@ cfm_estimator <- torch::nn_module(
         self$final_proj <- torch::nn_conv1d(hidden_dim, out_channels, 1L)
     },
 
-    forward = function(x, mask, mu, t, spks = NULL, cond = NULL) {
+    forward = function(x, mask, mu, t, spks = NULL, cond = NULL, r = NULL) {
         # x: (B, 80, T) - noisy sample
         # mask: (B, 1, T) - padding mask
         # mu: (B, 80, T) - encoder output
         # t: (B,) - timestep
         # spks: (B, 80) - speaker embedding
         # cond: (B, 80, T) - conditioning (prompt mel)
+        # r: (B,) - end timestep for meanflow
 
         batch_size <- x$size(1)
         seq_len <- x$size(3)
@@ -438,6 +453,14 @@ cfm_estimator <- torch::nn_module(
         # Time embedding
         t_emb <- self$time_embeddings$forward(t)$to(dtype = t$dtype)
         t_emb <- self$time_mlp$forward(t_emb)
+
+        # MeanFlow: mix t and r embeddings
+        if (self$meanflow && !is.null(r)) {
+            r_emb <- self$time_embeddings$forward(r)$to(dtype = t_emb$dtype)
+            r_emb <- self$time_mlp$forward(r_emb)
+            concat_embed <- torch::torch_cat(list(t_emb, r_emb), dim = 2L)
+            t_emb <- self$time_embed_mixer$forward(concat_embed)
+        }
 
         # Pack inputs: x + mu + spks + cond -> (B, 320, T)
         h <- torch::torch_cat(list(x, mu), dim = 2L)
@@ -517,19 +540,23 @@ causal_cfm <- torch::nn_module(
     initialize = function(
         in_channels = 320,
         out_channels = 80,
-        spk_emb_dim = 80
+        spk_emb_dim = 80,
+        meanflow = FALSE
     ) {
         self$sigma_min <- 1e-6
         self$t_scheduler <- "cosine"
         self$inference_cfg_rate <- 0.7
+        self$meanflow <- meanflow
 
         # Estimator network
-        self$estimator <- cfm_estimator(in_channels, out_channels)
+        self$estimator <- cfm_estimator(in_channels, out_channels, meanflow = meanflow)
 
-        # Pre-computed noise for reproducibility
-        self$rand_noise <- torch::nn_buffer(
-            torch::torch_randn(c(1, 80, 50 * 300))
-        )
+        # Pre-computed noise for reproducibility (not used for meanflow)
+        if (!meanflow) {
+            self$rand_noise <- torch::nn_buffer(
+                torch::torch_randn(c(1, 80, 50 * 300))
+            )
+        }
 
         # Flag for using traced estimator
         self$use_traced <- FALSE
@@ -565,24 +592,54 @@ causal_cfm <- torch::nn_module(
         cond,
         n_timesteps = 10,
         temperature = 1.0,
-        traced = FALSE
+        traced = FALSE,
+        noised_mels = NULL,
+        meanflow = NULL
     ) {
         device <- mu$device
         seq_len <- mu$size(3)
+        use_meanflow <- if (!is.null(meanflow)) meanflow else self$meanflow
 
         # Initial noise
-        z <- self$rand_noise[,, 1:seq_len]$to(device = device)$to(dtype = mu$dtype) * temperature
+        z <- torch::torch_randn_like(mu)
 
-        # Time span with cosine schedule
-        t_span <- torch::torch_linspace(0, 1, n_timesteps + 1, device = device, dtype = mu$dtype)
-        if (self$t_scheduler == "cosine") {
+        # For meanflow, overlay noised_mels on the generated portion
+        if (!is.null(noised_mels)) {
+            prompt_len <- seq_len - noised_mels$size(3)
+            z[,, (prompt_len + 1L):seq_len] <- noised_mels
+        } else if (!use_meanflow && !is.null(self$rand_noise)) {
+            # Use pre-computed noise for standard CFM
+            z <- self$rand_noise[,, 1:seq_len]$to(device = device)$to(dtype = mu$dtype) * temperature
+        }
+
+        # Time schedule
+        t_span <- torch::torch_linspace(0, 1, n_timesteps + 1L, device = device, dtype = mu$dtype)
+        if (!use_meanflow && self$t_scheduler == "cosine") {
             t_span <- 1 - torch::torch_cos(t_span * 0.5 * pi)
         }
 
-        # Euler solver
-        result <- self$solve_euler(z, t_span, mu, mask, spks, cond, traced = traced || self$use_traced)
+        # Dispatch: meanflow uses basic_euler (no CFG), standard uses solve_euler (with CFG)
+        if (use_meanflow) {
+            result <- self$basic_euler(z, t_span, mu, mask, spks, cond)
+        } else {
+            result <- self$solve_euler(z, t_span, mu, mask, spks, cond,
+                                        traced = traced || self$use_traced)
+        }
 
-        list(result, NULL) # Return mel and cache (NULL for now)
+        list(result, NULL)
+    },
+
+    #' Basic Euler solver for MeanFlow (no CFG, passes r to estimator)
+    basic_euler = function(x, t_span, mu, mask, spks, cond) {
+        for (step in seq_len(length(t_span) - 1L)) {
+            t <- t_span[step]$unsqueeze(1L)
+            r <- t_span[step + 1L]$unsqueeze(1L)
+
+            dxdt <- self$estimator$forward(x, mask, mu, t, spks, cond, r = r)
+            dt <- r - t
+            x <- x + dt * dxdt
+        }
+        x$to(dtype = torch::torch_float32())
     },
 
     solve_euler = function(
@@ -710,8 +767,10 @@ causal_masked_diff_xvec <- torch::nn_module(
         output_size = 80,
         spk_embed_dim = 192,
         input_frame_rate = 25,
-        token_mel_ratio = 2
+        token_mel_ratio = 2,
+        meanflow = FALSE
     ) {
+        self$meanflow <- meanflow
         self$vocab_size <- vocab_size
         self$input_size <- input_size
         self$output_size <- output_size
@@ -732,7 +791,8 @@ causal_masked_diff_xvec <- torch::nn_module(
         self$encoder_proj <- torch::nn_linear(input_size, output_size)
 
         # Flow matching decoder
-        self$decoder <- causal_cfm(in_channels = 320, out_channels = output_size, spk_emb_dim = output_size)
+        self$decoder <- causal_cfm(in_channels = 320, out_channels = output_size,
+                                    spk_emb_dim = output_size, meanflow = meanflow)
     },
 
     forward = function(
@@ -744,7 +804,10 @@ causal_masked_diff_xvec <- torch::nn_module(
         prompt_feat_len,
         embedding,
         finalize = TRUE,
-        traced = FALSE
+        traced = FALSE,
+        n_timesteps = NULL,
+        noised_mels = NULL,
+        meanflow = NULL
     ) {
         device <- token$device
 
@@ -800,13 +863,16 @@ causal_masked_diff_xvec <- torch::nn_module(
 
         # Run decoder
         h <- h$transpose(2, 3)
+        n_steps <- if (!is.null(n_timesteps)) n_timesteps else 10L
         result <- self$decoder$forward(
             mu = h,
             mask = dec_mask,
             spks = embedding$squeeze(2),
             cond = conds,
-            n_timesteps = 10,
-            traced = traced
+            n_timesteps = n_steps,
+            traced = traced,
+            noised_mels = noised_mels,
+            meanflow = meanflow
         )
         feat <- result[[1]]
 
@@ -827,7 +893,9 @@ causal_masked_diff_xvec <- torch::nn_module(
 s3gen <- torch::nn_module(
     "S3Gen",
 
-    initialize = function() {
+    initialize = function(meanflow = FALSE) {
+        self$meanflow <- meanflow
+
         # Speech tokenizer for reference audio (128 mels for S3TokenizerV2)
         self$tokenizer <- s3_tokenizer()
 
@@ -838,7 +906,7 @@ s3gen <- torch::nn_module(
         self$speaker_encoder <- campplus()
 
         # Flow matching decoder
-        self$flow <- causal_masked_diff_xvec()
+        self$flow <- causal_masked_diff_xvec(meanflow = meanflow)
 
         # HiFiGAN vocoder (will be added)
         self$mel2wav <- NULL
@@ -914,7 +982,8 @@ s3gen <- torch::nn_module(
         ref_sr = NULL,
         ref_dict = NULL,
         finalize = TRUE,
-        traced = FALSE
+        traced = FALSE,
+        n_cfm_timesteps = NULL
     ) {
         # Get reference dict
         if (is.null(ref_dict)) {
@@ -933,6 +1002,18 @@ s3gen <- torch::nn_module(
         speech_tokens <- speech_tokens$to(device = device)
         speech_token_len <- torch::torch_tensor(speech_tokens$size(2), device = device)
 
+        # Determine timesteps and noise for meanflow
+        n_steps <- n_cfm_timesteps
+        noised_mels <- NULL
+        if (self$meanflow) {
+            if (is.null(n_steps)) n_steps <- 2L
+            # MeanFlow uses random noise per call instead of pre-computed buffer
+            noised_mels <- torch::torch_randn(
+                c(1L, 80L, as.integer(speech_tokens$size(2)) * 2L),
+                dtype = speech_tokens$dtype, device = device
+            )$to(dtype = torch::torch_float32())
+        }
+
         # Flow inference (tokens -> mel)
         result <- self$flow$forward(
             token = speech_tokens,
@@ -943,7 +1024,10 @@ s3gen <- torch::nn_module(
             prompt_feat_len = ref_dict$prompt_feat_len,
             embedding = ref_dict$embedding,
             finalize = finalize,
-            traced = traced
+            traced = traced,
+            n_timesteps = n_steps,
+            noised_mels = noised_mels,
+            meanflow = if (self$meanflow) TRUE else NULL
         )
         output_mels <- result[[1]]
 
@@ -1001,6 +1085,11 @@ load_cfm_estimator_weights <- function(estimator, state_dict, prefix = "") {
     copy_if_exists(estimator$time_mlp$linear_1$bias, "time_mlp.linear_1.bias")
     copy_if_exists(estimator$time_mlp$linear_2$weight, "time_mlp.linear_2.weight")
     copy_if_exists(estimator$time_mlp$linear_2$bias, "time_mlp.linear_2.bias")
+
+    # MeanFlow time embed mixer (if present)
+    if (!is.null(estimator$time_embed_mixer)) {
+        copy_if_exists(estimator$time_embed_mixer$weight, "time_embed_mixer.weight")
+    }
 
     # Helper to load CausalBlock1D weights
     load_causal_block <- function(block, key_prefix) {
@@ -1150,13 +1239,14 @@ load_s3gen_weights <- function(
 #' @export
 load_s3gen <- function(
     path,
-    device = "cpu"
+    device = "cpu",
+    meanflow = FALSE
 ) {
     # Load weights to CPU first to halve peak VRAM usage
     state_dict <- read_safetensors(path, "cpu")
 
     # Create model on CPU
-    model <- s3gen()
+    model <- s3gen(meanflow = meanflow)
 
     # Create vocoder on CPU (will move with model$to())
     model$mel2wav <- create_s3gen_vocoder("cpu")

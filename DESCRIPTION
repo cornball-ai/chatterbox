@@ -2,9 +2,10 @@ Package: chatterbox
 Title: Text-to-Speech Using Chatterbox TTS Engine
 Version: 0.0.1
 Authors@R:
-    person("Troy", "Hernandez", role = c("aut", "cre"),
-           email = "troy@example.com")
-Author: Troy Hernandez [aut, cre]
+    c(person("Troy", "Hernandez", role = c("aut", "cre"),
+             email = "troy@example.com"),
+      person("Resemble AI", role = "cph"))
+Author: Troy Hernandez [aut, cre], Resemble AI [cph]
 Maintainer: Troy Hernandez <troy@example.com>
 Description: An R port of the Chatterbox text-to-speech engine using torch.
     Provides high-quality speech synthesis with voice cloning capabilities.

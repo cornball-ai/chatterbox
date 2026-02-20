@@ -8,13 +8,15 @@
 #' Create Chatterbox TTS model
 #'
 #' @param device Device to use ("cpu", "cuda", "mps", etc.)
+#' @param turbo Use turbo model (GPT-2 backbone, MeanFlow decoder). Default FALSE.
 #' @return Chatterbox TTS model object
 #' @export
-chatterbox <- function (device = "cpu")
+chatterbox <- function (device = "cpu", turbo = FALSE)
 {
     structure(
         list(
             device = device,
+            turbo = turbo,
             t3 = NULL,
             s3gen = NULL,
             voice_encoder = NULL,
@@ -37,6 +39,11 @@ load_chatterbox <- function (model)
 {
     if (!inherits(model, "chatterbox")) {
         stop("model must be a chatterbox object")
+    }
+
+    # Dispatch to turbo loader if turbo mode
+    if (isTRUE(model$turbo)) {
+        return(load_chatterbox_turbo(model))
     }
 
     device <- model$device
@@ -77,6 +84,59 @@ load_chatterbox <- function (model)
 
     model$loaded <- TRUE
     message("Chatterbox TTS model loaded successfully!")
+
+    model
+}
+
+#' Load Chatterbox Turbo model weights
+#'
+#' Loads the turbo variant (GPT-2 backbone, MeanFlow decoder).
+#' Requires prior download via \code{\link{download_chatterbox_turbo_models}}.
+#'
+#' @param model Chatterbox model object (with turbo=TRUE)
+#' @return Chatterbox model with loaded weights
+#' @export
+load_chatterbox_turbo <- function (model)
+{
+    device <- model$device
+    message("Loading Chatterbox Turbo model to ", device, "...")
+
+    # Get turbo model file paths
+    message("Loading turbo model files...")
+    paths <- get_turbo_model_paths()
+
+    # Load GPT-2 tokenizer
+    message("Loading GPT-2 tokenizer...")
+    model$tokenizer <- load_gpt2_tokenizer(
+        paths$vocab,
+        paths$merges,
+        paths$added_tokens
+    )
+
+    # Load voice encoder (same as standard)
+    message("Loading voice encoder...")
+    ve_weights <- read_safetensors(paths$ve, "cpu")
+    model$voice_encoder <- voice_encoder()
+    model$voice_encoder <- load_voice_encoder_weights(model$voice_encoder, ve_weights)
+    rm(ve_weights); gc()
+    model$voice_encoder$to(device = device)
+    model$voice_encoder$eval()
+
+    # Load T3 turbo model (GPT-2 backbone)
+    message("Loading T3 turbo model (GPT-2 backbone)...")
+    t3_weights <- read_safetensors(paths$t3_turbo_v1, "cpu")
+    model$t3 <- t3_model_turbo()
+    model$t3 <- load_t3_turbo_weights(model$t3, t3_weights)
+    rm(t3_weights); gc()
+    model$t3$to(device = device)
+    model$t3$eval()
+
+    # Load S3Gen with MeanFlow decoder
+    message("Loading S3Gen MeanFlow decoder...")
+    model$s3gen <- load_s3gen(paths$s3gen_meanflow, device, meanflow = TRUE)
+
+    model$loaded <- TRUE
+    message("Chatterbox Turbo model loaded successfully!")
 
     model
 }
@@ -149,8 +209,8 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
     })
 
     # Get conditioning prompt speech tokens from S3 tokenizer
-    # Python uses speech_cond_prompt_len = 150 tokens max
-    cond_prompt_len <- model$t3$config$speech_cond_prompt_len # 150
+    # Standard: 150 tokens, Turbo: 375 tokens
+    cond_prompt_len <- model$t3$config$speech_cond_prompt_len
     torch::with_no_grad({
         tok_result <- model$s3gen$tokenizer$forward(audio_16k, max_len = cond_prompt_len)
         cond_prompt_tokens <- tok_result$tokens$to(device = device)
@@ -191,50 +251,100 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #' @export
 generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                       temperature = 0.8, top_p = 0.9, autocast = NULL,
-                      traced = FALSE, backend = c("r", "cpp"))
+                      traced = FALSE, backend = c("r", "cpp"),
+                      top_k = 1000L, repetition_penalty = 1.2)
 {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
 
     device <- model$device
+    is_turbo <- isTRUE(model$turbo)
     # Default: autocast on CUDA, off on CPU
     use_autocast <- if (is.null(autocast)) grepl("^cuda", device) else autocast
 
     # Handle voice input
     if (is.character(voice)) {
-        # It's a file path
         voice <- create_voice_embedding(model, voice, autocast = use_autocast)
     } else if (!inherits(voice, "voice_embedding")) {
         stop("voice must be a voice_embedding object or path to reference audio")
     }
 
     # Tokenize text
-    text_tokens <- tokenize_text(model$tokenizer, text)
-    text_tokens <- torch::torch_tensor(text_tokens, dtype = torch::torch_long())$unsqueeze(1)$to(device = device)
+    if (is_turbo) {
+        # GPT-2 tokenizer
+        text <- punc_norm(text)
+        text_ids <- tokenize_text_gpt2(model$tokenizer, text)
+        text_tokens <- torch::torch_tensor(text_ids, dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
+    } else {
+        text_tokens <- tokenize_text(model$tokenizer, text)
+        text_tokens <- torch::torch_tensor(text_tokens, dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
+    }
 
-    # Create T3 conditioning with cond_prompt_speech_tokens
+    # Create T3 conditioning
     cond <- t3_cond(
         speaker_emb = voice$ve_embedding,
         cond_prompt_speech_tokens = voice$cond_prompt_speech_tokens,
-        emotion_adv = exaggeration
+        emotion_adv = if (is_turbo) NULL else exaggeration
     )
 
     # Generate speech tokens with T3
     message("Generating speech tokens...")
 
-    # Select inference function
-    backend <- match.arg(backend)
-    if (backend == "cpp") {
-        inference_fn <- t3_inference_cpp
-    } else if (traced) {
-        inference_fn <- t3_inference_traced
+    if (is_turbo) {
+        # Turbo inference: no CFG, no min_p, uses top_k
+        if (use_autocast) {
+            torch::with_autocast(device_type = "cuda", {
+                torch::with_no_grad({
+                    speech_tokens <- t3_inference_turbo(
+                        model = model$t3,
+                        cond = cond,
+                        text_tokens = text_tokens,
+                        temperature = temperature,
+                        top_k = top_k,
+                        top_p = top_p,
+                        repetition_penalty = repetition_penalty
+                    )
+                })
+            })
+        } else {
+            torch::with_no_grad({
+                speech_tokens <- t3_inference_turbo(
+                    model = model$t3,
+                    cond = cond,
+                    text_tokens = text_tokens,
+                    temperature = temperature,
+                    top_k = top_k,
+                    top_p = top_p,
+                    repetition_penalty = repetition_penalty
+                )
+            })
+        }
     } else {
-        inference_fn <- t3_inference
-    }
+        # Standard inference with CFG
+        backend <- match.arg(backend)
+        if (backend == "cpp") {
+            inference_fn <- t3_inference_cpp
+        } else if (traced) {
+            inference_fn <- t3_inference_traced
+        } else {
+            inference_fn <- t3_inference
+        }
 
-    if (use_autocast) {
-        torch::with_autocast(device_type = "cuda", {
+        if (use_autocast) {
+            torch::with_autocast(device_type = "cuda", {
+                torch::with_no_grad({
+                    speech_tokens <- inference_fn(
+                        model = model$t3,
+                        cond = cond,
+                        text_tokens = text_tokens,
+                        cfg_weight = cfg_weight,
+                        temperature = temperature,
+                        top_p = top_p
+                    )
+                })
+            })
+        } else {
             torch::with_no_grad({
                 speech_tokens <- inference_fn(
                     model = model$t3,
@@ -245,21 +355,10 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                     top_p = top_p
                 )
             })
-        })
-    } else {
-        torch::with_no_grad({
-            speech_tokens <- inference_fn(
-                model = model$t3,
-                cond = cond,
-                text_tokens = text_tokens,
-                cfg_weight = cfg_weight,
-                temperature = temperature,
-                top_p = top_p
-            )
-        })
+        }
     }
 
-    # Drop any invalid tokens
+    # Drop invalid tokens
     speech_tokens <- drop_invalid_tokens(speech_tokens)
 
     if (length(speech_tokens) == 0) {
@@ -267,14 +366,22 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
         return(list(audio = numeric(0), sample_rate = S3GEN_SR))
     }
 
-    # Convert to tensor
+    # Convert to integer vector and add silence for turbo
+    token_vals <- as.integer(speech_tokens)
+    if (is_turbo) {
+        # Append 3x silence tokens
+        token_vals <- c(token_vals, rep(S3GEN_SIL, 3L))
+    }
+
     speech_tokens <- torch::torch_tensor(
-        as.integer(speech_tokens),
+        token_vals,
         dtype = torch::torch_long()
-    )$unsqueeze(1)$to(device = device)
+    )$unsqueeze(1L)$to(device = device)
 
     # Generate waveform with S3Gen
     message("Synthesizing waveform...")
+    n_cfm_steps <- if (is_turbo) 2L else NULL
+
     if (use_autocast) {
         torch::with_autocast(device_type = "cuda", {
             torch::with_no_grad({
@@ -282,7 +389,8 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                     speech_tokens = speech_tokens,
                     ref_dict = voice$ref_dict,
                     finalize = TRUE,
-                    traced = traced
+                    traced = traced,
+                    n_cfm_timesteps = n_cfm_steps
                 )
                 audio <- result[[1]]
             })
@@ -293,7 +401,8 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                 speech_tokens = speech_tokens,
                 ref_dict = voice$ref_dict,
                 finalize = TRUE,
-                traced = traced
+                traced = traced,
+                n_cfm_timesteps = n_cfm_steps
             )
             audio <- result[[1]]
         })
@@ -377,13 +486,19 @@ tts_chunked <- function (model, text, voice, chunk_size = 200, ...)
 #' @export
 print.chatterbox <- function (x, ...)
 {
-    cat("Chatterbox TTS Model\n")
+    variant <- if (isTRUE(x$turbo)) "Turbo" else "Standard"
+    cat("Chatterbox TTS Model (", variant, ")\n", sep = "")
     cat("  Device:", x$device, "\n")
     cat("  Loaded:", x$loaded, "\n")
     if (x$loaded) {
         cat("  Components:\n")
-        cat("    - T3 (text-to-tokens)\n")
-        cat("    - S3Gen (tokens-to-waveform)\n")
+        if (isTRUE(x$turbo)) {
+            cat("    - T3 Turbo (GPT-2 backbone)\n")
+            cat("    - S3Gen MeanFlow (2-step decoder)\n")
+        } else {
+            cat("    - T3 (Llama backbone)\n")
+            cat("    - S3Gen (10-step CFM decoder)\n")
+        }
         cat("    - Voice Encoder\n")
         cat("    - Text Tokenizer\n")
     }
@@ -420,10 +535,10 @@ print.voice_embedding <- function (x, ...)
 #'         Otherwise writes to file and returns path invisibly.
 #' @export
 quick_tts <- function (text, reference_audio, output_path = NULL,
-                       device = "cpu", autocast = NULL)
+                       device = "cpu", autocast = NULL, turbo = FALSE)
 {
     # Create and load model (caches after first load)
-    model <- chatterbox(device)
+    model <- chatterbox(device, turbo = turbo)
     model <- load_chatterbox(model)
 
     # Generate
