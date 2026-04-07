@@ -228,6 +228,195 @@ text_to_tokens <- function (tokenizer, text, normalize = TRUE, device = "cpu")
     )
 }
 
+# ============================================================================
+# GPT-2 BPE Tokenizer (for Turbo model)
+# ============================================================================
+
+#' Load GPT-2 BPE tokenizer
+#'
+#' Loads vocab.json, merges.txt, and optionally added_tokens.json
+#' for GPT-2 byte-level BPE tokenization.
+#'
+#' @param vocab_path Path to vocab.json
+#' @param merges_path Path to merges.txt
+#' @param added_tokens_path Path to added_tokens.json (optional)
+#' @return Tokenizer object (list)
+#' @export
+load_gpt2_tokenizer <- function (vocab_path, merges_path, added_tokens_path = NULL)
+{
+    # Load vocabulary (token string -> id)
+    vocab <- jsonlite::fromJSON(vocab_path, simplifyVector = TRUE)
+
+    # Load added tokens if provided
+    if (!is.null(added_tokens_path) && file.exists(added_tokens_path)) {
+        added <- jsonlite::fromJSON(added_tokens_path, simplifyVector = TRUE)
+        for (tok in names(added)) {
+            vocab[[tok]] <- added[[tok]]
+        }
+    }
+
+    # Build byte-to-unicode mapping (GPT-2 specific)
+    byte_encoder <- .gpt2_bytes_to_unicode()
+    byte_decoder <- names(byte_encoder)
+    names(byte_decoder) <- byte_encoder
+
+    # Load merges
+    merge_lines <- readLines(merges_path, warn = FALSE)
+    # Skip first line (header "#version: ...")
+    if (length(merge_lines) > 0 && startsWith(merge_lines[1], "#")) {
+        merge_lines <- merge_lines[-1]
+    }
+    # Remove empty lines
+    merge_lines <- merge_lines[nzchar(merge_lines)]
+
+    # Build merge rank map (pair -> priority)
+    bpe_ranks <- list()
+    for (i in seq_along(merge_lines)) {
+        bpe_ranks[[merge_lines[i]]] <- i
+    }
+
+    # Build reverse vocab (id -> token)
+    id_to_token <- character(length(vocab))
+    for (token in names(vocab)) {
+        id <- vocab[[token]] + 1L # R is 1-indexed
+        if (id > 0 && id <= length(vocab)) {
+            id_to_token[id] <- token
+        }
+    }
+
+    list(
+        vocab = vocab,
+        bpe_ranks = bpe_ranks,
+        byte_encoder = byte_encoder,
+        byte_decoder = byte_decoder,
+        id_to_token = id_to_token,
+        vocab_size = length(vocab),
+        type = "gpt2"
+    )
+}
+
+#' GPT-2 bytes-to-unicode mapping
+#' @return Named character vector (byte value as character -> unicode char)
+#' @keywords internal
+.gpt2_bytes_to_unicode <- function ()
+{
+    # Printable bytes that map to themselves
+    bs <- c(
+        33:126, # '!' to '~'
+        161:172, # inverted exclamation to not sign
+        174:255 # registered sign to y-diaeresis
+    )
+    cs <- bs
+
+    # Non-printable bytes get mapped to 256+ range
+    n <- 0L
+    for (b in 0:255) {
+        if (!(b %in% bs)) {
+            bs <- c(bs, b)
+            cs <- c(cs, 256L + n)
+            n <- n + 1L
+        }
+    }
+
+    result <- intToUtf8(cs, multiple = TRUE)
+    names(result) <- as.character(bs)
+    result
+}
+
+#' Tokenize text using GPT-2 BPE
+#'
+#' @param tokenizer GPT-2 tokenizer from load_gpt2_tokenizer()
+#' @param text Input text
+#' @return Integer vector of token IDs
+#' @keywords internal
+tokenize_text_gpt2 <- function (tokenizer, text)
+{
+    byte_encoder <- tokenizer$byte_encoder
+    bpe_ranks <- tokenizer$bpe_ranks
+    vocab <- tokenizer$vocab
+
+    # GPT-2 pre-tokenization regex pattern
+    # Matches: contractions, words with optional leading space, numbers, punctuation, whitespace
+    pat <- "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^\\s[:alpha:][:digit:]]+|\\s+(?!\\S)|\\s+"
+
+    # Find all matches
+    matches <- gregexpr(pat, text, perl = TRUE)
+    tokens_raw <- regmatches(text, matches)[[1]]
+
+    all_ids <- integer(0)
+
+    for (token_str in tokens_raw) {
+        # Convert bytes to unicode representation
+        raw_bytes <- charToRaw(token_str)
+        bpe_token <- paste0(byte_encoder[as.character(as.integer(raw_bytes))], collapse = "")
+
+        # Apply BPE
+        bpe_result <- .apply_bpe(bpe_token, bpe_ranks)
+
+        # Look up each BPE piece in vocabulary
+        for (piece in bpe_result) {
+            if (piece %in% names(vocab)) {
+                all_ids <- c(all_ids, vocab[[piece]])
+            }
+        }
+    }
+
+    all_ids
+}
+
+#' Apply BPE merges to a token
+#' @param token Character string (already byte-encoded)
+#' @param bpe_ranks Merge rank map
+#' @return Character vector of BPE pieces
+#' @keywords internal
+.apply_bpe <- function (token, bpe_ranks)
+{
+    # Split into individual characters
+    word <- strsplit(token, "")[[1]]
+
+    if (length(word) <= 1) {
+        return(word)
+    }
+
+    while (length(word) > 1) {
+        # Find the pair with lowest rank
+        best_pair <- NULL
+        best_rank <- Inf
+
+        for (i in seq_len(length(word) - 1)) {
+            pair_key <- paste(word[i], word[i + 1])
+            rank <- bpe_ranks[[pair_key]]
+            if (!is.null(rank) && rank < best_rank) {
+                best_rank <- rank
+                best_pair <- pair_key
+            }
+        }
+
+        if (is.null(best_pair)) break
+
+        # Merge the best pair
+        parts <- strsplit(best_pair, " ")[[1]]
+        first <- parts[1]
+        second <- parts[2]
+
+        new_word <- character(0)
+        i <- 1L
+        while (i <= length(word)) {
+            if (i < length(word) && word[i] == first && word[i + 1] == second) {
+                new_word <- c(new_word, paste0(first, second))
+                i <- i + 2L
+            } else {
+                new_word <- c(new_word, word[i])
+                i <- i + 1L
+            }
+        }
+
+        word <- new_word
+    }
+
+    word
+}
+
 #' Decode token IDs to text
 #'
 #' @param tokenizer Tokenizer object

@@ -3,14 +3,8 @@
 \alias{cam_dense_tdnn_block}
 \title{CAM Dense TDNN Block (multiple layers with dense connections)}
 \usage{
-cam_dense_tdnn_block(
-  num_layers,
-  in_channels,
-  out_channels,
-  bn_channels,
-  kernel_size,
-  dilation = 1
-)
+cam_dense_tdnn_block(num_layers, in_channels, out_channels, bn_channels,
+                     kernel_size, dilation = 1)
 }
 \arguments{
 \item{num_layers}{Number of layers}

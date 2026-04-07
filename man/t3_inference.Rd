@@ -3,17 +3,9 @@
 \alias{t3_inference}
 \title{Run T3 inference to generate speech tokens}
 \usage{
-t3_inference(
-  model,
-  cond,
-  text_tokens,
-  max_new_tokens = 1000,
-  temperature = 0.8,
-  cfg_weight = 0.5,
-  top_p = 0.95,
-  min_p = 0.05,
-  repetition_penalty = 1.2
-)
+t3_inference(model, cond, text_tokens, max_new_tokens = 1000,
+             temperature = 0.8, cfg_weight = 0.5, top_p = 0.95, min_p = 0.05,
+             repetition_penalty = 1.2)
 }
 \arguments{
 \item{model}{T3 model}

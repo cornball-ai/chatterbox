@@ -3,12 +3,8 @@
 \alias{t3_cond}
 \title{Create T3 conditioning object}
 \usage{
-t3_cond(
-  speaker_emb,
-  cond_prompt_speech_tokens = NULL,
-  cond_prompt_speech_emb = NULL,
-  emotion_adv = 0.5
-)
+t3_cond(speaker_emb, cond_prompt_speech_tokens = NULL,
+        cond_prompt_speech_emb = NULL, emotion_adv = 0.5)
 }
 \arguments{
 \item{speaker_emb}{Speaker embedding tensor (B, 256)}

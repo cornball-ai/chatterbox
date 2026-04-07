@@ -1,5 +1,10 @@
+<!--
+%\VignetteIndexEntry{Performance Comparison: Native R vs Container}
+%\VignetteEngine{simplermarkdown::mdweave_to_html}
+%\VignetteEncoding{UTF-8}
+-->
 ---
-title: Performance Comparison: Native R vs Container
+title: "Performance Comparison: Native R vs Container"
 ---
 
 # Performance Comparison

@@ -3,17 +3,9 @@
 \alias{generate}
 \title{Generate speech from text}
 \usage{
-generate(
-  model,
-  text,
-  voice,
-  exaggeration = 0.5,
-  cfg_weight = 0.5,
-  temperature = 0.8,
-  top_p = 0.9,
-  autocast = NULL,
-  traced = FALSE
-)
+generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
+         temperature = 0.8, top_p = 0.9, autocast = NULL, traced = FALSE,
+         backend = c("r", "cpp"), top_k = 1000L, repetition_penalty = 1.2)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -31,6 +23,14 @@ generate(
 \item{top_p}{Top-p (nucleus) sampling threshold (default 0.9)}
 
 \item{autocast}{Use mixed precision (float16) on CUDA for faster inference (default TRUE on CUDA)}
+
+\item{traced}{Logical. Use JIT-traced inference. Default FALSE.}
+
+\item{backend}{Character. Inference backend, either "r" or "cpp". Default "r".}
+
+\item{top_k}{Integer. Top-k sampling parameter. Default 1000.}
+
+\item{repetition_penalty}{Numeric. Repetition penalty. Default 1.2.}
 }
 \value{
 List with audio (numeric vector) and sample_rate

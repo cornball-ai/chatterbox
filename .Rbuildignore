@@ -10,3 +10,17 @@
 ^CLAUDE\.md$
 ^README\.md$
 ^\.github$
+^outputs$
+^scripts$
+^man-md$
+^ref_audio$
+^ARCHITECTURE\.md$
+^JIT_TRACE_OPTIMIZATION\.md$
+^PseudoCode\.md$
+^fyi\.md$
+^output\.wav$
+^test_output\.wav$
+^validation_status\.csv$
+^src/.*\.o$
+^src/.*\.so$
+^inst/audio$

@@ -3,14 +3,8 @@
 \alias{source_module_hn_nsf}
 \title{Source Module for Neural Source Filter}
 \usage{
-source_module_hn_nsf(
-  sample_rate,
-  upsample_scale,
-  harmonic_num = 0,
-  sine_amp = 0.1,
-  add_noise_std = 0.003,
-  voiced_threshold = 0
-)
+source_module_hn_nsf(sample_rate, upsample_scale, harmonic_num = 0,
+                     sine_amp = 0.1, add_noise_std = 0.003, voiced_threshold = 0)
 }
 \arguments{
 \item{sample_rate}{Sampling rate}

@@ -3,13 +3,8 @@
 \alias{s3_tokenizer_config}
 \title{S3Tokenizer model configuration}
 \usage{
-s3_tokenizer_config(
-  n_mels = 128,
-  n_audio_state = 1280,
-  n_audio_head = 20,
-  n_audio_layer = 6,
-  n_codebook_size = 6561
-)
+s3_tokenizer_config(n_mels = 128, n_audio_state = 1280, n_audio_head = 20,
+                    n_audio_layer = 6, n_codebook_size = 6561)
 }
 \arguments{
 \item{n_mels}{Number of mel bins (default 128)}

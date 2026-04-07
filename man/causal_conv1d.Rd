@@ -3,13 +3,7 @@
 \alias{causal_conv1d}
 \title{Causal Conv1d - pads left only}
 \usage{
-causal_conv1d(
-  in_channels,
-  out_channels,
-  kernel_size,
-  stride = 1L,
-  dilation = 1L
-)
+causal_conv1d(in_channels, out_channels, kernel_size, stride = 1L, dilation = 1L)
 }
 \arguments{
 \item{in_channels}{Input channels}

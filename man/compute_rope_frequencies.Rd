@@ -3,13 +3,8 @@
 \alias{compute_rope_frequencies}
 \title{Compute rotary position embeddings frequencies}
 \usage{
-compute_rope_frequencies(
-  dim,
-  max_seq_len,
-  theta = 5e+05,
-  scaling = NULL,
-  device = "cpu"
-)
+compute_rope_frequencies(dim, max_seq_len, theta = 5e+05, scaling = NULL,
+                         device = "cpu")
 }
 \arguments{
 \item{dim}{Dimension of embeddings}

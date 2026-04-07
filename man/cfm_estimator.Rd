@@ -3,13 +3,9 @@
 \alias{cfm_estimator}
 \title{CFM Estimator (ConditionalDecoder)}
 \usage{
-cfm_estimator(
-  in_channels = 320L,
-  out_channels = 80L,
-  hidden_dim = 256L,
-  num_mid_blocks = 12L,
-  num_transformer_blocks = 4L
-)
+cfm_estimator(in_channels = 320L, out_channels = 80L, hidden_dim = 256L,
+              num_mid_blocks = 12L, num_transformer_blocks = 4L,
+              meanflow = FALSE)
 }
 \arguments{
 \item{in_channels}{Input channels (default 320 = x + mu + spks + cond)}
@@ -21,6 +17,8 @@ cfm_estimator(
 \item{num_mid_blocks}{Number of mid blocks (default 12)}
 
 \item{num_transformer_blocks}{Transformer blocks per layer (default 4)}
+
+\item{meanflow}{Logical. Use mean-flow formulation. Default FALSE.}
 }
 \value{
 nn_module
