@@ -508,6 +508,7 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
             # Track generated tokens (only conditional path for CFG)
             generated_ids <- bos_token[1,, drop = FALSE]$clone()
             predicted <- list()
+            eos_found <- FALSE
 
             # Generation loop
             for (i in seq_len(max_new_tokens)) {
@@ -574,6 +575,7 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                 token_id <- as.integer(next_token$cpu()) - 1L
                 if (token_id == config$stop_speech_token) {
                     message("EOS detected at step ", i)
+                    eos_found <- TRUE
                     break
                 }
 
@@ -598,10 +600,11 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
     if (length(predicted) > 0) {
         tokens <- torch::torch_cat(predicted, dim = 2)$squeeze(1)
         tokens <- tokens$sub(1L) # Convert to 0-indexed token IDs
-        tokens
     } else {
-        torch::torch_tensor(integer(0), device = device)
+        tokens <- torch::torch_tensor(integer(0), device = device)
     }
+    attr(tokens, "eos_found") <- eos_found
+    tokens
 }
 
 # ============================================================================
@@ -747,6 +750,7 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
         # Track generated tokens
         generated_ids <- bos_token[1,, drop = FALSE]$clone()
         predicted <- list()
+        eos_found <- FALSE
 
         # === GENERATION LOOP: Use traced transformer ===
         # Limit generation to fit in cache
@@ -808,6 +812,7 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
             token_id <- as.integer(next_token$cpu()) - 1L
             if (token_id == config$stop_speech_token) {
                 message("EOS detected at step ", i)
+                eos_found <- TRUE
                 break
             }
 
@@ -864,10 +869,11 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
     if (length(predicted) > 0L) {
         tokens <- torch::torch_cat(predicted, dim = 2L)$squeeze(1L)
         tokens <- tokens$sub(1L)
-        tokens
     } else {
-        torch::torch_tensor(integer(0), device = device)
+        tokens <- torch::torch_tensor(integer(0), device = device)
     }
+    attr(tokens, "eos_found") <- eos_found
+    tokens
 }
 
 # ============================================================================
@@ -1036,17 +1042,21 @@ t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
     )
 
     # token_ids is an integer vector of 0-indexed token IDs (from C++)
+    eos_found <- FALSE
     if (length(token_ids) > 0L) {
         # Check for EOS and strip it
         eos_pos <- match(config$stop_speech_token, token_ids)
         if (!is.na(eos_pos)) {
             message("EOS detected at step ", eos_pos)
+            eos_found <- TRUE
             token_ids <- token_ids[seq_len(eos_pos - 1L)]
         }
-        torch::torch_tensor(token_ids, dtype = torch::torch_long(), device = device)
+        tokens <- torch::torch_tensor(token_ids, dtype = torch::torch_long(), device = device)
     } else {
-        torch::torch_tensor(integer(0), device = device)
+        tokens <- torch::torch_tensor(integer(0), device = device)
     }
+    attr(tokens, "eos_found") <- eos_found
+    tokens
 }
 
 # ============================================================================
@@ -1605,6 +1615,7 @@ t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
         past_key_values <- output$past_key_values
 
         generated_tokens <- list()
+        eos_found <- FALSE
 
         # Get first logits from last position
         hidden <- output$last_hidden_state[, -1L, , drop = FALSE]
@@ -1621,6 +1632,7 @@ t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
         token_id <- as.integer(current_token$cpu()) - 1L
         if (token_id == config$stop_speech_token) {
             message("EOS at step 1")
+            eos_found <- TRUE
         } else {
             # Generation loop
             for (i in seq_len(max_new_tokens)) {
@@ -1653,6 +1665,7 @@ t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
                 token_id <- as.integer(next_token$cpu()) - 1L
                 if (token_id == config$stop_speech_token) {
                     message("EOS at step ", i + 1L)
+                    eos_found <- TRUE
                     break
                 }
             }
@@ -1669,11 +1682,11 @@ t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
         if (length(token_vals) > 0L && token_vals[length(token_vals)] == config$stop_speech_token) {
             tokens <- tokens[1:(tokens$size(1) - 1L)]
         }
-
-        tokens
     } else {
-        torch::torch_tensor(integer(0), device = device)
+        tokens <- torch::torch_tensor(integer(0), device = device)
     }
+    attr(tokens, "eos_found") <- eos_found
+    tokens
 }
 
 #' Sample a token using turbo logit processors
