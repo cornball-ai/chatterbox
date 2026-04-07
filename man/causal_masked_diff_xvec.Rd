@@ -3,14 +3,9 @@
 \alias{causal_masked_diff_xvec}
 \title{Causal Masked Diff with Xvector}
 \usage{
-causal_masked_diff_xvec(
-  vocab_size = 6561,
-  input_size = 512,
-  output_size = 80,
-  spk_embed_dim = 192,
-  input_frame_rate = 25,
-  token_mel_ratio = 2
-)
+causal_masked_diff_xvec(vocab_size = 6561, input_size = 512, output_size = 80,
+                        spk_embed_dim = 192, input_frame_rate = 25,
+                        token_mel_ratio = 2, meanflow = FALSE)
 }
 \arguments{
 \item{vocab_size}{Speech token vocabulary size}
@@ -24,6 +19,8 @@ causal_masked_diff_xvec(
 \item{input_frame_rate}{Input frame rate for audio processing}
 
 \item{token_mel_ratio}{Ratio of tokens to mel frames}
+
+\item{meanflow}{Logical. Use mean-flow formulation. Default FALSE.}
 }
 \value{
 nn_module

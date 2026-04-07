@@ -11,6 +11,3 @@ TRUE if all turbo model files exist locally
 \description{
 Check if Turbo Models are Downloaded
 }
-\examples{
-turbo_models_available()
-}

@@ -3,12 +3,14 @@
 \alias{load_s3gen}
 \title{Load S3Gen from safetensors file}
 \usage{
-load_s3gen(path, device = "cpu")
+load_s3gen(path, device = "cpu", meanflow = FALSE)
 }
 \arguments{
 \item{path}{Path to s3gen.safetensors}
 
 \item{device}{Device to load to ("cpu", "cuda", etc.)}
+
+\item{meanflow}{Logical. Use mean-flow formulation. Default FALSE.}
 }
 \value{
 S3Gen model with loaded weights

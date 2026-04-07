@@ -3,15 +3,8 @@
 \alias{cam_layer}
 \title{CAM (Context-Aware Masking) Layer}
 \usage{
-cam_layer(
-  bn_channels,
-  out_channels,
-  kernel_size,
-  stride = 1,
-  padding = 0,
-  dilation = 1,
-  reduction = 2
-)
+cam_layer(bn_channels, out_channels, kernel_size, stride = 1, padding = 0,
+          dilation = 1, reduction = 2)
 }
 \arguments{
 \item{bn_channels}{Bottleneck channels}

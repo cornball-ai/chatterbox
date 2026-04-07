@@ -3,17 +3,9 @@
 \alias{compute_mel_spectrogram}
 \title{Compute mel spectrogram (S3Gen compatible)}
 \usage{
-compute_mel_spectrogram(
-  y,
-  n_fft = 1920,
-  n_mels = 80,
-  sr = 24000,
-  hop_size = 480,
-  win_size = 1920,
-  fmin = 0,
-  fmax = 8000,
-  center = FALSE
-)
+compute_mel_spectrogram(y, n_fft = 1920, n_mels = 80, sr = 24000,
+                        hop_size = 480, win_size = 1920, fmin = 0, fmax = 8000,
+                        center = FALSE)
 }
 \arguments{
 \item{y}{Audio samples as torch tensor or numeric vector}

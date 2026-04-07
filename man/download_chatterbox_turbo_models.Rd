@@ -13,12 +13,10 @@ Named list of local file paths (invisibly)
 }
 \description{
 Download all Chatterbox Turbo model files from HuggingFace.
-In interactive sessions, asks for user consent before downloading.
-The turbo model uses flow matching for faster inference.
+The turbo model uses a GPT-2 backbone and MeanFlow decoder for faster inference.
 }
 \examples{
 \dontrun{
-# Download turbo models (~3.8GB)
 download_chatterbox_turbo_models()
 }
 }

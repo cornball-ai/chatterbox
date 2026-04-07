@@ -3,15 +3,8 @@
 \alias{create_mel_filterbank}
 \title{Create mel filterbank}
 \usage{
-create_mel_filterbank(
-  sr,
-  n_fft,
-  n_mels,
-  fmin = 0,
-  fmax = NULL,
-  norm = "slaney",
-  htk = FALSE
-)
+create_mel_filterbank(sr, n_fft, n_mels, fmin = 0, fmax = NULL,
+                      norm = "slaney", htk = FALSE)
 }
 \arguments{
 \item{sr}{Sample rate}
@@ -23,6 +16,10 @@ create_mel_filterbank(
 \item{fmin}{Minimum frequency}
 
 \item{fmax}{Maximum frequency}
+
+\item{norm}{Character. Normalization type. Default "slaney".}
+
+\item{htk}{Logical. Use HTK formula. Default FALSE.}
 }
 \value{
 Mel filterbank matrix (n_mels x (n_fft/2 + 1))

@@ -3,7 +3,7 @@
 \alias{mish_activation}
 \title{Mish activation}
 \usage{
-mish_activation(in_channels, out_channels, kernel_size = 3L)
+mish_activation()
 }
 \value{
 nn_module

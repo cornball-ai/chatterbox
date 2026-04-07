@@ -12,6 +12,7 @@
 #' to the input.
 #'
 #' @param d_model Model dimension
+#' @param dropout_rate Numeric. Dropout rate. Default 0.1.
 #' @param max_len Maximum sequence length
 #' @return nn_module
 espnet_rel_positional_encoding <- torch::nn_module(

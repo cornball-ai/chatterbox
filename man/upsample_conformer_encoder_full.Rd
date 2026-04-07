@@ -3,16 +3,10 @@
 \alias{upsample_conformer_encoder_full}
 \title{Upsample Conformer Encoder}
 \usage{
-upsample_conformer_encoder_full(
-  input_size = 512,
-  output_size = 512,
-  num_blocks = 6,
-  num_up_blocks = 4,
-  n_head = 8,
-  n_ffn = 2048,
-  dropout_rate = 0.1,
-  pre_lookahead_len = 3
-)
+upsample_conformer_encoder_full(input_size = 512, output_size = 512,
+                                num_blocks = 6, num_up_blocks = 4, n_head = 8,
+                                n_ffn = 2048, dropout_rate = 0.1,
+                                pre_lookahead_len = 3)
 }
 \arguments{
 \item{input_size}{Input dimension}

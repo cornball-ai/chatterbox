@@ -3,10 +3,12 @@
 \alias{chatterbox}
 \title{Create Chatterbox TTS model}
 \usage{
-chatterbox(device = "cpu")
+chatterbox(device = "cpu", turbo = FALSE)
 }
 \arguments{
 \item{device}{Device to use ("cpu", "cuda", "mps", etc.)}
+
+\item{turbo}{Use turbo model (GPT-2 backbone, MeanFlow decoder). Default FALSE.}
 }
 \value{
 Chatterbox TTS model object

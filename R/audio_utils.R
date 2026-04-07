@@ -95,6 +95,8 @@ resample_audio <- function (samples, from_sr, to_sr)
 #' @param n_mels Number of mel bins
 #' @param fmin Minimum frequency
 #' @param fmax Maximum frequency
+#' @param norm Character. Normalization type. Default "slaney".
+#' @param htk Logical. Use HTK formula. Default FALSE.
 #' @return Mel filterbank matrix (n_mels x (n_fft/2 + 1))
 create_mel_filterbank <- function (sr, n_fft, n_mels, fmin = 0, fmax = NULL,
                                    norm = "slaney", htk = FALSE)

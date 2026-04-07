@@ -247,6 +247,10 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #' @param temperature Sampling temperature (default 0.8)
 #' @param top_p Top-p (nucleus) sampling threshold (default 0.9)
 #' @param autocast Use mixed precision (float16) on CUDA for faster inference (default TRUE on CUDA)
+#' @param traced Logical. Use JIT-traced inference. Default FALSE.
+#' @param backend Character. Inference backend, either "r" or "cpp". Default "r".
+#' @param top_k Integer. Top-k sampling parameter. Default 1000.
+#' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.
 #' @return List with audio (numeric vector) and sample_rate
 #' @export
 generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
@@ -531,6 +535,7 @@ print.voice_embedding <- function (x, ...)
 #' @param output_path Optional output file path. If NULL, returns audio data.
 #' @param device Device to use
 #' @param autocast Use mixed precision (float16) on CUDA (default TRUE on CUDA)
+#' @param turbo Logical. Use turbo architecture. Default FALSE.
 #' @return If output_path is NULL, returns list with audio and sample_rate.
 #'         Otherwise writes to file and returns path invisibly.
 #' @export

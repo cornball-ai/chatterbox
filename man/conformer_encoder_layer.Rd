@@ -3,12 +3,8 @@
 \alias{conformer_encoder_layer}
 \title{Conformer Encoder Layer}
 \usage{
-conformer_encoder_layer(
-  n_feat = 512,
-  n_head = 8,
-  n_ffn = 2048,
-  dropout_rate = 0.1
-)
+conformer_encoder_layer(n_feat = 512, n_head = 8, n_ffn = 2048,
+                        dropout_rate = 0.1)
 }
 \arguments{
 \item{n_feat}{Feature dimension}

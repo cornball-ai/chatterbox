@@ -1031,7 +1031,8 @@ t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
             n_heads = as.integer(n_heads),
             head_dim = as.integer(head_dim),
             rms_eps = 1e-5
-        )
+        ),
+        PACKAGE = "chatterbox"
     )
 
     # token_ids is an integer vector of 0-indexed token IDs (from C++)

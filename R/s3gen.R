@@ -158,6 +158,10 @@ transpose_layer <- torch::nn_module(
 mish_activation <- torch::nn_module(
     "Mish",
 
+    initialize = function ()
+    {
+    },
+
     forward = function (x)
     {
         x * torch::torch_tanh(torch::nnf_softplus(x))
@@ -380,6 +384,7 @@ basic_transformer_block <- torch::nn_module(
 #' @param hidden_dim Hidden dimension (default 256)
 #' @param num_mid_blocks Number of mid blocks (default 12)
 #' @param num_transformer_blocks Transformer blocks per layer (default 4)
+#' @param meanflow Logical. Use mean-flow formulation. Default FALSE.
 #' @return nn_module
 cfm_estimator <- torch::nn_module(
     "CFMEstimator",
@@ -522,18 +527,19 @@ cfm_estimator <- torch::nn_module(
     }
 )
 
-#' Causal Conditional Flow Matching
-#'
-#' @param in_channels Input channels (x + mu + spks + cond)
-#' @param out_channels Output channels (mel bins)
-#' @param spk_emb_dim Speaker embedding dimension
-#' @return nn_module
 # Cache for traced CFM estimators
 .cfm_traced_cache <- new.env(parent = emptyenv())
 
 # Fixed max sequence length for CFM tracing (avoids retracing per length)
 CFM_MAX_SEQ_LEN <- 1024L
 
+#' Causal Conditional Flow Matching
+#'
+#' @param in_channels Input channels (x + mu + spks + cond)
+#' @param out_channels Output channels (mel bins)
+#' @param spk_emb_dim Speaker embedding dimension
+#' @param meanflow Logical. Use mean-flow formulation. Default FALSE.
+#' @return nn_module
 causal_cfm <- torch::nn_module(
     "CausalConditionalCFM",
 
@@ -757,6 +763,7 @@ causal_cfm <- torch::nn_module(
 #' @param spk_embed_dim Speaker embedding dimension
 #' @param input_frame_rate Input frame rate for audio processing
 #' @param token_mel_ratio Ratio of tokens to mel frames
+#' @param meanflow Logical. Use mean-flow formulation. Default FALSE.
 #' @return nn_module
 causal_masked_diff_xvec <- torch::nn_module(
     "CausalMaskedDiffWithXvec",
@@ -889,6 +896,7 @@ causal_masked_diff_xvec <- torch::nn_module(
 
 #' S3Gen Token to Waveform
 #'
+#' @param meanflow Logical. Use mean-flow formulation. Default FALSE.
 #' @return nn_module
 s3gen <- torch::nn_module(
     "S3Gen",
@@ -1235,6 +1243,7 @@ load_s3gen_weights <- function(
 #'
 #' @param path Path to s3gen.safetensors
 #' @param device Device to load to ("cpu", "cuda", etc.)
+#' @param meanflow Logical. Use mean-flow formulation. Default FALSE.
 #' @return S3Gen model with loaded weights
 #' @export
 load_s3gen <- function(
