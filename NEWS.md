@@ -1,4 +1,4 @@
-# chatterbox 0.1.0 (development)
+# chatterbox 0.1.0.1 (development)
 
 ## Fidelity review vs chatterbox-tts 0.1.4 (June 2026)
 
