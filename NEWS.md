@@ -19,7 +19,7 @@ Full top-to-bottom comparison against the Python reference; thanks to
   the old divide-only form rewarded repeats with negative logits (#1).
 - `top_p` defaults to 1.0 (disabled) like Python; `min_p` and
   `repetition_penalty` are now actually forwarded to the standard model.
-- Degenerate-loop guard: the same token sampled 3x in a row stops
+- Degenerate-loop guard: the same token sampled 10x in a row stops
   generation with a warning and `eos_found = FALSE`.
 
 ### Conditioning
