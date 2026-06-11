@@ -59,6 +59,5 @@ output.wav
 src/Makevars
 src/*.o
 src/*.so
-tasks/*-draft.md
 *-draft.md
 tasks/
