@@ -24,3 +24,4 @@
 ^src/.*\.o$
 ^src/.*\.so$
 ^inst/audio$
+^tasks$
