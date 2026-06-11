@@ -319,9 +319,11 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   float16 output diverges slightly. Opt in for speed on tight VRAM.
 #' @param traced Logical. Use JIT-traced inference. Default FALSE.
 #' @param backend Character. Inference backend, either "r" or "cpp".
-#'   Default "r". The cpp backend is experimental: a compiled decode loop
-#'   on the stable ATen C++ API, kept as a hedge against TorchScript
-#'   deprecation, but currently slower than \code{traced = TRUE}.
+#'   Default "r". The cpp backend (experimental) runs the decode loop as
+#'   compiled C++ on the stable ATen API: with tuned GC settings (see
+#'   \code{\link{chatterbox_gc_options}}) it is the fastest native path
+#'   and, unlike \code{traced = TRUE}, has no JIT cold start and no
+#'   TorchScript dependency.
 #' @param top_k Integer. Top-k sampling parameter (turbo model only).
 #'   Default 1000.
 #' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.

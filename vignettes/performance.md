@@ -22,21 +22,34 @@ settings that matter more than the backend choice.
 - Scripts: `scripts/bench_backends.R`, `scripts/tune_gc.R`,
   `scripts/profile_backends.R`
 
+**Scope caveat: all numbers are from this one machine.** The GC
+mechanism is R/torch-side and applies on any CUDA GPU, and the cliff
+is ratio arithmetic - collections strangle inference whenever the
+model's reserved fraction of the card exceeds `reserved_rate`. So
+severity scales with card size: a 24 GB card's ~19% floor sits under
+the default 0.2 line and may never hit this at all, while small cards
+live deep past it. Absolute ms/token figures and the cpp-vs-traced
+ranking have not been verified on other hardware.
+
 ## Headline Numbers
 
 Per generated token, warm:
 
 | Backend | default torch GC settings | tuned GC settings |
 |---------|--------------------------|-------------------|
-| pure R | 920-1598 ms | **107-113 ms** |
-| traced (`traced = TRUE`) | 41-47 ms | **34-37 ms** |
-| cpp (`backend = "cpp"`, experimental) | 229-386 ms | not separately tuned |
+| cpp (`backend = "cpp"`) | 229-429 ms | **19-28 ms** |
+| traced (`traced = TRUE`) | 41-47 ms | **34-39 ms** |
+| pure R | 920-1598 ms | **100-113 ms** |
 | Python container (reference) | ~8 ms | - |
 
 The single most important fact in this vignette: **with default torch
-settings, pure-R inference spends ~91% of its wall time in R garbage
-collection** (measured with profvis + debrief). The backend comparison
-is almost a footnote to the GC story.
+settings, inference is garbage-collection-bound, not compute-bound.**
+Profiling (profvis + debrief) showed pure-R generation spending ~91% of
+its wall time in R GC — and the cpp backend, despite running its whole
+loop in C++, was throttled the same way (its allocations still flow
+through the allocator that invokes R collections). Tune one option and
+the backend ranking inverts: the compiled loop becomes the fastest
+native path, ~3x off the Python container.
 
 ## The GC Story
 
@@ -45,52 +58,53 @@ returns when R finalizes its handle, during a collection. To avoid
 running out of memory, torch's allocators *invoke full R collections
 themselves*, governed by four options read **once, at torch startup**:
 
-1. `torch.threshold_call_gc` (default 4000): full `gc()` per N MB of
-   cumulative host-side allocation. Every tensor handle ticks this
-   odometer; a per-token loop crosses 4 GB constantly.
-2. `torch.cuda_allocator_reserved_rate` (default 0.2): once torch has
+1. `torch.cuda_allocator_reserved_rate` (default 0.2): once torch has
    reserved more than this fraction of total VRAM, GPU allocations
-   start invoking collections. The loaded model alone (~4.5 GB) is past
-   20% of a 16 GB card, so every allocation can trigger one.
-3. `torch.cuda_allocator_allocated_rate` (default 0.8) and
-4. `torch.cuda_allocator_allocated_reserved_rate` (default 0.8): the
-   backstop - force full collections near the top of the card. Leave
-   both at their defaults; they are the self-regulation that prevents
-   out-of-memory, not the problem.
+   start invoking collections. The loaded model alone (~4.6 GB) is past
+   20% of a 16 GB card, so every allocation can trigger one. **This is
+   the speed knob.**
+2. `torch.cuda_allocator_allocated_rate` (default 0.8): forces full
+   collections once allocated memory crosses this fraction of the card.
+   **This is the VRAM-ceiling knob** - it does not affect speed.
+3. `torch.cuda_allocator_allocated_reserved_rate` (default 0.8): the
+   fragmentation rule. No measurable effect in our sweeps; leave it.
+4. `torch.threshold_call_gc` (default 4000): full `gc()` per N MB of
+   cumulative host-side allocation. Raising it alone gave only ~1.5x,
+   and it adds nothing once the reserved rate is set; leave it.
 
 Because the settings are read at startup, they must be set **before
 torch loads** - in `.Rprofile` or at the very top of a script. Setting
 them after `library(torch)` (or any torch use) does nothing.
 
+### Which knobs, at what ranges (one knob moved at a time)
+
+| knob moved alone | speed | VRAM plateau |
+|---|---|---|
+| reserved_rate .2 -> .5 (others default) | 1113 -> 105 ms/tok (the whole win) | sets it |
+| threshold_call_gc 4 GB -> 16/64 GB | 1113 -> ~700-800 (minor) | none |
+| allocated_rate .8 -> .6 | none | caps lower (flat ~9.3 GB) |
+| allocated_rate .8 -> .95 | none | climbs higher, no benefit |
+| allocated_reserved_rate .6 / .95 | none | none |
+
+The reserved rate is a cliff, not a dial: every value from 0.3 to 0.8
+gave the same ~100-113 ms/token (pure R). All that matters is the
+trigger line clearing what the loaded model reserves; past that, the
+value only chooses how high the VRAM plateau sits (0.3 -> ~9 GB,
+0.8 -> ~14 GB on a 16 GB card).
+
 ### Tuned settings
 
-`chatterbox_gc_options()` prints the snippet for your card. For a 16 GB
-GPU:
+One option. `chatterbox_gc_options()` prints it for your card. For a
+16 GB GPU:
 
 ```r
-options(
-    torch.cuda_allocator_reserved_rate = 0.5,
-    torch.threshold_call_gc = 16000
-)
+options(torch.cuda_allocator_reserved_rate = 0.5)
 ```
 
-For a 6 GB GPU use `reserved_rate = 0.75`: the trigger line is a
-fraction of the card, and the ~3.2 GB model floor already exceeds 50%
-of a small card.
-
-### Measured trade (5 consecutive generations per config)
-
-| config | pure-R ms/tok | traced ms/tok | VRAM trajectory |
-|--------|--------------|---------------|-----------------|
-| default (.2 / 4 GB) | 920-1598 | 41-47 | flat 4.6-4.9 GB |
-| rate .5, cpu 16 GB | 107-113 | 34-37 | 9.3 -> 13.8 GB |
-| rate .7, cpu 64 GB | 112-113 | 34-36 | 12.2 -> 14.9 GB |
-| rate .9 + gc() per generation | 109-110 | 34-40 | plateaus 15.4 GB |
-
-The speed win saturates at moderate settings; pushing further only
-raises the VRAM plateau. The creep is homeostatic (the 0.8 backstop
-forces collections near the top of the card), but the steady state
-lives high.
+For a 6 GB GPU use `0.75` (the ~3.2 GB model floor is already 53% of a
+small card, so the line must sit higher). Optionally add
+`torch.cuda_allocator_allocated_rate = 0.6` to hold the VRAM plateau
+lower at no speed cost - useful on shared GPUs.
 
 **Rule of thumb: collect once per utterance, not thousands of times
 inside it.** `tts_chunked()` calls `gc()` after each chunk; do the same
@@ -111,13 +125,32 @@ cannot be batched away.
 
 ## Backend Details
 
-### Traced (`traced = TRUE`) - fastest
+### cpp (`backend = "cpp"`) - fastest native, experimental
+
+The T3 decode loop as a single `.Call()` into a compiled loop on the
+ATen C++ API. With tuned GC settings: **19-28 ms/token**, no JIT
+compilation cold start, and ~1 GB less VRAM than traced (no duplicate
+weight copies). It also has no TorchScript dependency, so it is immune
+to the deprecation that will eventually strand traced mode.
+
+Under default GC settings it measured 230-430 ms/token, which is why it
+was long believed slow: its allocations flow through the same allocator
+that invokes R collections, even though the loop never returns to R.
+Tune the one option and the compiled loop shows its true cost.
+
+Still marked experimental: it shares traced's 350-position cache cap
+(liftable - the loop attends only over valid positions, so a larger
+cache costs VRAM but no speed), and has had less soak time than the
+other paths. Requires libtorch headers at install time (auto-detected
+by the configure script; without them it compiles to a stub).
+
+### Traced (`traced = TRUE`)
 
 `torch::jit_trace()` compiles the 30 T3 transformer layers and the CFM
 estimator into TorchScript graphs.
 
 - **Cold start**: ~50-60s one-time JIT compilation per session.
-- **Warm**: ~35 ms/token.
+- **Warm**: ~35-39 ms/token (tuned GC).
 - **Limits**: KV cache fixed at 350 positions (conditioning + ~190-270
   generated tokens); traced CFM fixed at 1024 mel frames - the prompt
   mel shares that budget, so a 10s reference leaves ~262 generated
@@ -135,16 +168,6 @@ Everything eager. ~110 ms/token with tuned GC settings. No token cap
 below the model's own limits, no extra VRAM, fully debuggable. The
 right backend for long generations and for small cards.
 
-### cpp (`backend = "cpp"`) - experimental
-
-The T3 decode loop as a single `.Call()` into a compiled loop on the
-ATen C++ API. Kept as a hedge: it does not depend on TorchScript, so it
-survives the deprecation that will eventually strand traced mode.
-Currently ~230-390 ms/token - slower than traced, faster than untuned
-pure R. Requires libtorch headers at install time (auto-detected by the
-configure script; without them it compiles to a stub). Shares traced's
-350-position cache cap.
-
 ## Memory
 
 | component | size |
@@ -161,10 +184,12 @@ perceiver, and the flow prompt adds ~50 mel frames per second of
 ## When to Use What
 
 - **Container** (`tts.api` backend): production speed (~8 ms/token).
-- **Traced**: long-running R sessions, utterance-length text.
+- **cpp + tuned GC**: fastest native path (19-28 ms/token), no JIT
+  warmup; utterance-length text (350-position cache cap).
+- **Traced**: when libtorch headers were unavailable at install time
+  but speed matters in a long-running session.
 - **Pure R + tuned GC**: long texts, small cards, debugging, anywhere
-  Docker isn't.
-- **cpp**: experimental; revisit when TorchScript removal gets real.
+  else.
 
 ## Optimizations Applied
 
