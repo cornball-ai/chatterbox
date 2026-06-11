@@ -13,7 +13,6 @@
 ^outputs$
 ^scripts$
 ^man-md$
-^ref_audio$
 ^ARCHITECTURE\.md$
 ^output\.wav$
 ^src/.*\.o$
