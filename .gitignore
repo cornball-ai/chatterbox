@@ -61,3 +61,4 @@ src/*.o
 src/*.so
 tasks/*-draft.md
 *-draft.md
+tasks/
