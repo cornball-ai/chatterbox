@@ -4,7 +4,7 @@
 \title{T3 inference with JIT tracing (optimized)}
 \usage{
 t3_inference_traced(model, cond, text_tokens, max_new_tokens = 1000,
-                    temperature = 0.8, cfg_weight = 0.5, top_p = 0.95,
+                    temperature = 0.8, cfg_weight = 0.5, top_p = 1,
                     min_p = 0.05, repetition_penalty = 1.2, max_cache_len = 350L)
 }
 \arguments{

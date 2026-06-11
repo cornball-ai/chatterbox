@@ -14,6 +14,8 @@ tokenize_text(tokenizer, text)
 Integer vector of token IDs
 }
 \description{
-Implements proper BPE (Byte Pair Encoding) using the merge list.
-Merges are applied in priority order (first merge = highest priority).
+Mirrors the HF tokenizers pipeline used by the Python reference:
+added tokens ([SPACE], [laughter], [sigh], ...) are extracted first
+and map directly to their ids; BPE merges run on the remaining text,
+in priority order (first merge = highest priority).
 }

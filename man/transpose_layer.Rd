@@ -2,9 +2,6 @@
 \name{transpose_layer}
 \alias{transpose_layer}
 \title{Transpose layer for use in sequential}
-\usage{
-transpose_layer()
-}
 \value{
 nn_module
 }

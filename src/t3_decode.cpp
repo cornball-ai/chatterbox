@@ -226,6 +226,7 @@ SEXP cpp_t3_decode(
     double min_p = get_double(config_sexp, "min_p");
     double rep_penalty = get_double(config_sexp, "rep_penalty");
     int64_t stop_token_0idx = get_int(config_sexp, "stop_token");
+    int64_t start_token_0idx = get_int(config_sexp, "start_token");
     int64_t n_heads = get_int(config_sexp, "n_heads");
     int64_t head_dim = get_int(config_sexp, "head_dim");
     float rms_eps = (float)get_double(config_sexp, "rms_eps");
@@ -280,8 +281,15 @@ SEXP cpp_t3_decode(
     std::vector<int64_t> generated_tokens;
     generated_tokens.reserve(max_tokens);
 
-    // Track unique generated token IDs for repetition penalty
+    // Track unique generated token IDs for repetition penalty.
+    // Seed with BOS: the HF processor penalizes the full input_ids view,
+    // and the R variants penalize BOS too.
     std::unordered_set<int64_t> seen_tokens;
+    seen_tokens.insert(start_token_0idx);
+
+    // Runaway guard state (same semantics as the R variants)
+    int64_t last_token_id = -1;
+    int repeat_run = 0;
 
     auto device = normed_hidden.device();
 
@@ -316,12 +324,14 @@ SEXP cpp_t3_decode(
         // Shape: (vocab_size,) — work with 1D from here
 
         // === Repetition penalty ===
-        // The R code divides by rep_penalty for all penalized tokens.
-        // We match that behavior (simpler than sign-dependent penalty).
+        // HF semantics are sign-dependent: divide positive logits, multiply
+        // negative ones. Dividing a negative logit would move it toward 0,
+        // REWARDING repeats.
         if (rep_penalty != 1.0 && !seen_tokens.empty()) {
             for (int64_t tok : seen_tokens) {
                 if (tok >= 0 && tok < vocab_size) {
-                    combined_logits[tok] = combined_logits[tok] / rep_penalty;
+                    double v = combined_logits[tok].item<double>();
+                    combined_logits[tok] = v > 0 ? v / rep_penalty : v * rep_penalty;
                 }
             }
         }
@@ -368,6 +378,21 @@ SEXP cpp_t3_decode(
         // === EOS check ===
         if (token_id == stop_token_0idx) {
             break;
+        }
+
+        // === Runaway guard ===
+        // The same token sampled 10x in a row (400 ms of identical codes)
+        // is a degenerate loop. Natural speech (silence, laughter) produces
+        // short identical runs, so the threshold must stay well above 3.
+        if (token_id == last_token_id) {
+            if (++repeat_run >= 10) {
+                Rf_warning("Stopping generation: token %lld repeated 10x at step %lld (degenerate loop)",
+                           (long long)token_id, (long long)step + 1);
+                break;
+            }
+        } else {
+            last_token_id = token_id;
+            repeat_run = 1;
         }
 
         // === Embedding lookup for next token ===
