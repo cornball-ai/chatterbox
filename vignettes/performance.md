@@ -104,7 +104,23 @@ options(torch.cuda_allocator_reserved_rate = 0.5)
 For a 6 GB GPU use `0.75` (the ~3.2 GB model floor is already 53% of a
 small card, so the line must sit higher). Optionally add
 `torch.cuda_allocator_allocated_rate = 0.6` to hold the VRAM plateau
-lower at no speed cost - useful on shared GPUs.
+lower at no speed cost - but only where 60% of the card clears the
+model floor (roughly 8 GB cards and up); below that the cap recreates
+the constant-collection regime.
+
+### Measured on 6 GB hardware (GTX 1660 Ti)
+
+| config | pure-R ms/tok | VRAM |
+|--------|--------------|------|
+| default | 1032-1811 | 3.6 GB flat |
+| reserved_rate 0.75 | **300-360** | 4.4-5.4 GB oscillating |
+| 0.75 + allocated_rate 0.6 | 423-441 (worse) | 4.7-4.9 GB |
+
+The same mechanism on a different GPU generation: the untuned storm
+reproduces, and one knob buys ~4x (not 10x - the card is tight enough
+that the 0.8 backstop line still fires collections, visible as the
+oscillating VRAM). The allocated_rate=0.6 row is the floor rule above
+demonstrated: 60% of this card sits below the model floor.
 
 **Rule of thumb: collect once per utterance, not thousands of times
 inside it.** `tts_chunked()` calls `gc()` after each chunk; do the same

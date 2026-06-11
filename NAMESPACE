@@ -4,7 +4,6 @@
 # drops this on every document() run; it MUST be re-added or the C++
 # backend silently dies (test_cpp_backend.R guards this)
 useDynLib(chatterbox, .registration = TRUE)
-
 export(chatterbox)
 export(chatterbox_gc_options)
 export(compute_mel_spectrogram)

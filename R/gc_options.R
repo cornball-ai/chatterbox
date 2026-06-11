@@ -66,16 +66,21 @@ chatterbox_gc_options <- function (vram_gb = NULL) {
         "at the top of your script, BEFORE torch loads:\n\n", sep = "")
     cat(sprintf("    options(torch.cuda_allocator_reserved_rate = %.2f)\n\n",
         rate))
-    cat("Optional, to hold the VRAM plateau lower (e.g. shared GPUs),\n",
-        "at no speed cost:\n\n", sep = "")
-    cat("    options(torch.cuda_allocator_allocated_rate = 0.6)\n\n")
+    if (vram_gb >= 8) {
+        cat("Optional, to hold the VRAM plateau lower (e.g. shared GPUs),\n",
+            "at no speed cost:\n\n", sep = "")
+        cat("    options(torch.cuda_allocator_allocated_rate = 0.6)\n\n")
+    }
     cat("In batch loops, call gc() after each generate().\n")
 
     if (vram_gb <= 6.5) {
-        cat("\nNote: on a ", vram_gb, " GB card the fp32 model floor",
-            " (~3.2 GB) leaves little\nheadroom; the pure-R backend",
-            " is usually the practical choice there\n(traced graphs",
-            " add ~1 GB of weight copies).\n", sep = "")
+        cat("\nNote: on a ", vram_gb, " GB card the model floor leaves",
+            " little headroom, so the\n0.8 backstop still fires some",
+            " collections: expect ~3-5x from tuning,\nnot the ~10x",
+            " larger cards see (measured on a 6 GB GTX 1660 Ti).\n",
+            "Do NOT lower allocated_rate here - 60% of a small card",
+            " sits below\nthe model floor and recreates the constant-",
+            "collection regime.\n", sep = "")
     }
 
     if (isNamespaceLoaded("torch")) {
