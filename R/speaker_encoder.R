@@ -453,7 +453,9 @@ compute_xvector_embedding <- function(model, audio, sr) {
     # called by the Python reference (xvector.py extract_feature). The
     # previous librosa-style mel halved the feature scale and warped
     # the mel axis, skewing the speaker embedding.
-    mel <- kaldi_fbank(audio$squeeze(1), num_mel_bins = 80L,
+    # fbank runs on CPU (its filterbank constants live there; the
+    # feature matrix is tiny) and moves to the model device below
+    mel <- kaldi_fbank(audio$squeeze(1)$cpu(), num_mel_bins = 80L,
                        sample_rate = target_sr)$unsqueeze(1)
 
     # Subtract per-feature mean over frames (xvector.py)

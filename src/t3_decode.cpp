@@ -381,11 +381,12 @@ SEXP cpp_t3_decode(
         }
 
         // === Runaway guard ===
-        // The same token sampled 3x in a row is a degenerate loop
-        // (Python's alignment analyzer forces EOS at 2x).
+        // The same token sampled 10x in a row (400 ms of identical codes)
+        // is a degenerate loop. Natural speech (silence, laughter) produces
+        // short identical runs, so the threshold must stay well above 3.
         if (token_id == last_token_id) {
-            if (++repeat_run >= 3) {
-                Rf_warning("Stopping generation: token %lld repeated 3x at step %lld (degenerate loop)",
+            if (++repeat_run >= 10) {
+                Rf_warning("Stopping generation: token %lld repeated 10x at step %lld (degenerate loop)",
                            (long long)token_id, (long long)step + 1);
                 break;
             }

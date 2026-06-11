@@ -451,19 +451,6 @@ t3_model <- torch::nn_module(
 # T3 Inference
 # ============================================================================
 
-#' Run T3 inference to generate speech tokens
-#'
-#' @param model T3 model
-#' @param cond T3 conditioning
-#' @param text_tokens Tokenized text (tensor)
-#' @param max_new_tokens Maximum speech tokens to generate
-#' @param temperature Sampling temperature
-#' @param cfg_weight Classifier-free guidance weight
-#' @param top_p Nucleus sampling threshold
-#' @param min_p Minimum probability threshold
-#' @param repetition_penalty Repetition penalty
-#' @return Generated speech tokens
-#' @export
 #' Sample the next speech token from CFG-combined logits
 #'
 #' Shared by the pure-R and traced inference loops so their sampling
@@ -519,6 +506,19 @@ t3_model <- torch::nn_module(
     sorted_indices$gather(2, next_token_idx)
 }
 
+#' Run T3 inference to generate speech tokens
+#'
+#' @param model T3 model
+#' @param cond T3 conditioning
+#' @param text_tokens Tokenized text (tensor)
+#' @param max_new_tokens Maximum speech tokens to generate
+#' @param temperature Sampling temperature
+#' @param cfg_weight Classifier-free guidance weight
+#' @param top_p Nucleus sampling threshold (1.0 disables, Python default)
+#' @param min_p Minimum probability threshold
+#' @param repetition_penalty Repetition penalty
+#' @return Generated speech tokens
+#' @export
 t3_inference <- function(model, cond, text_tokens, max_new_tokens = 1000,
                          temperature = 0.8, cfg_weight = 0.5, top_p = 1.0,
                          min_p = 0.05, repetition_penalty = 1.2) {
@@ -611,14 +611,15 @@ t3_inference <- function(model, cond, text_tokens, max_new_tokens = 1000,
                 break
             }
 
-            # Runaway guard: the same token sampled 3x in a row is a
+            # Runaway guard: the same token sampled 10x in a row (400 ms of
+            # identical codes) is a
             # degenerate loop (Python's alignment analyzer forces EOS at
             # 2x). Stop with eos_found = FALSE so callers see the failure.
             if (token_id == last_token_id) {
                 repeat_run <- repeat_run + 1L
-                if (repeat_run >= 3L) {
+                if (repeat_run >= 10L) {
                     warning("Stopping generation: token ", token_id,
-                            " repeated 3x at step ", i,
+                            " repeated 10x at step ", i,
                             " (degenerate loop)", call. = FALSE)
                     break
                 }
@@ -855,9 +856,9 @@ t3_inference_traced <- function(model, cond, text_tokens,
             # Runaway guard (see t3_inference)
             if (token_id == last_token_id) {
                 repeat_run <- repeat_run + 1L
-                if (repeat_run >= 3L) {
+                if (repeat_run >= 10L) {
                     warning("Stopping generation: token ", token_id,
-                            " repeated 3x at step ", i,
+                            " repeated 10x at step ", i,
                             " (degenerate loop)", call. = FALSE)
                     break
                 }

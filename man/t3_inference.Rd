@@ -4,7 +4,7 @@
 \title{Run T3 inference to generate speech tokens}
 \usage{
 t3_inference(model, cond, text_tokens, max_new_tokens = 1000,
-             temperature = 0.8, cfg_weight = 0.5, top_p = 0.95, min_p = 0.05,
+             temperature = 0.8, cfg_weight = 0.5, top_p = 1, min_p = 0.05,
              repetition_penalty = 1.2)
 }
 \arguments{
@@ -20,7 +20,7 @@ t3_inference(model, cond, text_tokens, max_new_tokens = 1000,
 
 \item{cfg_weight}{Classifier-free guidance weight}
 
-\item{top_p}{Nucleus sampling threshold}
+\item{top_p}{Nucleus sampling threshold (1.0 disables, Python default)}
 
 \item{min_p}{Minimum probability threshold}
 
