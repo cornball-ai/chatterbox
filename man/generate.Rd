@@ -33,7 +33,10 @@ float16 output diverges slightly. Opt in for speed on tight VRAM.}
 
 \item{traced}{Logical. Use JIT-traced inference. Default FALSE.}
 
-\item{backend}{Character. Inference backend, either "r" or "cpp". Default "r".}
+\item{backend}{Character. Inference backend, either "r" or "cpp".
+Default "r". The cpp backend is experimental: a compiled decode loop
+on the stable ATen C++ API, kept as a hedge against TorchScript
+deprecation, but currently slower than \code{traced = TRUE}.}
 
 \item{top_k}{Integer. Top-k sampling parameter (turbo model only).
 Default 1000.}
