@@ -418,7 +418,9 @@ tokenize_text_gpt2 <- function (tokenizer, text)
 
     # GPT-2 pre-tokenization regex pattern
     # Matches: contractions, words with optional leading space, numbers, punctuation, whitespace
-    pat <- "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^\\s[:alpha:][:digit:]]+|\\s+(?!\\S)|\\s+"
+    # \p{L}/\p{N} (Unicode letter/number), like GPT-2's regex; the POSIX
+    # classes split non-ASCII letters differently
+    pat <- "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+"
 
     # Find all matches
     matches <- gregexpr(pat, text, perl = TRUE)

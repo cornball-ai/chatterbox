@@ -27,8 +27,9 @@ make_pad_mask <- function (lengths, max_len = NULL)
     # R torch_arange(0, n) is inclusive, so 0 to n-1 gives n values
     range_tensor <- torch::torch_arange(0, max_len - 1, device = device, dtype = torch::torch_long())$unsqueeze(1)
 
-    # Compare with lengths
-    lengths <- lengths$view(c(1, batch_size))
+    # Compare with lengths: [1, max_len] >= [batch_size, 1] broadcasts
+    # to [batch_size, max_len] (mask.py expand semantics)
+    lengths <- lengths$view(c(batch_size, 1))
     range_tensor >= lengths
 }
 

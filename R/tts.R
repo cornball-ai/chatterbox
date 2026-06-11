@@ -69,6 +69,17 @@ normalize_tts_text <- function (text)
 #' @export
 chatterbox <- function (device = "cpu", turbo = FALSE)
 {
+    # Fall back to CPU when the requested accelerator is absent
+    # (Python from_pretrained does the same for MPS)
+    if (grepl("^cuda", device) && !torch::cuda_is_available()) {
+        warning("CUDA requested but not available; using CPU", call. = FALSE)
+        device <- "cpu"
+    }
+    if (device == "mps" && !torch::backends_mps_is_available()) {
+        warning("MPS requested but not available; using CPU", call. = FALSE)
+        device <- "cpu"
+    }
+
     structure(
         list(
             device = device,

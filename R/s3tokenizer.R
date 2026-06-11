@@ -673,17 +673,33 @@ s3_tokenizer <- torch::nn_module(
 
 #' Drop invalid speech tokens
 #'
-#' @param tokens Token tensor
-#' @return Filtered tokens
+#' Python parity: slice to the span after the first SOS and before the
+#' first EOS (s3tokenizer drop_invalid_tokens), then drop any remaining
+#' out-of-vocab ids (tts.py filters < SPEECH_VOCAB_SIZE on top). The
+#' old elementwise filter kept post-EOS garbage when generation hit the
+#' token cap with a mid-stream EOS.
+#'
+#' @param tokens Token tensor or integer vector (0-indexed values)
+#' @return Filtered tokens, same type as input
 drop_invalid_tokens <- function (tokens)
 {
-    # Remove tokens >= SPEECH_VOCAB_SIZE
-    if (inherits(tokens, "torch_tensor")) {
-        valid_mask <- tokens < SPEECH_VOCAB_SIZE
-        tokens[valid_mask]
-    } else {
-        tokens[tokens < SPEECH_VOCAB_SIZE]
+    sos <- SPEECH_VOCAB_SIZE # 6561
+    eos <- SPEECH_VOCAB_SIZE + 1L # 6562
+
+    is_tensor <- inherits(tokens, "torch_tensor")
+    vals <- if (is_tensor) as.integer(tokens$cpu()) else as.integer(tokens)
+
+    s <- match(sos, vals)
+    s <- if (is.na(s)) 1L else s + 1L
+    e <- match(eos, vals)
+    e <- if (is.na(e)) length(vals) else e - 1L
+
+    keep <- rep(FALSE, length(vals))
+    if (s <= e) {
+        keep[s:e] <- vals[s:e] < SPEECH_VOCAB_SIZE
     }
+
+    tokens[keep]
 }
 
 #' Pad audio to multiple of token rate
