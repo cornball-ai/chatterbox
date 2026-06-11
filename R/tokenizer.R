@@ -54,12 +54,24 @@ load_tokenizer <- function (vocab_path)
         token_to_id[token] <- vocab[[token]]
     }
 
-    # Verify special tokens
+    # Verify special tokens (Python asserts; a tokenizer without them is unusable)
     if (!(SPECIAL_TOKENS$SOT %in% names(vocab))) {
-        warning("Missing [START] token in vocabulary")
+        stop("Missing [START] token in vocabulary: ", vocab_path)
     }
     if (!(SPECIAL_TOKENS$EOT %in% names(vocab))) {
-        warning("Missing [STOP] token in vocabulary")
+        stop("Missing [STOP] token in vocabulary: ", vocab_path)
+    }
+
+    # Added tokens ([SPACE], [laughter], [sigh], ...) are extracted from
+    # text before BPE runs, exactly like HF tokenizers' AddedToken pass.
+    # Sort longest-first so e.g. [PLACEHOLDER55] wins over any prefix.
+    added_tokens <- character(0)
+    if (!is.null(json_data$added_tokens)) {
+        contents <- vapply(json_data$added_tokens, function (t) t$content, character(1))
+        ids <- vapply(json_data$added_tokens, function (t) as.integer(t$id), integer(1))
+        ord <- order(nchar(contents), decreasing = TRUE)
+        added_tokens <- ids[ord]
+        names(added_tokens) <- contents[ord]
     }
 
     list(
@@ -67,6 +79,7 @@ load_tokenizer <- function (vocab_path)
         merges = merges,
         id_to_token = id_to_token,
         token_to_id = token_to_id,
+        added_tokens = added_tokens,
         vocab_size = length(vocab)
     )
 }
@@ -86,8 +99,8 @@ punc_norm <- function (text)
         text <- paste0(toupper(substr(text, 1, 1)), substr(text, 2, nchar(text)))
     }
 
-    # Remove multiple spaces
-    text <- gsub("\\s+", " ", text)
+    # Remove multiple spaces (Python: " ".join(text.split()) — also trims both ends)
+    text <- trimws(gsub("\\s+", " ", text))
 
     # Replace uncommon punctuation
     replacements <- list(
@@ -124,21 +137,90 @@ punc_norm <- function (text)
 
 #' Encode text to token IDs using BPE
 #'
-#' Implements proper BPE (Byte Pair Encoding) using the merge list.
-#' Merges are applied in priority order (first merge = highest priority).
+#' Mirrors the HF tokenizers pipeline used by the Python reference:
+#' added tokens ([SPACE], [laughter], [sigh], ...) are extracted first
+#' and map directly to their ids; BPE merges run on the remaining text,
+#' in priority order (first merge = highest priority).
 #'
 #' @param tokenizer Tokenizer object
 #' @param text Input text
 #' @return Integer vector of token IDs
 tokenize_text <- function (tokenizer, text)
 {
-    # First, split text while preserving spaces as special tokens
-    # Don't replace spaces yet - handle them during initial tokenization
+    ids <- integer(0)
+    for (seg in split_added_tokens(text, tokenizer$added_tokens)) {
+        if (!is.na(seg$id)) {
+            ids <- c(ids, seg$id)
+        } else {
+            ids <- c(ids, bpe_encode(tokenizer, seg$text))
+        }
+    }
+    ids
+}
 
-    # Start with characters, but treat spaces as [SPACE] tokens
+#' Split text on added-token occurrences
+#'
+#' HF tokenizers extract added tokens before pre-tokenization/BPE, so
+#' \code{[laughter]} is one token, never spelled out letter by letter.
+#' \code{added_tokens} is sorted longest-first at load time so prefix
+#' collisions resolve the same way (regex alternation is first-match).
+#'
+#' @param text Input text
+#' @param added_tokens Named integer vector (content -> id)
+#' @return List of segments: \code{list(text =, id =)}, id NA for plain text
+#' @noRd
+split_added_tokens <- function (text, added_tokens)
+{
+    if (length(added_tokens) == 0 || !nzchar(text)) {
+        return(list(list(text = text, id = NA_integer_)))
+    }
+    escaped <- gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", names(added_tokens))
+    m <- gregexpr(paste(escaped, collapse = "|"), text)[[1]]
+    if (m[1] == -1L) {
+        return(list(list(text = text, id = NA_integer_)))
+    }
+    lens <- attr(m, "match.length")
+    segments <- list()
+    pos <- 1L
+    for (i in seq_along(m)) {
+        if (m[i] > pos) {
+            segments[[length(segments) + 1L]] <- list(
+                text = substr(text, pos, m[i] - 1L), id = NA_integer_
+            )
+        }
+        content <- substr(text, m[i], m[i] + lens[i] - 1L)
+        segments[[length(segments) + 1L]] <- list(
+            text = content, id = unname(added_tokens[[content]])
+        )
+        pos <- m[i] + lens[i]
+    }
+    if (pos <= nchar(text)) {
+        segments[[length(segments) + 1L]] <- list(
+            text = substr(text, pos, nchar(text)), id = NA_integer_
+        )
+    }
+    segments
+}
+
+#' BPE-encode a plain text segment (no added tokens)
+#'
+#' @param tokenizer Tokenizer object
+#' @param text Text segment
+#' @return Integer vector of token IDs
+#' @noRd
+bpe_encode <- function (tokenizer, text)
+{
+    # Non-space whitespace is discarded by HF's Whitespace pre-tokenizer
+    # but still separates words: BPE must not merge across it
+    # ("a\tb" is [a, b], never the merged token "ab")
+    pieces <- strsplit(text, "(?:(?! )\\s)+", perl = TRUE) [[1]]
+    if (length(pieces) > 1) {
+        return(unlist(lapply(pieces, function (p) bpe_encode(tokenizer, p))))
+    }
+
     chars <- strsplit(text, "") [[1]]
 
-    # Handle characters - map spaces to [SPACE], unknowns to UNK
+    # Map spaces to [SPACE]; unknown chars to [UNK]
     tokens <- character(length(chars))
     for (i in seq_along(chars)) {
         if (chars[i] == " ") {
@@ -178,14 +260,13 @@ tokenize_text <- function (tokenizer, text)
 
         # Check if merged token is in vocabulary
         if (merged_token %in% names(tokenizer$vocab)) {
-            # Replace the pair with merged token
-            if (best_idx == 1) {
-                tokens <- c(merged_token, tokens[(best_idx + 2) :length(tokens)])
-            } else if (best_idx + 1 == length(tokens)) {
-                tokens <- c(tokens[1:(best_idx - 1)], merged_token)
+            left <- if (best_idx > 1) tokens[1:(best_idx - 1)] else character(0)
+            right <- if (best_idx + 1 < length(tokens)) {
+                tokens[(best_idx + 2) :length(tokens)]
             } else {
-                tokens <- c(tokens[1:(best_idx - 1)], merged_token, tokens[(best_idx + 2) :length(tokens)])
+                character(0)
             }
+            tokens <- c(left, merged_token, right)
         } else {
             # Merged token not in vocab, skip this merge
             break

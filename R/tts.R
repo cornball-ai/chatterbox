@@ -310,7 +310,10 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #' @param normalize_text Logical. If TRUE (default), pre-process text to
 #'   reduce model failure modes: lowercase words with internal capitals
 #'   (which the model interprets as emphasis cues and often produces
-#'   silent audio for). Set to FALSE to pass text through unchanged.
+#'   silent audio for). Set to FALSE to skip case normalization.
+#'   Punctuation normalization (whitespace collapse, first-letter
+#'   capitalization, trailing period) always runs, matching the Python
+#'   reference implementation.
 #' @return List with elements:
 #'   \describe{
 #'     \item{audio}{Numeric vector of audio samples}
@@ -336,6 +339,13 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
         text <- normalize_tts_text(text)
     }
 
+    # Punctuation normalization, applied unconditionally to match the
+    # Python reference (tts.py generate): collapses whitespace runs,
+    # capitalizes the first letter, rewrites uncommon punctuation, and
+    # appends a final period when the text ends without one. The missing
+    # trailing period was a major cause of EOS-not-found failures.
+    text <- punc_norm(text)
+
     device <- model$device
     is_turbo <- isTRUE(model$turbo)
     # Default: autocast on CUDA, off on CPU
@@ -351,7 +361,6 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
     # Tokenize text
     if (is_turbo) {
         # GPT-2 tokenizer
-        text <- punc_norm(text)
         text_ids <- tokenize_text_gpt2(model$tokenizer, text)
         text_tokens <- torch::torch_tensor(text_ids, dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
     } else {
