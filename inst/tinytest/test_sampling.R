@@ -2,7 +2,7 @@
 # (HF logits-processor parity: sign-dependent repetition penalty,
 #  top-p keeps the threshold-crossing token)
 
-if (requireNamespace("torch", quietly = TRUE)) {
+if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
     sample_tok <- chatterbox:::.sample_speech_token
 
     mk_logits <- function (vals) {
