@@ -1,190 +1,177 @@
 <!--
-%\VignetteIndexEntry{Performance Comparison: Native R vs Container}
+%\VignetteIndexEntry{Performance: Backends and GC Tuning}
 %\VignetteEngine{simplermarkdown::mdweave_to_html}
 %\VignetteEncoding{UTF-8}
 -->
 ---
-title: "Performance Comparison: Native R vs Container"
+title: "Performance: Backends and GC Tuning"
 ---
 
-# Performance Comparison
+# Performance
 
-The chatterbox package provides native R inference for the Chatterbox TTS model.
-This vignette compares performance between the native R implementation and the
-Python container backend.
+The chatterbox package runs Chatterbox TTS natively in R with three
+inference backends. This vignette reports measured performance, explains
+where the time actually goes, and documents the torch garbage-collection
+settings that matter more than the backend choice.
 
-## Test Configuration
+## Test Configuration (June 2026)
 
-- **GPU**: RTX 5060 Ti (16GB VRAM, Blackwell architecture)
-- **Model**: Chatterbox TTS (798M parameters)
-- **Precision**: float32 (all backends, including container)
-- **Test text**: "The quick brown fox jumps over the lazy dog." (~10 words)
+- **GPU**: RTX 5060 Ti (16GB VRAM)
+- **torch**: 0.17.0 (libtorch 2.8), float32 throughout
+- **Test text**: ~130 speech tokens (~5s of audio), jfk.wav reference
+- Scripts: `scripts/bench_backends.R`, `scripts/tune_gc.R`,
+  `scripts/profile_backends.R`
 
-## Results Summary
+## Headline Numbers
 
-| Backend | Cold Start | Warm Start | Audio | Real-time Factor |
-|---------|-----------|------------|-------|------------------|
-| Container (Python) | 1.1s | 1.3s | 3.1s | **2.5x** |
-| Native R (traced) | 83.8s | 12.6s | 4.0s | **0.32x** |
-| Native R (C++ T3) | 26.6s | 26.7s | 4.2s | **0.16x** |
-| Native R (pure R) | 50.5s | 53.2s | 5.3s | **0.10x** |
+Per generated token, warm:
 
-Cold start includes one-time JIT compilation overhead for traced mode.
+| Backend | default torch GC settings | tuned GC settings |
+|---------|--------------------------|-------------------|
+| pure R | 920-1598 ms | **107-113 ms** |
+| traced (`traced = TRUE`) | 41-47 ms | **34-37 ms** |
+| cpp (`backend = "cpp"`, experimental) | 229-386 ms | not separately tuned |
+| Python container (reference) | ~8 ms | - |
 
-### Speedups (warm start, relative to pure R)
+The single most important fact in this vignette: **with default torch
+settings, pure-R inference spends ~91% of its wall time in R garbage
+collection** (measured with profvis + debrief). The backend comparison
+is almost a footnote to the GC story.
 
-| Backend | Speedup |
-|---------|---------|
-| C++ T3 decode | 2.0x |
-| R traced | 4.2x |
-| Container | 41.7x |
+## The GC Story
 
-## Why the Difference?
+R is the only thing that frees torch tensors: a GPU tensor's memory
+returns when R finalizes its handle, during a collection. To avoid
+running out of memory, torch's allocators *invoke full R collections
+themselves*, governed by four options read **once, at torch startup**:
 
-### 1. R-to-C++ Boundary Overhead
+1. `torch.threshold_call_gc` (default 4000): full `gc()` per N MB of
+   cumulative host-side allocation. Every tensor handle ticks this
+   odometer; a per-token loop crosses 4 GB constantly.
+2. `torch.cuda_allocator_reserved_rate` (default 0.2): once torch has
+   reserved more than this fraction of total VRAM, GPU allocations
+   start invoking collections. The loaded model alone (~4.5 GB) is past
+   20% of a 16 GB card, so every allocation can trigger one.
+3. `torch.cuda_allocator_allocated_rate` (default 0.8) and
+4. `torch.cuda_allocator_allocated_reserved_rate` (default 0.8): the
+   backstop - force full collections near the top of the card. Leave
+   both at their defaults; they are the self-regulation that prevents
+   out-of-memory, not the problem.
 
-Each tensor operation in R crosses the R/C++ boundary:
+Because the settings are read at startup, they must be set **before
+torch loads** - in `.Rprofile` or at the very top of a script. Setting
+them after `library(torch)` (or any torch use) does nothing.
 
-```r
-# Each of these is a separate C++ call
-x <- x$add(y)
-x <- x$mul(z)
-x <- nnf_gelu(x)
-```
+### Tuned settings
 
-Python's tighter C++ integration has lower per-operation overhead. With ~100-200
-tokens and ~30 transformer layers, this adds up significantly.
-
-### 2. Autoregressive Generation
-
-Token generation is inherently sequential - each token depends on the previous.
-This means:
-
-- ~100-200 sequential forward passes through 30 transformer layers
-- No opportunity for batch parallelism
-- R overhead multiplied by every token
-
-### 3. JIT Tracing
-
-The traced backend compiles transformer layers and CFM estimator into C++ graphs,
-eliminating per-operation R overhead within those modules. The generation loop
-itself still runs in R.
-
-## Native Backend Details
-
-### Pure R (`backend = "r"`)
-
-All inference runs in R. Each tensor operation individually crosses the R/C++
-boundary. ~500ms per token.
-
-### C++ T3 Decode (`backend = "cpp"`)
-
-The T3 autoregressive decode loop runs in C++ via libtorch, eliminating R overhead
-for the token generation phase. S3Gen vocoder still runs in R. ~225ms per token.
-
-Requires libtorch headers at install time (auto-detected by the configure script).
-
-### R Traced (`traced = TRUE`)
-
-Uses `torch::jit_trace()` to compile both T3 transformer layers and CFM estimator
-into C++ graphs.
+`chatterbox_gc_options()` prints the snippet for your card. For a 16 GB
+GPU:
 
 ```r
-result <- generate(model, text, voice, traced = TRUE)
+options(
+    torch.cuda_allocator_reserved_rate = 0.5,
+    torch.threshold_call_gc = 16000
+)
 ```
 
-**Cold start** (~84s): Traces 30 T3 transformer layers + KV projectors, plus the
-CFM estimator at fixed max length. This is a one-time cost per session.
+For a 6 GB GPU use `reserved_rate = 0.75`: the trigger line is a
+fraction of the card, and the ~3.2 GB model floor already exceeds 50%
+of a small card.
 
-**Warm start** (~13s): Runs the traced graphs directly. ~130ms per token.
+### Measured trade (5 consecutive generations per config)
 
-**Limitations:**
-- T3 cache limited to 350 tokens (including conditioning ~50-100 tokens)
-- CFM max sequence length 1024 (longer sequences fall back to non-traced)
-- Uses more VRAM (~4.2GB vs ~3.1GB) due to cached traced modules
+| config | pure-R ms/tok | traced ms/tok | VRAM trajectory |
+|--------|--------------|---------------|-----------------|
+| default (.2 / 4 GB) | 920-1598 | 41-47 | flat 4.6-4.9 GB |
+| rate .5, cpu 16 GB | 107-113 | 34-37 | 9.3 -> 13.8 GB |
+| rate .7, cpu 64 GB | 112-113 | 34-36 | 12.2 -> 14.9 GB |
+| rate .9 + gc() per generation | 109-110 | 34-40 | plateaus 15.4 GB |
+
+The speed win saturates at moderate settings; pushing further only
+raises the VRAM plateau. The creep is homeostatic (the 0.8 backstop
+forces collections near the top of the card), but the steady state
+lives high.
+
+**Rule of thumb: collect once per utterance, not thousands of times
+inside it.** `tts_chunked()` calls `gc()` after each chunk; do the same
+after each `generate()` in your own batch loops. That bounds garbage at
+one utterance's worth with no measurable speed cost.
+
+## Where the Remaining Time Goes
+
+With GC tamed, both R-driven backends converge near ~110 ms/token of
+shared loop cost: per-token tensor creation, KV-cache slice assignment,
+and sampling, each crossing the R/C++ boundary. The traced graphs cut
+the per-layer portion of that to ~35 ms/token total; the graphs
+themselves are only ~30% of traced's per-token time.
+
+Generation is inherently sequential (each token needs the previous
+one), so per-token overhead multiplies by the full token count and
+cannot be batched away.
+
+## Backend Details
+
+### Traced (`traced = TRUE`) - fastest
+
+`torch::jit_trace()` compiles the 30 T3 transformer layers and the CFM
+estimator into TorchScript graphs.
+
+- **Cold start**: ~50-60s one-time JIT compilation per session.
+- **Warm**: ~35 ms/token.
+- **Limits**: KV cache fixed at 350 positions (conditioning + ~190-270
+  generated tokens); traced CFM fixed at 1024 mel frames - the prompt
+  mel shares that budget, so a 10s reference leaves ~262 generated
+  tokens before it falls back (gracefully, with a warning) to the
+  eager estimator.
+- **Memory**: ~1 GB above eager - traced graphs embed their own copies
+  of the layer weights, and the eager originals stay loaded for the
+  prefill pass and fallbacks.
+- **Caveat**: TorchScript is deprecated upstream (maintenance mode);
+  it works on current libtorch but has no future.
+
+### Pure R (`backend = "r"`) - most capable
+
+Everything eager. ~110 ms/token with tuned GC settings. No token cap
+below the model's own limits, no extra VRAM, fully debuggable. The
+right backend for long generations and for small cards.
+
+### cpp (`backend = "cpp"`) - experimental
+
+The T3 decode loop as a single `.Call()` into a compiled loop on the
+ATen C++ API. Kept as a hedge: it does not depend on TorchScript, so it
+survives the deprecation that will eventually strand traced mode.
+Currently ~230-390 ms/token - slower than traced, faster than untuned
+pure R. Requires libtorch headers at install time (auto-detected by the
+configure script; without them it compiles to a stub). Shares traced's
+350-position cache cap.
+
+## Memory
+
+| component | size |
+|-----------|------|
+| model weights (fp32) | ~3.2 GB |
+| traced graphs | ~1 GB extra |
+| T3 KV cache | ~0.94 MB per position (CFG batch of 2) |
+| flow/vocoder activations | transient, tens to hundreds of MB |
+
+Reference audio barely matters: T3 sees it through a fixed 32-slot
+perceiver, and the flow prompt adds ~50 mel frames per second of
+(10s-capped) reference.
+
+## When to Use What
+
+- **Container** (`tts.api` backend): production speed (~8 ms/token).
+- **Traced**: long-running R sessions, utterance-length text.
+- **Pure R + tuned GC**: long texts, small cards, debugging, anywhere
+  Docker isn't.
+- **cpp**: experimental; revisit when TorchScript removal gets real.
 
 ## Optimizations Applied
 
-The native R implementation includes several optimizations:
-
-### SDPA (Scaled Dot-Product Attention)
-
-```r
-# Using fused attention kernel
-torch::torch_scaled_dot_product_attention(q, k, v)
-```
-
-Note: This function exists in R torch but is not exported. We access it via
-`get()` from the torch namespace.
-
-### Vectorized Repetition Penalty
-
-```r
-# Before: O(n) loop
-for (token_id in generated_ids) {
-    logits[1, token_id] <- logits[1, token_id] / penalty
-}
-
-# After: O(1) vectorized
-unique_ids <- unique(as.integer(generated_ids$cpu()))
-logits[1, unique_ids] <- logits[1, unique_ids] / penalty
-```
-
-### CPU-First Weight Loading
-
-```r
-# Load to CPU first, then move to GPU
-# This halves peak VRAM (avoids weights in both dict and model)
-weights <- read_safetensors(path, device = "cpu")
-model <- load_weights(model, weights)
-rm(weights); gc()
-model$to(device = "cuda")
-```
-
-## Memory Usage
-
-| Backend | Model VRAM | Peak During Generation |
-|---------|-----------|----------------------|
-| Pure R / C++ | 3,112 MB | 3,133 MB |
-| Traced | 4,211 MB | 4,238 MB |
-| Container | ~3,000 MB | ~3,200 MB |
-
-The CUDA caching allocator may hold additional reserved memory between generations.
-Use `cuda_empty_cache()` to release it back to the driver.
-
-## When to Use Each
-
-### Use Container When:
-
-- Speed is critical (~10x faster than best native)
-- Production deployments
-- GPU resource management via gpu.ctl
-
-### Use Native R (traced) When:
-
-- No Docker available or desired
-- Long-running R sessions (one-time 84s compilation, then fast)
-- Need full control over inference parameters
-
-### Use Native R (C++ T3) When:
-
-- Traced mode uses too much VRAM
-- Generating very long sequences (>350 tokens)
-
-### Use Native R (pure R) When:
-
-- libtorch headers not available at install time
-- Debugging or development
-- Custom fine-tuning or LoRA experimentation
-
-## Future Improvements
-
-Potential optimizations not yet implemented:
-
-1. **float16 inference**: Would halve memory bandwidth requirements
-2. **torch.compile()**: Not available in R torch
-3. **Flash Attention 2**: Requires custom CUDA kernels
-
-The R-to-C++ boundary overhead is fundamental and cannot be eliminated without
-changes to R torch itself. JIT tracing helps by batching operations into a single
-C++ graph execution.
+- Fused scaled-dot-product attention throughout.
+- Sign-dependent repetition penalty, vectorized (positive logits
+  divided, negative multiplied - HF semantics) with no per-token
+  GPU readbacks.
+- CPU-first weight loading (halves peak VRAM during load).
+- Fixed pre-generated CFM noise buffer (deterministic, no per-call
+  RNG churn).
