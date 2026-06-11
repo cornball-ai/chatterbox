@@ -6,8 +6,7 @@
 #' @param path Path to audio file (WAV or MP3 format)
 #' @return List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
 #' @export
-read_audio <- function (path)
-{
+read_audio <- function(path) {
     ext <- tolower(tools::file_ext(path))
 
     if (ext == "mp3") {
@@ -28,10 +27,7 @@ read_audio <- function (path)
         samples <- wav@left / (2 ^ (wav@bit - 1))
     }
 
-    list(
-        samples = as.numeric(samples),
-        sr = wav@samp.rate
-    )
+    list(samples = as.numeric(samples), sr = wav@samp.rate)
 }
 
 #' Write audio file
@@ -40,8 +36,7 @@ read_audio <- function (path)
 #' @param sr Sample rate
 #' @param path Output path (WAV format)
 #' @export
-write_audio <- function (samples, sr, path)
-{
+write_audio <- function(samples, sr, path) {
     # Handle torch tensor input
 
     if (inherits(samples, "torch_tensor")) {
@@ -49,16 +44,12 @@ write_audio <- function (samples, sr, path)
     }
 
     # Clip to valid range
-    samples <- pmax(pmin(samples, 0.99), - 0.99)
+    samples <- pmax(pmin(samples, 0.99), -0.99)
 
     # Convert to 16-bit integer
     samples_int <- as.integer(samples * 32767)
 
-    wav <- tuneR::Wave(
-        left = samples_int,
-        samp.rate = as.integer(sr),
-        bit = 16
-    )
+    wav <- tuneR::Wave(left = samples_int, samp.rate = as.integer(sr), bit = 16)
 
     tuneR::writeWave(wav, path)
 }
@@ -70,8 +61,7 @@ write_audio <- function (samples, sr, path)
 #' @param to_sr Target sample rate
 #' @return Resampled audio samples
 #' @export
-resample_audio <- function (samples, from_sr, to_sr)
-{
+resample_audio <- function(samples, from_sr, to_sr) {
     if (from_sr == to_sr) {
         return(samples)
     }
@@ -93,9 +83,8 @@ resample_audio <- function (samples, from_sr, to_sr)
 #' @param hop_length Hop between frames (default 512)
 #' @return Trimmed audio samples
 #' @noRd
-trim_silence <- function (samples, top_db = 20, frame_length = 2048L,
-                          hop_length = 512L)
-{
+trim_silence <- function(samples, top_db = 20, frame_length = 2048L,
+                         hop_length = 512L) {
     n <- length(samples)
     if (n == 0) {
         return(samples)
@@ -105,9 +94,9 @@ trim_silence <- function (samples, top_db = 20, frame_length = 2048L,
     pad <- frame_length %/% 2L
     padded <- c(rep(0, pad), samples, rep(0, pad))
     n_frames <- 1L + (length(padded) - frame_length) %/% hop_length
-    power <- vapply(seq_len(n_frames), function (i) {
+    power <- vapply(seq_len(n_frames), function(i) {
         s <- (i - 1L) * hop_length
-        mean(padded[(s + 1L) :(s + frame_length)] ^ 2)
+        mean(padded[(s + 1L):(s + frame_length)] ^ 2)
     }, numeric(1))
 
     ref <- max(power)
@@ -115,14 +104,14 @@ trim_silence <- function (samples, top_db = 20, frame_length = 2048L,
         return(samples)
     }
     db <- 10 * log10(pmax(power, 1e-10) / ref)
-    nonsilent <- which(db > - top_db)
+    nonsilent <- which(db > -top_db)
     if (length(nonsilent) == 0) {
         return(samples[0])
     }
 
     start <- (nonsilent[1] - 1L) * hop_length
     end <- min(n, nonsilent[length(nonsilent)] * hop_length)
-    samples[(start + 1L) :end]
+    samples[(start + 1L):end]
 }
 
 #' Create mel filterbank
@@ -135,42 +124,40 @@ trim_silence <- function (samples, top_db = 20, frame_length = 2048L,
 #' @param norm Character. Normalization type. Default "slaney".
 #' @param htk Logical. Use HTK formula. Default FALSE.
 #' @return Mel filterbank matrix (n_mels x (n_fft/2 + 1))
-create_mel_filterbank <- function (sr, n_fft, n_mels, fmin = 0, fmax = NULL,
-                                   norm = "slaney", htk = FALSE)
-{
+create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL,
+                                  norm = "slaney", htk = FALSE) {
     if (is.null(fmax)) {
         fmax <- sr / 2
     }
 
     if (htk) {
         # HTK formula (not used by librosa default)
-        hz_to_mel <- function (hz)
+        hz_to_mel <- function(hz)
         {
             2595 * log10(1 + hz / 700)
         }
-        mel_to_hz <- function (mel)
+        mel_to_hz <- function(mel)
         {
             700 * (10 ^ (mel / 2595) - 1)
         }
     } else {
         # Slaney/librosa formula (default)
         # Linear below 1000 Hz, log above
-        f_sp <- 200.0 / 3# 66.67 Hz per mel below 1000 Hz
+        f_sp <- 200.0 / 3 # 66.67 Hz per mel below 1000 Hz
         min_log_hz <- 1000.0
-        min_log_mel <- (min_log_hz - 0) / f_sp# 15.0
-        logstep <- log(6.4) / 27.0# step size for log region
+        min_log_mel <- (min_log_hz - 0) / f_sp # 15.0
+        logstep <- log(6.4) / 27.0 # step size for log region
 
-        hz_to_mel <- function (hz)
+        hz_to_mel <- function(hz)
         {
-            ifelse(hz < min_log_hz,
-                hz / f_sp,
-                min_log_mel + log(hz / min_log_hz) / logstep)
+            ifelse(hz < min_log_hz, hz / f_sp,
+                   min_log_mel + log(hz / min_log_hz) / logstep)
         }
-        mel_to_hz <- function (mel)
+        mel_to_hz <- function(mel)
         {
             ifelse(mel < min_log_mel,
-                mel * f_sp,
-                min_log_hz * exp(logstep * (mel - min_log_mel)))
+                   mel * f_sp,
+                   min_log_hz * exp(logstep * (mel - min_log_mel)))
         }
     }
 
@@ -235,10 +222,9 @@ create_mel_filterbank <- function (sr, n_fft, n_mels, fmin = 0, fmax = NULL,
 #' @param center Whether to center frames (default FALSE)
 #' @return Mel spectrogram tensor (batch, n_mels, time)
 #' @export
-compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
-                                     hop_size = 480, win_size = 1920, fmin = 0,
-                                     fmax = 8000, center = FALSE)
-{
+compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
+                                    hop_size = 480, win_size = 1920,
+                                    fmin = 0, fmax = 8000, center = FALSE) {
     # Convert to torch tensor if needed
     if (!inherits(y, "torch_tensor")) {
         y <- torch::torch_tensor(y, dtype = torch::torch_float32())
@@ -252,7 +238,8 @@ compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
     device <- y$device
 
     # Get or create mel filterbank (key includes all parameters that affect shape)
-    mel_cache_key <- paste(sr, n_fft, n_mels, fmin, fmax, device$type, sep = "_")
+    mel_cache_key <- paste(sr, n_fft, n_mels, fmin, fmax, device$type,
+                           sep = "_")
     if (is.null(.mel_cache[[mel_cache_key]])) {
         mel_fb <- create_mel_filterbank(sr, n_fft, n_mels, fmin, fmax)
         .mel_cache[[mel_cache_key]] <- torch::torch_tensor(mel_fb, dtype = torch::torch_float32())$to(device = device)
@@ -274,21 +261,21 @@ compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
 
     # Compute STFT
     spec <- torch::torch_stft(
-        y,
-        n_fft = n_fft,
-        hop_length = hop_size,
-        win_length = win_size,
-        window = hann_window,
-        center = center,
-        pad_mode = "reflect",
-        normalized = FALSE,
-        onesided = TRUE,
-        return_complex = TRUE
+                              y,
+                              n_fft = n_fft,
+                              hop_length = hop_size,
+                              win_length = win_size,
+                              window = hann_window,
+                              center = center,
+                              pad_mode = "reflect",
+                              normalized = FALSE,
+                              onesided = TRUE,
+                              return_complex = TRUE
     )
 
     # Convert to magnitude
     spec <- torch::torch_view_as_real(spec)
-    spec <- torch::torch_sqrt(spec$pow(2)$sum(- 1) + 1e-9)
+    spec <- torch::torch_sqrt(spec$pow(2)$sum(-1) + 1e-9)
 
     # Apply mel filterbank
     spec <- torch::torch_matmul(mel_basis, spec)
@@ -305,20 +292,11 @@ compute_mel_spectrogram <- function (y, n_fft = 1920, n_mels = 80, sr = 24000,
 #' @param sr Sample rate (should be 16000)
 #' @return Mel spectrogram (batch, time, 40)
 #' @export
-compute_mel_spectrogram_ve <- function (y, sr = 16000)
-{
+compute_mel_spectrogram_ve <- function(y, sr = 16000) {
     # Voice encoder uses different params
-    spec <- compute_mel_spectrogram(
-        y,
-        n_fft = 400,
-        n_mels = 40,
-        sr = sr,
-        hop_size = 160,
-        win_size = 400,
-        fmin = 0,
-        fmax = 8000,
-        center = TRUE
-    )
+    spec <- compute_mel_spectrogram(y, n_fft = 400, n_mels = 40, sr = sr,
+                                    hop_size = 160, win_size = 400, fmin = 0,
+                                    fmax = 8000, center = TRUE)
 
     # Transpose to (batch, time, mels) for LSTM
     spec$transpose(2, 3)

@@ -1,5 +1,6 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
+export(.sample_speech_token)
 export(chatterbox)
 export(compute_mel_spectrogram)
 export(compute_mel_spectrogram_ve)
@@ -29,7 +30,6 @@ export(read_audio)
 export(read_safetensors)
 export(resample_audio)
 export(s3_tokenizer)
-export(t3_inference)
 export(t3_inference_cpp)
 export(t3_inference_turbo)
 export(text_to_tokens)

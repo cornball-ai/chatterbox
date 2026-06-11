@@ -4,9 +4,9 @@
 \title{Generate speech from text}
 \usage{
 generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
-         temperature = 0.8, top_p = 0.9, autocast = NULL, traced = FALSE,
-         backend = c("r", "cpp"), top_k = 1000L, repetition_penalty = 1.2,
-         normalize_text = TRUE)
+         temperature = 0.8, top_p = 1, min_p = 0.05, autocast = NULL,
+         traced = FALSE, backend = c("r", "cpp"), top_k = 1000L,
+         repetition_penalty = 1.2, normalize_text = TRUE)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -21,22 +21,34 @@ generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 
 \item{temperature}{Sampling temperature (default 0.8)}
 
-\item{top_p}{Top-p (nucleus) sampling threshold (default 0.9)}
+\item{top_p}{Top-p (nucleus) sampling threshold. Default 1.0 (disabled),
+matching the Python reference.}
 
-\item{autocast}{Use mixed precision (float16) on CUDA for faster inference (default TRUE on CUDA)}
+\item{min_p}{Minimum probability threshold relative to the most likely
+token (default 0.05, matching the Python reference). Standard model only.}
+
+\item{autocast}{Use mixed precision (float16) on CUDA for faster
+inference. Default FALSE: the Python reference runs float32, and
+float16 output diverges slightly. Opt in for speed on tight VRAM.}
 
 \item{traced}{Logical. Use JIT-traced inference. Default FALSE.}
 
 \item{backend}{Character. Inference backend, either "r" or "cpp". Default "r".}
 
-\item{top_k}{Integer. Top-k sampling parameter. Default 1000.}
+\item{top_k}{Integer. Top-k sampling parameter (turbo model only).
+Default 1000.}
 
-\item{repetition_penalty}{Numeric. Repetition penalty. Default 1.2.}
+\item{repetition_penalty}{Numeric. Repetition penalty. Default 1.2.
+Applied sign-dependently like HF transformers: positive logits are
+divided, negative ones multiplied.}
 
 \item{normalize_text}{Logical. If TRUE (default), pre-process text to
 reduce model failure modes: lowercase words with internal capitals
 (which the model interprets as emphasis cues and often produces
-silent audio for). Set to FALSE to pass text through unchanged.}
+silent audio for). Set to FALSE to skip case normalization.
+Punctuation normalization (whitespace collapse, first-letter
+capitalization, trailing period) always runs, matching the Python
+reference implementation.}
 }
 \value{
 List with elements:

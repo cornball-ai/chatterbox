@@ -8,29 +8,19 @@ CHATTERBOX_REPO <- "ResembleAI/chatterbox"
 # conds.pt (Python's builtin default voice) is intentionally absent:
 # it is a nested torch pickle that R torch cannot read, and the R API
 # requires a reference voice. Saves a ~105 MB download.
-CHATTERBOX_FILES <- c(
-    "ve.safetensors",
-    "t3_cfg.safetensors",
-    "s3gen.safetensors",
-    "tokenizer.json"
-)
+CHATTERBOX_FILES <- c("ve.safetensors", "t3_cfg.safetensors",
+                      "s3gen.safetensors", "tokenizer.json")
 
 # Approximate total model size in MB
 .model_size_mb <- 2000
 
 CHATTERBOX_TURBO_REPO <- "ResembleAI/chatterbox-turbo"
 
-CHATTERBOX_TURBO_FILES <- c(
-    "t3_turbo_v1.safetensors",
-    "s3gen_meanflow.safetensors",
-    "s3gen.safetensors",
-    "ve.safetensors",
-    "vocab.json",
-    "merges.txt",
-    "added_tokens.json",
-    "special_tokens_map.json",
-    "tokenizer_config.json"
-)
+CHATTERBOX_TURBO_FILES <- c("t3_turbo_v1.safetensors",
+                            "s3gen_meanflow.safetensors", "s3gen.safetensors",
+                            "ve.safetensors", "vocab.json", "merges.txt",
+                            "added_tokens.json", "special_tokens_map.json",
+                            "tokenizer_config.json")
 
 # Approximate turbo model size in MB
 .turbo_model_size_mb <- 3800
@@ -41,7 +31,7 @@ CHATTERBOX_TURBO_FILES <- c(
 #' @export
 #' @examples
 #' models_available()
-models_available <- function ()
+models_available <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
         return(FALSE)
@@ -68,8 +58,7 @@ models_available <- function ()
 #' # Download models (~2GB)
 #' download_chatterbox_models()
 #' }
-download_chatterbox_models <- function (force = FALSE)
-{
+download_chatterbox_models <- function(force = FALSE) {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
         stop("hfhub package required. Install with: install.packages('hfhub')")
     }
@@ -86,18 +75,19 @@ download_chatterbox_models <- function (force = FALSE)
         # Consent already given programmatically
     } else if (interactive()) {
         ans <- utils::askYesNo(
-            paste0("Download Chatterbox models (~", .model_size_mb, " MB) from HuggingFace?"),
-            default = TRUE
+                               paste0("Download Chatterbox models (~", .model_size_mb,
+                                      " MB) from HuggingFace?"),
+                               default = TRUE
         )
         if (!isTRUE(ans)) {
             stop("Download cancelled.", call. = FALSE)
         }
     } else {
         stop(
-            "Cannot download models in non-interactive mode without consent. ",
-            "Run download_chatterbox_models() interactively first, ",
-            "or set options(chatterbox.consent = TRUE) to allow downloads.",
-            call. = FALSE
+             "Cannot download models in non-interactive mode without consent. ",
+             "Run download_chatterbox_models() interactively first, ",
+             "or set options(chatterbox.consent = TRUE) to allow downloads.",
+             call. = FALSE
         )
     }
 
@@ -127,7 +117,7 @@ download_chatterbox_models <- function (force = FALSE)
 #'
 #' @return Named list of local file paths
 #' @export
-get_model_paths <- function ()
+get_model_paths <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
         stop("hfhub package required. Install with: install.packages('hfhub')")
@@ -137,12 +127,13 @@ get_model_paths <- function ()
     for (f in CHATTERBOX_FILES) {
         name <- tools::file_path_sans_ext(basename(f))
         tryCatch({
-            paths[[name]] <- hfhub::hub_download(CHATTERBOX_REPO, f, local_files_only = TRUE)
+            paths[[name]] <- hfhub::hub_download(CHATTERBOX_REPO, f,
+                local_files_only = TRUE)
         }, error = function(e) {
             stop(
-                "Model file '", f, "' not found. ",
-                "Run download_chatterbox_models() first.",
-                call. = FALSE
+                 "Model file '", f, "' not found. ",
+                 "Run download_chatterbox_models() first.",
+                 call. = FALSE
             )
         })
     }
@@ -154,7 +145,7 @@ get_model_paths <- function ()
 #'
 #' @return TRUE if all turbo model files exist locally
 #' @export
-turbo_models_available <- function ()
+turbo_models_available <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
         return(FALSE)
@@ -162,7 +153,8 @@ turbo_models_available <- function ()
 
     tryCatch({
         for (f in CHATTERBOX_TURBO_FILES) {
-            hfhub::hub_download(CHATTERBOX_TURBO_REPO, f, local_files_only = TRUE)
+            hfhub::hub_download(CHATTERBOX_TURBO_REPO, f,
+                                local_files_only = TRUE)
         }
         TRUE
     }, error = function(e) FALSE)
@@ -180,8 +172,7 @@ turbo_models_available <- function ()
 #' \dontrun{
 #' download_chatterbox_turbo_models()
 #' }
-download_chatterbox_turbo_models <- function (force = FALSE)
-{
+download_chatterbox_turbo_models <- function(force = FALSE) {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
         stop("hfhub package required. Install with: install.packages('hfhub')")
     }
@@ -195,19 +186,19 @@ download_chatterbox_turbo_models <- function (force = FALSE)
         # Consent already given
     } else if (interactive()) {
         ans <- utils::askYesNo(
-            paste0("Download Chatterbox Turbo models (~", .turbo_model_size_mb,
-                   " MB) from HuggingFace?"),
-            default = TRUE
+                               paste0("Download Chatterbox Turbo models (~",
+                                      .turbo_model_size_mb, " MB) from HuggingFace?"),
+                               default = TRUE
         )
         if (!isTRUE(ans)) {
             stop("Download cancelled.", call. = FALSE)
         }
     } else {
         stop(
-            "Cannot download models in non-interactive mode without consent. ",
-            "Run download_chatterbox_turbo_models() interactively first, ",
-            "or set options(chatterbox.consent = TRUE) to allow downloads.",
-            call. = FALSE
+             "Cannot download models in non-interactive mode without consent. ",
+             "Run download_chatterbox_turbo_models() interactively first, ",
+             "or set options(chatterbox.consent = TRUE) to allow downloads.",
+             call. = FALSE
         )
     }
 
@@ -219,7 +210,7 @@ download_chatterbox_turbo_models <- function (force = FALSE)
         message("  ", f, "...")
         tryCatch({
             path <- hfhub::hub_download(CHATTERBOX_TURBO_REPO, f,
-                                         force_download = force)
+                                        force_download = force)
             name <- tools::file_path_sans_ext(basename(f))
             paths[[name]] <- path
         }, error = function(e) {
@@ -239,7 +230,7 @@ download_chatterbox_turbo_models <- function (force = FALSE)
 #'
 #' @return Named list of local file paths
 #' @export
-get_turbo_model_paths <- function ()
+get_turbo_model_paths <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
         stop("hfhub package required. Install with: install.packages('hfhub')")
@@ -250,15 +241,16 @@ get_turbo_model_paths <- function ()
         name <- tools::file_path_sans_ext(basename(f))
         tryCatch({
             paths[[name]] <- hfhub::hub_download(CHATTERBOX_TURBO_REPO, f,
-                                                   local_files_only = TRUE)
+                local_files_only = TRUE)
         }, error = function(e) {
             stop(
-                "Turbo model file '", f, "' not found. ",
-                "Run download_chatterbox_turbo_models() first.",
-                call. = FALSE
+                 "Turbo model file '", f, "' not found. ",
+                 "Run download_chatterbox_turbo_models() first.",
+                 call. = FALSE
             )
         })
     }
 
     paths
 }
+

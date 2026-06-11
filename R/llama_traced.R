@@ -16,34 +16,34 @@ traceable_kv_projector <- torch::nn_module(
     "TraceableKVProjector",
 
     initialize = function(layer) {
-        self$input_layernorm <- layer$input_layernorm
-        self$k_proj <- layer$self_attn$k_proj
-        self$v_proj <- layer$self_attn$v_proj
-        self$num_heads <- layer$self_attn$num_heads
-        self$head_dim <- layer$self_attn$head_dim
-    },
+    self$input_layernorm <- layer$input_layernorm
+    self$k_proj <- layer$self_attn$k_proj
+    self$v_proj <- layer$self_attn$v_proj
+    self$num_heads <- layer$self_attn$num_heads
+    self$head_dim <- layer$self_attn$head_dim
+},
 
     forward = function(hidden_states, position_ids, rope_cos, rope_sin) {
-        bsz <- hidden_states$size(1)
+    bsz <- hidden_states$size(1)
 
-        # LayerNorm
-        normed <- self$input_layernorm$forward(hidden_states)
+    # LayerNorm
+    normed <- self$input_layernorm$forward(hidden_states)
 
-        # K, V projections
-        k <- self$k_proj$forward(normed)
-        v <- self$v_proj$forward(normed)
+    # K, V projections
+    k <- self$k_proj$forward(normed)
+    v <- self$v_proj$forward(normed)
 
-        # Reshape
-        k <- k$view(c(bsz, 1L, self$num_heads, self$head_dim))$transpose(2L, 3L)
-        v <- v$view(c(bsz, 1L, self$num_heads, self$head_dim))$transpose(2L, 3L)
+    # Reshape
+    k <- k$view(c(bsz, 1L, self$num_heads, self$head_dim))$transpose(2L, 3L)
+    v <- v$view(c(bsz, 1L, self$num_heads, self$head_dim))$transpose(2L, 3L)
 
-        # Apply RoPE to K
-        rotated <- apply_rotary_pos_emb(k, k, rope_cos, rope_sin, position_ids)
-        k <- rotated$k
+    # Apply RoPE to K
+    rotated <- apply_rotary_pos_emb(k, k, rope_cos, rope_sin, position_ids)
+    k <- rotated$k
 
-        # Return concatenated K and V: (batch, heads, 1, head_dim * 2)
-        torch::torch_cat(list(k, v), dim = -1L)
-    }
+    # Return concatenated K and V: (batch, heads, 1, head_dim * 2)
+    torch::torch_cat(list(k, v), dim = -1L)
+}
 )
 
 # ============================================================================
@@ -61,80 +61,81 @@ traceable_kv_projector <- torch::nn_module(
 #' @param max_cache_len Maximum cache length
 #' @return nn_module
 traceable_attention <- torch::nn_module(
-    "TraceableAttention",
+                                        "TraceableAttention",
 
-    initialize = function(attn, max_cache_len = 300L) {
-        # Copy projections from original attention
-        self$q_proj <- attn$q_proj
-        self$k_proj <- attn$k_proj
-        self$v_proj <- attn$v_proj
-        self$o_proj <- attn$o_proj
+                                        initialize = function(attn, max_cache_len = 300L) {
+    # Copy projections from original attention
+    self$q_proj <- attn$q_proj
+    self$k_proj <- attn$k_proj
+    self$v_proj <- attn$v_proj
+    self$o_proj <- attn$o_proj
 
-        self$num_heads <- attn$num_heads
-        self$head_dim <- attn$head_dim
-        self$hidden_size <- attn$hidden_size
-        self$num_key_value_heads <- attn$num_key_value_heads
-        self$num_key_value_groups <- attn$num_key_value_groups
-        self$max_cache_len <- max_cache_len
-    },
+    self$num_heads <- attn$num_heads
+    self$head_dim <- attn$head_dim
+    self$hidden_size <- attn$hidden_size
+    self$num_key_value_heads <- attn$num_key_value_heads
+    self$num_key_value_groups <- attn$num_key_value_groups
+    self$max_cache_len <- max_cache_len
+},
 
-    forward = function(hidden_states, position_ids, rope_cos, rope_sin,
-                       k_cache, v_cache, valid_mask) {
-        # hidden_states: (batch, 1, hidden_size) - single token
-        # k_cache, v_cache: (batch, heads, max_cache_len, head_dim) - pre-allocated
-        # valid_mask: (batch, 1, 1, max_cache_len) - TRUE for valid positions
+                                        forward = function(hidden_states, position_ids, rope_cos, rope_sin,
+        k_cache, v_cache, valid_mask) {
+    # hidden_states: (batch, 1, hidden_size) - single token
+    # k_cache, v_cache: (batch, heads, max_cache_len, head_dim) - pre-allocated
+    # valid_mask: (batch, 1, 1, max_cache_len) - TRUE for valid positions
 
-        bsz <- hidden_states$size(1)
-        q_len <- hidden_states$size(2)
+    bsz <- hidden_states$size(1)
+    q_len <- hidden_states$size(2)
 
-        # Project Q, K, V for current token
-        query_states <- self$q_proj$forward(hidden_states)
-        key_states <- self$k_proj$forward(hidden_states)
-        value_states <- self$v_proj$forward(hidden_states)
+    # Project Q, K, V for current token
+    query_states <- self$q_proj$forward(hidden_states)
+    key_states <- self$k_proj$forward(hidden_states)
+    value_states <- self$v_proj$forward(hidden_states)
 
-        # Reshape
-        query_states <- query_states$view(c(bsz, q_len, self$num_heads, self$head_dim))$transpose(2L, 3L)
-        key_states <- key_states$view(c(bsz, q_len, self$num_key_value_heads, self$head_dim))$transpose(2L, 3L)
-        value_states <- value_states$view(c(bsz, q_len, self$num_key_value_heads, self$head_dim))$transpose(2L, 3L)
+    # Reshape
+    query_states <- query_states$view(c(bsz, q_len, self$num_heads,
+                                        self$head_dim))$transpose(2L, 3L)
+    key_states <- key_states$view(c(bsz, q_len, self$num_key_value_heads, self$head_dim))$transpose(2L, 3L)
+    value_states <- value_states$view(c(bsz, q_len, self$num_key_value_heads, self$head_dim))$transpose(2L, 3L)
 
-        # Apply RoPE to current token
-        rotated <- apply_rotary_pos_emb(query_states, key_states, rope_cos, rope_sin, position_ids)
-        query_states <- rotated$q
-        # Note: key_states and value_states are written to cache outside trace
+    # Apply RoPE to current token
+    rotated <- apply_rotary_pos_emb(query_states, key_states, rope_cos, rope_sin, position_ids)
+    query_states <- rotated$q
+    # Note: key_states and value_states are written to cache outside trace
 
-        # Repeat K/V for grouped query attention
-        if (self$num_key_value_groups > 1L) {
-            k_cache <- k_cache$`repeat`(c(1L, self$num_key_value_groups, 1L, 1L))
-            v_cache <- v_cache$`repeat`(c(1L, self$num_key_value_groups, 1L, 1L))
-        }
-
-        # Create attention mask from valid_mask
-        # valid_mask is TRUE where positions are valid
-        # We need 0 for valid, -inf for invalid
-        attn_mask <- torch::torch_where(
-            valid_mask,
-            torch::torch_zeros(1L, device = query_states$device, dtype = query_states$dtype),
-            torch::torch_full(c(1L), -65504.0, device = query_states$device, dtype = query_states$dtype)
-        )
-
-        # SDPA with mask
-        sdpa <- get_sdpa()
-        attn_output <- sdpa(
-            query_states,
-            k_cache,
-            v_cache,
-            attn_mask = attn_mask,
-            dropout_p = 0.0,
-            is_causal = FALSE
-        )
-
-        # Reshape back
-        attn_output <- attn_output$transpose(2L, 3L)$contiguous()
-        attn_output <- attn_output$view(c(bsz, q_len, self$hidden_size))
-
-        # Output projection
-        self$o_proj$forward(attn_output)
+    # Repeat K/V for grouped query attention
+    if (self$num_key_value_groups > 1L) {
+        k_cache <- k_cache$`repeat`(c(1L, self$num_key_value_groups, 1L, 1L))
+        v_cache <- v_cache$`repeat`(c(1L, self$num_key_value_groups, 1L, 1L))
     }
+
+    # Create attention mask from valid_mask
+    # valid_mask is TRUE where positions are valid
+    # We need 0 for valid, -inf for invalid
+    attn_mask <- torch::torch_where(
+                                    valid_mask,
+                                    torch::torch_zeros(1L, device = query_states$device, dtype = query_states$dtype),
+                                    torch::torch_full(c(1L), -65504.0, device = query_states$device, dtype = query_states$dtype)
+    )
+
+    # SDPA with mask
+    sdpa <- get_sdpa()
+    attn_output <- sdpa(
+                        query_states,
+                        k_cache,
+                        v_cache,
+                        attn_mask = attn_mask,
+                        dropout_p = 0.0,
+                        is_causal = FALSE
+    )
+
+    # Reshape back
+    attn_output <- attn_output$transpose(2L, 3L)$contiguous()
+    attn_output <- attn_output$view(c(bsz, q_len, self$hidden_size))
+
+    # Output projection
+    self$o_proj$forward(attn_output)
+}
 )
 
 # ============================================================================
@@ -150,33 +151,32 @@ traceable_decoder_layer <- torch::nn_module(
     "TraceableDecoderLayer",
 
     initialize = function(layer, max_cache_len = 300L) {
-        self$self_attn <- traceable_attention(layer$self_attn, max_cache_len)
-        self$mlp <- layer$mlp
-        self$input_layernorm <- layer$input_layernorm
-        self$post_attention_layernorm <- layer$post_attention_layernorm
-    },
+    self$self_attn <- traceable_attention(layer$self_attn, max_cache_len)
+    self$mlp <- layer$mlp
+    self$input_layernorm <- layer$input_layernorm
+    self$post_attention_layernorm <- layer$post_attention_layernorm
+},
 
     forward = function(hidden_states, position_ids, rope_cos, rope_sin,
                        k_cache, v_cache, valid_mask) {
-        residual <- hidden_states
+    residual <- hidden_states
 
-        # Pre-norm
-        hidden_states <- self$input_layernorm$forward(hidden_states)
+    # Pre-norm
+    hidden_states <- self$input_layernorm$forward(hidden_states)
 
-        # Self attention with pre-allocated cache
-        attn_out <- self$self_attn$forward(
-            hidden_states, position_ids, rope_cos, rope_sin,
-            k_cache, v_cache, valid_mask
-        )
-        hidden_states <- residual + attn_out
+    # Self attention with pre-allocated cache
+    attn_out <- self$self_attn$forward(hidden_states, position_ids, rope_cos,
+                                       rope_sin, k_cache, v_cache,
+                                       valid_mask)
+    hidden_states <- residual + attn_out
 
-        # MLP
-        residual <- hidden_states
-        hidden_states <- self$post_attention_layernorm$forward(hidden_states)
-        hidden_states <- residual + self$mlp$forward(hidden_states)
+    # MLP
+    residual <- hidden_states
+    hidden_states <- self$post_attention_layernorm$forward(hidden_states)
+    hidden_states <- residual + self$mlp$forward(hidden_states)
 
-        hidden_states
-    }
+    hidden_states
+}
 )
 
 # ============================================================================
@@ -195,32 +195,29 @@ traceable_transformer_cached <- torch::nn_module(
     "TraceableTransformerCached",
 
     initialize = function(tfmr, max_cache_len = 300L) {
-        self$n_layers <- length(tfmr$layers)
-        self$layers <- torch::nn_module_list(
-            lapply(seq_len(self$n_layers), function(i) {
-                traceable_decoder_layer(tfmr$layers[[i]], max_cache_len)
-            })
-        )
-        self$norm <- tfmr$norm
-        self$max_cache_len <- max_cache_len
-    },
+    self$n_layers <- length(tfmr$layers)
+    self$layers <- torch::nn_module_list(
+        lapply(seq_len(self$n_layers), function(i) {
+        traceable_decoder_layer(tfmr$layers[[i]], max_cache_len)
+    })
+    )
+    self$norm <- tfmr$norm
+    self$max_cache_len <- max_cache_len
+},
 
     forward = function(hidden_states, position_ids, rope_cos, rope_sin,
                        k_caches, v_caches, valid_mask) {
-        # k_caches, v_caches: list of (batch, heads, max_len, head_dim) tensors
-        # We pass them as a single stacked tensor for tracing: (n_layers, batch, heads, max_len, head_dim)
+    # k_caches, v_caches: list of (batch, heads, max_len, head_dim) tensors
+    # We pass them as a single stacked tensor for tracing: (n_layers, batch, heads, max_len, head_dim)
 
-        for (i in seq_len(self$n_layers)) {
-            hidden_states <- self$layers[[i]]$forward(
-                hidden_states, position_ids, rope_cos, rope_sin,
-                k_caches[i,,,,,drop=FALSE]$squeeze(1L),
-                v_caches[i,,,,,drop=FALSE]$squeeze(1L),
-                valid_mask
-            )
-        }
-
-        self$norm$forward(hidden_states)
+    for (i in seq_len(self$n_layers)) {
+        hidden_states <- self$layers[[i]]$forward(hidden_states, position_ids,
+            rope_cos, rope_sin, k_caches[i,,,,, drop = FALSE]$squeeze(1L),
+            v_caches[i,,,,, drop = FALSE]$squeeze(1L), valid_mask)
     }
+
+    self$norm$forward(hidden_states)
+}
 )
 
 # ============================================================================
@@ -235,27 +232,27 @@ traceable_transformer_first <- torch::nn_module(
     "TraceableTransformerFirst",
 
     initialize = function(tfmr) {
-        self$n_layers <- length(tfmr$layers)
-        self$layers <- tfmr$layers
-        self$norm <- tfmr$norm
-        self$config <- tfmr$config
-    },
+    self$n_layers <- length(tfmr$layers)
+    self$layers <- tfmr$layers
+    self$norm <- tfmr$norm
+    self$config <- tfmr$config
+},
 
     forward = function(hidden_states, position_ids, rope_cos, rope_sin, attention_mask) {
-        # First token forward - returns hidden states and K/V for cache
-        # Note: For tracing, we need to return a single tensor
-        # K/V cache values will be extracted separately
+    # First token forward - returns hidden states and K/V for cache
+    # Note: For tracing, we need to return a single tensor
+    # K/V cache values will be extracted separately
 
-        for (i in seq_len(self$n_layers)) {
-            result <- self$layers[[i]]$forward(
-                hidden_states, position_ids, rope_cos, rope_sin,
-                attention_mask, NULL  # No past KV for first token
-            )
-            hidden_states <- result$hidden_states
-        }
-
-        self$norm$forward(hidden_states)
+    for (i in seq_len(self$n_layers)) {
+        result <- self$layers[[i]]$forward(
+            hidden_states, position_ids, rope_cos, rope_sin,
+            attention_mask, NULL # No past KV for first token
+        )
+        hidden_states <- result$hidden_states
     }
+
+    self$norm$forward(hidden_states)
+}
 )
 
 # ============================================================================
@@ -271,29 +268,24 @@ traceable_transformer_first <- torch::nn_module(
 #' @param max_len Maximum sequence length
 #' @param device Device to allocate on
 #' @return List with k_cache, v_cache, valid_mask
-create_kv_cache <- function(batch_size, n_layers, n_heads, head_dim, max_len, device) {
+create_kv_cache <- function(batch_size, n_layers, n_heads, head_dim, max_len,
+                            device) {
     # Stacked caches: (n_layers, batch, heads, max_len, head_dim)
     k_cache <- torch::torch_zeros(
-        c(n_layers, batch_size, n_heads, max_len, head_dim),
-        device = device
+                                  c(n_layers, batch_size, n_heads, max_len, head_dim),
+                                  device = device
     )
     v_cache <- torch::torch_zeros(
-        c(n_layers, batch_size, n_heads, max_len, head_dim),
-        device = device
+                                  c(n_layers, batch_size, n_heads, max_len, head_dim),
+                                  device = device
     )
 
     # Valid mask: (batch, 1, 1, max_len) - shared across layers
-    valid_mask <- torch::torch_zeros(
-        c(batch_size, 1L, 1L, max_len),
-        dtype = torch::torch_bool(),
-        device = device
-    )
+    valid_mask <- torch::torch_zeros(c(batch_size, 1L, 1L, max_len),
+                                     dtype = torch::torch_bool(),
+                                     device = device)
 
-    list(
-        k_cache = k_cache,
-        v_cache = v_cache,
-        valid_mask = valid_mask
-    )
+    list(k_cache = k_cache, v_cache = v_cache, valid_mask = valid_mask)
 }
 
 #' Update KV cache with new K/V values
@@ -310,11 +302,12 @@ update_kv_cache <- function(cache, layer_idx, new_k, new_v, position) {
     max_len <- cache$k_cache$size(4)
 
     if (pos_r > max_len) {
-        stop(sprintf("KV cache position %d exceeds max length %d", pos_r, max_len))
+        stop(sprintf("KV cache position %d exceeds max length %d", pos_r,
+                     max_len))
     }
 
-    cache$k_cache[layer_idx,,, pos_r, ] <- new_k$squeeze(3L)
-    cache$v_cache[layer_idx,,, pos_r, ] <- new_v$squeeze(3L)
+    cache$k_cache[layer_idx,,, pos_r,] <- new_k$squeeze(3L)
+    cache$v_cache[layer_idx,,, pos_r,] <- new_v$squeeze(3L)
 
     invisible(cache)
 }
@@ -341,14 +334,15 @@ init_cache_from_first <- function(cache, past_key_values) {
 
     # Check if seq_len fits in cache
     if (seq_len > max_len) {
-        stop(sprintf("First token sequence length (%d) exceeds max cache length (%d). Increase max_cache_len.", seq_len, max_len))
+        stop(sprintf("First token sequence length (%d) exceeds max cache length (%d). Increase max_cache_len.",
+                     seq_len, max_len))
     }
 
     for (i in seq_len(n_layers)) {
         kv <- past_key_values[[i]]
         # kv$k, kv$v are (batch, heads, seq_len, head_dim)
-        cache$k_cache[i,,, 1:seq_len, ] <- kv$k
-        cache$v_cache[i,,, 1:seq_len, ] <- kv$v
+        cache$k_cache[i,,, 1:seq_len,] <- kv$k
+        cache$v_cache[i,,, 1:seq_len,] <- kv$v
     }
 
     # Mark all first-token positions as valid
@@ -359,3 +353,4 @@ init_cache_from_first <- function(cache, past_key_values) {
 
     invisible(cache)
 }
+

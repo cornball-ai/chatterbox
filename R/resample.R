@@ -9,8 +9,7 @@
 #' @param b Integer scalar
 #' @return Greatest common divisor of a and b
 #' @noRd
-.gcd <- function (a, b)
-{
+.gcd <- function(a, b) {
     a <- as.integer(a)
     b <- as.integer(b)
     while (b != 0L) {
@@ -34,10 +33,9 @@
 #' @param rolloff Roll-off frequency as fraction of Nyquist (default 0.99)
 #' @return List with kernel tensor (new_freq, 1, kernel_width) and width
 #' @noRd
-.get_sinc_resample_kernel <- function (orig_freq, new_freq, gcd,
-                                       lowpass_filter_width = 6L,
-                                       rolloff = 0.99)
-{
+.get_sinc_resample_kernel <- function(orig_freq, new_freq, gcd,
+                                      lowpass_filter_width = 6L,
+                                      rolloff = 0.99) {
     orig_freq <- as.integer(orig_freq) %/% gcd
     new_freq <- as.integer(new_freq) %/% gcd
 
@@ -53,21 +51,19 @@
 
     # Python: torch.arange(-width, width + orig_freq) is exclusive of the
     # endpoint; R torch_arange is inclusive, so stop one short.
-    idx <- torch::torch_arange(
-        - width, width + orig_freq - 1,
-        dtype = torch::torch_float64()
-    )
+    idx <- torch::torch_arange(-width, width + orig_freq - 1,
+                               dtype = torch::torch_float64())
     idx <- idx$unsqueeze(1)$unsqueeze(1)$div(orig_freq) # (1, 1, kw)
 
     # Python: torch.arange(0, -new_freq, -1) -> 0, -1, ..., -(new_freq - 1)
     t <- torch::torch_arange(
-        0, new_freq - 1,
-        dtype = torch::torch_float64()
+                             0, new_freq - 1,
+                             dtype = torch::torch_float64()
     )$neg()
     t <- t$unsqueeze(2)$unsqueeze(3)$div(new_freq) # (new_freq, 1, 1)
     t <- t$add(idx) # (new_freq, 1, kw)
     t <- t$mul(base_freq)
-    t <- t$clamp(- lowpass_filter_width, lowpass_filter_width)
+    t <- t$clamp(-lowpass_filter_width, lowpass_filter_width)
 
     # Hann window evaluated at the sample positions
     window <- t$mul(pi / lowpass_filter_width / 2)$cos()$pow(2)
@@ -97,19 +93,16 @@
 #' @param width Filter half-width
 #' @return Resampled tensor (1, new_time)
 #' @noRd
-.apply_sinc_resample_kernel <- function (waveform, orig_freq, new_freq, gcd,
-                                         kernel, width)
-{
+.apply_sinc_resample_kernel <- function(waveform, orig_freq, new_freq, gcd,
+                                        kernel, width) {
     orig_freq <- as.integer(orig_freq) %/% gcd
     new_freq <- as.integer(new_freq) %/% gcd
 
     len <- waveform$size(2)
     waveform <- torch::nnf_pad(waveform, c(width, width + orig_freq))
-    resampled <- torch::nnf_conv1d(
-        waveform$unsqueeze(2), kernel,
-        stride = orig_freq
-    ) # (1, new_freq, frames)
-    resampled <- resampled$transpose(2, 3)$reshape(c(1, - 1))
+    resampled <- torch::nnf_conv1d(waveform$unsqueeze(2), kernel,
+                                   stride = orig_freq) # (1, new_freq, frames)
+    resampled <- resampled$transpose(2, 3)$reshape(c(1, -1))
     target_length <- as.integer(ceiling(new_freq * as.numeric(len) / orig_freq))
     resampled[, 1:target_length]
 }
@@ -129,10 +122,9 @@
 #' @return Resampled audio, same type as input (numeric vector in,
 #'   numeric vector out; tensor in, 1D tensor out)
 #' @noRd
-sinc_resample <- function (audio, orig_sr, new_sr, lowpass_filter_width = 6L,
-                           rolloff = 0.99,
-                           resampling_method = "sinc_interp_hann")
-{
+sinc_resample <- function(audio, orig_sr, new_sr, lowpass_filter_width = 6L,
+                          rolloff = 0.99,
+                          resampling_method = "sinc_interp_hann") {
     if (resampling_method != "sinc_interp_hann") {
         stop("Only resampling_method = 'sinc_interp_hann' is supported")
     }
@@ -151,19 +143,18 @@ sinc_resample <- function (audio, orig_sr, new_sr, lowpass_filter_width = 6L,
     } else {
         waveform <- audio
     }
-    waveform <- waveform$reshape(c(1, - 1))
+    waveform <- waveform$reshape(c(1, -1))
 
     g <- .gcd(orig_sr, new_sr)
     kw <- .get_sinc_resample_kernel(
-        orig_sr, new_sr, g,
-        lowpass_filter_width = lowpass_filter_width,
-        rolloff = rolloff
+                                    orig_sr, new_sr, g,
+                                    lowpass_filter_width = lowpass_filter_width,
+                                    rolloff = rolloff
     )
     kernel <- kw$kernel$to(device = waveform$device)
 
-    resampled <- .apply_sinc_resample_kernel(
-        waveform, orig_sr, new_sr, g, kernel, kw$width
-    )
+    resampled <- .apply_sinc_resample_kernel(waveform, orig_sr, new_sr, g,
+        kernel, kw$width)
     resampled <- resampled$squeeze(1)
 
     if (was_numeric) {
@@ -172,3 +163,4 @@ sinc_resample <- function (audio, orig_sr, new_sr, lowpass_filter_width = 6L,
         resampled
     }
 }
+
