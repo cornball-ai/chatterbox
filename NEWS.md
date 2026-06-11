@@ -1,3 +1,22 @@
+# chatterbox 0.1.0.2 (development)
+
+## GC tuning and performance (June 2026)
+
+- With torch's default allocator settings, inference is
+  garbage-collection-bound: ~91% of pure-R generation wall time is R GC.
+  One option fixes it: `torch.cuda_allocator_reserved_rate` set above
+  the model's reserved fraction of the card (~10x pure-R speedup, ~15x
+  for the cpp backend). New `chatterbox_gc_options()` prints the snippet
+  for your GPU; the performance vignette has the full attribution table.
+- `backend = "cpp"` is the fastest native path under tuned GC settings
+  (19-28 ms/token on the test GPU, no JIT cold start). Still marked
+  experimental. Its repetition penalty is now vectorized on-device.
+- `tts_chunked()` collects garbage once per chunk, bounding dead tensor
+  handles (and VRAM creep) at one utterance's worth.
+- Performance vignette rewritten around these findings, with a
+  hardware-scope caveat: numbers are from one GPU; the mechanism
+  generalizes, the magnitudes may not.
+
 # chatterbox 0.1.0.1 (development)
 
 ## Fidelity review vs chatterbox-tts 0.1.4 (June 2026)
