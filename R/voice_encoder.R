@@ -164,8 +164,10 @@ voice_encoder <- torch::nn_module(
         raw_embeds / torch::torch_norm(raw_embeds, dim = 2, keepdim = TRUE)
     },
 
-    # Inference for full utterance with overlapping partials
-    inference = function (mels, overlap = 0.5, min_coverage = 0.8)
+    # Inference for full utterance with overlapping partials.
+    # Defaults follow Python embeds_from_wavs: rate = 1.3 (Resemble's
+    # default) gives frame_step 77, not the overlap-derived 80.
+    inference = function (mels, overlap = 0.5, rate = 1.3, min_coverage = 0.8)
     {
         config <- self$config
         device <- self$proj$weight$device
@@ -177,14 +179,33 @@ voice_encoder <- torch::nn_module(
 
         batch_size <- mels$size(1)
         n_frames <- mels$size(2)
+        win_size <- config$ve_partial_frames
 
-        # Compute frame step based on overlap
-        frame_step <- as.integer(round(config$ve_partial_frames * (1 - overlap)))
+        # Compute frame step (Python get_frame_step)
+        frame_step <- if (is.null(rate)) {
+            as.integer(round(win_size * (1 - overlap)))
+        } else {
+            as.integer(round((config$sample_rate / rate) / win_size))
+        }
 
-        # Compute number of partials
-        n_partials <- (n_frames - config$ve_partial_frames + frame_step) %/% frame_step
-        if (n_partials == 0) {
-            n_partials <- 1
+        # Number of windows (Python get_num_wins): one extra zero-padded
+        # partial when the tail still covers >= min_coverage of a window
+        d <- max(n_frames - win_size + frame_step, 0)
+        n_partials <- d %/% frame_step
+        remainder <- d %% frame_step
+        if (n_partials == 0 ||
+            (remainder + (win_size - frame_step)) / win_size >= min_coverage) {
+            n_partials <- n_partials + 1
+        }
+        target_n <- win_size + frame_step * (n_partials - 1)
+
+        # Zero-pad to the target length so every partial is full-size
+        if (target_n > n_frames) {
+            pad <- torch::torch_zeros(
+                c(batch_size, target_n - n_frames, config$num_mels),
+                device = device
+            )
+            mels <- torch::torch_cat(list(mels, pad), dim = 2)
         }
 
         # Collect all partials
@@ -192,18 +213,9 @@ voice_encoder <- torch::nn_module(
         for (b in seq_len(batch_size)) {
             for (i in seq_len(n_partials)) {
                 start_idx <- (i - 1) * frame_step + 1
-                end_idx <- min(start_idx + config$ve_partial_frames - 1, n_frames)
-
-                # Handle short partials
-                if (end_idx - start_idx + 1 < config$ve_partial_frames) {
-                    partial <- torch::torch_zeros(c(1, config$ve_partial_frames, config$num_mels),
-                        device = device)
-                    actual_len <- end_idx - start_idx + 1
-                    partial[1, 1:actual_len,] <- mels[b, start_idx:end_idx,]
-                } else {
-                    partial <- mels[b, start_idx:end_idx,]$unsqueeze(1)
-                }
-                all_partials[[length(all_partials) + 1]] <- partial
+                end_idx <- start_idx + win_size - 1
+                all_partials[[length(all_partials) + 1]] <-
+                    mels[b, start_idx:end_idx,]$unsqueeze(1)
             }
         }
 
@@ -253,6 +265,10 @@ compute_speaker_embedding <- function (model, audio, sr, overlap = 0.5)
     if (sr != config$sample_rate) {
         audio <- resample_audio(audio, sr, config$sample_rate)
     }
+
+    # Trim leading/trailing silence (Python embeds_from_wavs default,
+    # librosa.effects.trim with top_db = 20)
+    audio <- trim_silence(audio, top_db = 20)
 
     # Compute mel spectrogram
     mel <- compute_ve_mel(audio, config)

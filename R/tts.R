@@ -253,9 +253,18 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
         samples_16k <- samples
     }
 
+    # Python parity (tts.py prepare_conditionals): the S3Gen reference is
+    # capped at 10 s (DEC_COND_LEN) and the tokenizer conditioning prompt
+    # at 6 s (ENC_COND_LEN); the voice encoder sees the full reference.
+    # Longer prompts than the model was trained on degrade quality and
+    # blow up CFM attention cost.
+    samples_dec <- samples[seq_len(min(length(samples), as.integer(10 * sample_rate)))]
+    samples_16k_enc <- samples_16k[seq_len(min(length(samples_16k), 6L * 16000L))]
+
     # Convert to tensor
-    audio_tensor <- torch::torch_tensor(samples, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
+    audio_tensor <- torch::torch_tensor(samples_dec, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
     audio_16k <- torch::torch_tensor(samples_16k, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
+    audio_16k_enc <- torch::torch_tensor(samples_16k_enc, dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
 
     # Get voice encoder embedding using compute_speaker_embedding
     # (handles mel spectrogram computation internally)
@@ -268,7 +277,7 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
     # Standard: 150 tokens, Turbo: 375 tokens
     cond_prompt_len <- model$t3$config$speech_cond_prompt_len
     torch::with_no_grad({
-        tok_result <- model$s3gen$tokenizer$forward(audio_16k, max_len = cond_prompt_len)
+        tok_result <- model$s3gen$tokenizer$forward(audio_16k_enc, max_len = cond_prompt_len)
         cond_prompt_tokens <- tok_result$tokens$to(device = device)
     })
 
@@ -305,7 +314,9 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #'   matching the Python reference.
 #' @param min_p Minimum probability threshold relative to the most likely
 #'   token (default 0.05, matching the Python reference). Standard model only.
-#' @param autocast Use mixed precision (float16) on CUDA for faster inference (default TRUE on CUDA)
+#' @param autocast Use mixed precision (float16) on CUDA for faster
+#'   inference. Default FALSE: the Python reference runs float32, and
+#'   float16 output diverges slightly. Opt in for speed on tight VRAM.
 #' @param traced Logical. Use JIT-traced inference. Default FALSE.
 #' @param backend Character. Inference backend, either "r" or "cpp". Default "r".
 #' @param top_k Integer. Top-k sampling parameter (turbo model only).
@@ -355,8 +366,10 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 
     device <- model$device
     is_turbo <- isTRUE(model$turbo)
-    # Default: autocast on CUDA, off on CPU
-    use_autocast <- if (is.null(autocast)) grepl("^cuda", device) else autocast
+    # Default OFF: the Python reference runs float32 everywhere (S3Gen's
+    # fp16 flag is explicitly False upstream). Mixed precision is an
+    # opt-in speed/VRAM trade.
+    use_autocast <- isTRUE(autocast) && grepl("^cuda", device)
 
     # Handle voice input
     if (is.character(voice)) {

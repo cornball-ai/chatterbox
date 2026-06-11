@@ -448,23 +448,15 @@ compute_xvector_embedding <- function (model, audio, sr)
         audio <- torch::torch_tensor(audio_np, dtype = torch::torch_float32())$unsqueeze(1)
     }
 
-    # Compute fbank features (80 mel bins, mimicking Kaldi fbank)
-    mel <- compute_mel_spectrogram(
-        audio,
-        n_fft = 400,
-        n_mels = 80,
-        sr = target_sr,
-        hop_size = 160,
-        win_size = 400,
-        fmin = 0,
-        fmax = target_sr / 2,
-        center = FALSE
-    )
+    # Kaldi fbank features (povey window, preemphasis, HTK mel scale,
+    # power spectrum), matching torchaudio.compliance.kaldi.fbank as
+    # called by the Python reference (xvector.py extract_feature). The
+    # previous librosa-style mel halved the feature scale and warped
+    # the mel axis, skewing the speaker embedding.
+    mel <- kaldi_fbank(audio$squeeze(1), num_mel_bins = 80L,
+        sample_rate = target_sr)$unsqueeze(1)
 
-    # mel is (batch, mels, time), we need (batch, time, mels)
-    mel <- mel$transpose(2, 3)
-
-    # Subtract mean (per-feature normalization)
+    # Subtract per-feature mean over frames (xvector.py)
     mel <- mel - mel$mean(dim = 2, keepdim = TRUE)
 
     # Move to device and run inference

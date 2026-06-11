@@ -305,7 +305,8 @@ gelu_with_proj <- torch::nn_module(
     forward = function (x)
     {
         x <- self$proj$forward(x)
-        torch::nnf_gelu(x, approximate = "tanh")
+        # diffusers GELU(act_fn = "gelu") uses the exact form, not tanh
+        torch::nnf_gelu(x)
     }
 )
 
@@ -606,16 +607,18 @@ causal_cfm <- torch::nn_module(
         seq_len <- mu$size(3)
         use_meanflow <- if (!is.null(meanflow)) meanflow else self$meanflow
 
-        # Initial noise
-        z <- torch::torch_randn_like(mu)
-
-        # For meanflow, overlay noised_mels on the generated portion
-        if (!is.null(noised_mels)) {
-            prompt_len <- seq_len - noised_mels$size(3)
-            z[,, (prompt_len + 1L):seq_len] <- noised_mels
-        } else if (!use_meanflow && !is.null(self$rand_noise)) {
-            # Use pre-computed noise for standard CFM
+        # Initial noise. Standard CFM slices the fixed pre-generated noise
+        # buffer (deterministic, like Python); only the meanflow path draws
+        # fresh noise. Avoids advancing the RNG and a wasted allocation.
+        if (!use_meanflow && is.null(noised_mels) && !is.null(self$rand_noise)) {
             z <- self$rand_noise[,, 1:seq_len]$to(device = device)$to(dtype = mu$dtype) * temperature
+        } else {
+            z <- torch::torch_randn_like(mu)
+            if (!is.null(noised_mels)) {
+                # Meanflow: overlay noised_mels on the generated portion
+                prompt_len <- seq_len - noised_mels$size(3)
+                z[,, (prompt_len + 1L) :seq_len] <- noised_mels
+            }
         }
 
         # Time schedule
@@ -845,23 +848,21 @@ causal_masked_diff_xvec <- torch::nn_module(
             h <- h[, 1:(h$size(2) - self$pre_lookahead_len * self$token_mel_ratio),]
         }
 
-        # Calculate mel lengths based on token counts (encoder upsamples by token_mel_ratio)
-        prompt_token_len_scalar <- as.integer(prompt_token_len$cpu())
-        mel_len1 <- prompt_token_len_scalar * self$token_mel_ratio
+        # Python parity (flow.py): the prompt conditioning region spans the
+        # ACTUAL prompt mel length (embed_ref reconciles the token count),
+        # so the generated region starts on the right frame even when the
+        # prompt mel has an odd number of frames
+        mel_len1 <- as.integer(prompt_feat$size(2))
         mel_len2 <- as.integer(h$size(2)) - mel_len1
 
         # Project encoder output
         h <- self$encoder_proj$forward(h)
 
-        # Prepare conditioning (resize prompt_feat to match expected mel_len1)
+        # Prepare conditioning: prompt mel fills the first mel_len1 frames
         conds <- torch::torch_zeros(c(1, mel_len1 + mel_len2, self$output_size),
             device = device, dtype = h$dtype)
-        # Truncate or pad prompt_feat to mel_len1
-        prompt_feat_len <- prompt_feat$size(2)
-        if (prompt_feat_len >= mel_len1) {
-            conds[1, 1:mel_len1,] <- prompt_feat[1, 1:mel_len1,]
-        } else {
-            conds[1, 1:prompt_feat_len,] <- prompt_feat
+        if (mel_len1 > 0) {
+            conds[1, 1:mel_len1,] <- prompt_feat[1,,]
         }
         conds <- conds$transpose(2, 3)
 
@@ -946,6 +947,13 @@ s3gen <- torch::nn_module(
             ref_wav <- ref_wav$unsqueeze(1)
         }
 
+        # Python parity (s3gen.py): warn on long refs; create_voice_embedding
+        # caps the reference at 10 s before calling this
+        if (ref_wav$size(2) > 10 * ref_sr) {
+            warning("Reference longer than 10 s; the model was trained on ",
+                "prompts of at most 10 s", call. = FALSE)
+        }
+
         # Resample to 24kHz for mel extraction
         if (ref_sr != S3GEN_SR) {
             ref_wav_24 <- torch::torch_tensor(
@@ -973,6 +981,19 @@ s3gen <- torch::nn_module(
         tok_result <- self$tokenizer$forward(ref_wav_16)
         ref_tokens <- tok_result$tokens
         ref_token_lens <- tok_result$lens
+
+        # Keep mel and token prompts aligned: mel_len must equal
+        # 2 * token_len (s3gen.py). When the reference is not a multiple
+        # of 40 ms, trim the token prompt to mel_len %/% 2 so the flow
+        # conditioning region matches the prompt mel exactly.
+        n_mel_frames <- as.integer(ref_mels$size(2))
+        n_tok <- as.integer(ref_tokens$size(2))
+        if (n_mel_frames != 2L * n_tok) {
+            keep <- n_mel_frames %/% 2L
+            ref_tokens <- ref_tokens[, 1:keep, drop = FALSE]
+            ref_token_lens <- ref_token_lens$clone()
+            ref_token_lens[1] <- keep
+        }
 
         list(
             prompt_token = ref_tokens$to(device = device),

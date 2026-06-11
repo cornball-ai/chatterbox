@@ -5,12 +5,14 @@
 
 CHATTERBOX_REPO <- "ResembleAI/chatterbox"
 
+# conds.pt (Python's builtin default voice) is intentionally absent:
+# it is a nested torch pickle that R torch cannot read, and the R API
+# requires a reference voice. Saves a ~105 MB download.
 CHATTERBOX_FILES <- c(
     "ve.safetensors",
     "t3_cfg.safetensors",
     "s3gen.safetensors",
-    "tokenizer.json",
-    "conds.pt"
+    "tokenizer.json"
 )
 
 # Approximate total model size in MB
@@ -23,7 +25,6 @@ CHATTERBOX_TURBO_FILES <- c(
     "s3gen_meanflow.safetensors",
     "s3gen.safetensors",
     "ve.safetensors",
-    "conds.pt",
     "vocab.json",
     "merges.txt",
     "added_tokens.json",

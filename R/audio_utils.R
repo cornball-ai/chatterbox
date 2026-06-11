@@ -76,16 +76,53 @@ resample_audio <- function (samples, from_sr, to_sr)
         return(samples)
     }
 
-    # Use linear interpolation for resampling
-    # More sophisticated methods could use signal::resample
-    n_samples <- length(samples)
-    duration <- n_samples / from_sr
-    n_new <- as.integer(duration * to_sr)
+    # Windowed-sinc resampling (torchaudio-equivalent); the previous
+    # linear interpolation aliased content above the target Nyquist
+    # into the reference conditioning features
+    sinc_resample(samples, from_sr, to_sr)
+}
 
-    old_times <- seq(0, duration, length.out = n_samples)
-    new_times <- seq(0, duration, length.out = n_new)
+#' Trim leading and trailing silence
+#'
+#' Port of librosa.effects.trim: frame power is compared against the
+#' loudest frame; frames more than \code{top_db} below it are silence.
+#'
+#' @param samples Numeric vector of audio samples
+#' @param top_db Threshold in dB below the peak frame power (default 20)
+#' @param frame_length Analysis frame length (default 2048)
+#' @param hop_length Hop between frames (default 512)
+#' @return Trimmed audio samples
+#' @noRd
+trim_silence <- function (samples, top_db = 20, frame_length = 2048L,
+                          hop_length = 512L)
+{
+    n <- length(samples)
+    if (n == 0) {
+        return(samples)
+    }
 
-    stats::approx(old_times, samples, new_times, method = "linear")$y
+    # Centered framing with zero padding (librosa.feature.rms defaults)
+    pad <- frame_length %/% 2L
+    padded <- c(rep(0, pad), samples, rep(0, pad))
+    n_frames <- 1L + (length(padded) - frame_length) %/% hop_length
+    power <- vapply(seq_len(n_frames), function (i) {
+        s <- (i - 1L) * hop_length
+        mean(padded[(s + 1L) :(s + frame_length)] ^ 2)
+    }, numeric(1))
+
+    ref <- max(power)
+    if (ref <= 0) {
+        return(samples)
+    }
+    db <- 10 * log10(pmax(power, 1e-10) / ref)
+    nonsilent <- which(db > - top_db)
+    if (length(nonsilent) == 0) {
+        return(samples[0])
+    }
+
+    start <- (nonsilent[1] - 1L) * hop_length
+    end <- min(n, nonsilent[length(nonsilent)] * hop_length)
+    samples[(start + 1L) :end]
 }
 
 #' Create mel filterbank

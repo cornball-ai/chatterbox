@@ -375,15 +375,15 @@ t3_model <- torch::nn_module(
         # Prepare conditioning embeddings
         cond_emb <- self$prepare_conditioning(cond) # (B, len_cond, dim)
 
-        # Text embeddings with position
+        # Text embeddings; zero the CFG unconditional row BEFORE adding
+        # positional embeddings (t3.py zeroes the token embedding only,
+        # so the uncond branch keeps text positions)
         text_emb <- self$text_emb$forward(text_tokens$add(1L)) # +1 for R indexing
-        text_emb <- text_emb + self$text_pos_emb$forward(text_tokens)
-
-        # Zero out text for CFG unconditional path
         if (cfg_weight > 0.0 && text_emb$size(1) > 1) {
             # Second batch element is unconditional
             text_emb[2,,] <- 0
         }
+        text_emb <- text_emb + self$text_pos_emb$forward(text_tokens)
 
         # Speech embeddings with position
         speech_emb <- self$speech_emb$forward(speech_tokens$add(1L))
@@ -547,15 +547,18 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
         bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1)
     }
 
-    # Prepare initial embeddings
+    # Prepare initial embeddings, then append a second BOS embedding:
+    # t3.py builds [cond, text, BOS] via prepare_input_embeds and
+    # concatenates another bos_embed (position 0), so the reference
+    # prefill ends in two BOS frames
     prep <- model$prepare_input_embeds(cond, text_tokens, bos_token, cfg_weight)
     embeds <- prep$embeds
-
-    # Double BOS embedding for CFG
+    bos_emb <- model$speech_emb$forward(bos_token[1,, drop = FALSE]$add(1L)) +
+        model$speech_pos_emb$get_fixed_embedding(0)
     if (cfg_weight > 0.0) {
-        bos_emb <- model$speech_emb$forward(bos_token$add(1L)) + model$speech_pos_emb$get_fixed_embedding(0)
         bos_emb <- torch::torch_cat(list(bos_emb, bos_emb), dim = 1)
     }
+    embeds <- torch::torch_cat(list(embeds, bos_emb), dim = 2)
 
     # Initial forward pass
     torch::with_no_grad({
@@ -758,9 +761,16 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
         bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1L)
     }
 
-    # Prepare initial embeddings
+    # Prepare initial embeddings + second BOS frame (Python parity;
+    # see t3_inference)
     prep <- model$prepare_input_embeds(cond, text_tokens, bos_token, cfg_weight)
     embeds <- prep$embeds
+    bos_emb <- model$speech_emb$forward(bos_token[1,, drop = FALSE]$add(1L)) +
+        model$speech_pos_emb$get_fixed_embedding(0)
+    if (cfg_weight > 0.0) {
+        bos_emb <- torch::torch_cat(list(bos_emb, bos_emb), dim = 1L)
+    }
+    embeds <- torch::torch_cat(list(embeds, bos_emb), dim = 2L)
     cond_len <- embeds$size(2)  # Conditioning sequence length
 
     # Get traced layers
@@ -1002,9 +1012,16 @@ t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
         bos_token <- torch::torch_cat(list(bos_token, bos_token), dim = 1L)
     }
 
-    # Prepare initial embeddings
+    # Prepare initial embeddings + second BOS frame (Python parity;
+    # see t3_inference)
     prep <- model$prepare_input_embeds(cond, text_tokens, bos_token, cfg_weight)
     embeds <- prep$embeds
+    bos_emb <- model$speech_emb$forward(bos_token[1,, drop = FALSE]$add(1L)) +
+        model$speech_pos_emb$get_fixed_embedding(0)
+    if (cfg_weight > 0.0) {
+        bos_emb <- torch::torch_cat(list(bos_emb, bos_emb), dim = 1L)
+    }
+    embeds <- torch::torch_cat(list(embeds, bos_emb), dim = 2L)
     cond_len <- embeds$size(2)  # Total conditioning sequence length
 
     # Create pre-allocated KV cache
