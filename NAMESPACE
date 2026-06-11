@@ -1,5 +1,10 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
+# MANUAL LINE - tinyrox does not support @useDynLib and drops this on
+# every document() run; it MUST be re-added or the C++ backend silently
+# dies (test_cpp_backend.R guards this)
+useDynLib(chatterbox, .registration = TRUE)
+
 export(chatterbox)
 export(compute_mel_spectrogram)
 export(compute_mel_spectrogram_ve)
