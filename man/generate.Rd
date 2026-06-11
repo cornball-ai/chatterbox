@@ -5,7 +5,8 @@
 \usage{
 generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
          temperature = 0.8, top_p = 0.9, autocast = NULL, traced = FALSE,
-         backend = c("r", "cpp"), top_k = 1000L, repetition_penalty = 1.2)
+         backend = c("r", "cpp"), top_k = 1000L, repetition_penalty = 1.2,
+         normalize_text = TRUE)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -31,9 +32,23 @@ generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 \item{top_k}{Integer. Top-k sampling parameter. Default 1000.}
 
 \item{repetition_penalty}{Numeric. Repetition penalty. Default 1.2.}
+
+\item{normalize_text}{Logical. If TRUE (default), pre-process text to
+reduce model failure modes: lowercase words with internal capitals
+(which the model interprets as emphasis cues and often produces
+silent audio for). Set to FALSE to pass text through unchanged.}
 }
 \value{
-List with audio (numeric vector) and sample_rate
+List with elements:
+  \describe{
+    \item{audio}{Numeric vector of audio samples}
+    \item{sample_rate}{Sample rate in Hz}
+    \item{eos_found}{Logical. Whether the model emitted an end-of-speech
+      token (TRUE) or hit the token cap (FALSE). FALSE often indicates
+      garbage output and a need to retry or split the input.}
+    \item{n_tokens}{Number of speech tokens generated}
+    \item{audio_sec}{Audio duration in seconds}
+  }
 }
 \description{
 Generate speech from text

@@ -2,6 +2,62 @@
 # Provides simple interface for TTS generation using the Chatterbox engine
 
 # ============================================================================
+# Text Normalization
+# ============================================================================
+
+#' Normalize text for TTS
+#'
+#' Lowercases words that contain internal capital letters (e.g.
+#' "ALERT", "Rarely"). The Chatterbox model interprets internal capitals
+#' as emphasis cues, which often causes it to produce only the first word
+#' followed by silence. Sentence-initial capitals are left alone.
+#'
+#' @param text Character scalar.
+#' @return Normalized text.
+#' @export
+normalize_tts_text <- function (text)
+{
+    if (!is.character(text) || length(text) != 1L || is.na(text)) {
+        return(text)
+    }
+    # Split into tokens preserving whitespace and punctuation
+    parts <- strsplit(text, "(\\s+)", perl = TRUE)[[1]]
+    if (length(parts) == 0L) return(text)
+
+    # Track sentence boundary: first word, or word right after .!?
+    prev_was_sentence_end <- TRUE
+    out <- character(length(parts))
+    for (i in seq_along(parts)) {
+        word <- parts[i]
+        letters_only <- gsub("[^A-Za-z]", "", word)
+        is_capitalized <- nzchar(letters_only) &&
+            grepl("^[A-Z]", letters_only)
+        has_internal_caps <- nzchar(letters_only) &&
+            grepl("[A-Z]", substring(letters_only, 2L))
+        is_all_caps <- nzchar(letters_only) &&
+            letters_only == toupper(letters_only) && nchar(letters_only) > 1L
+
+        # Lowercase if:
+        # - all caps (and longer than 1 letter, to skip "I"), OR
+        # - internal caps (camelCase / weirdCase), OR
+        # - capitalized mid-sentence (not first word and not after .!?),
+        #   except for the standalone pronoun "I"
+        is_pronoun_i <- letters_only == "I"
+        should_lower <- is_all_caps || has_internal_caps ||
+            (is_capitalized && !prev_was_sentence_end && !is_pronoun_i)
+        if (should_lower) {
+            out[i] <- tolower(word)
+        } else {
+            out[i] <- word
+        }
+
+        # Update sentence-end tracker for next word
+        prev_was_sentence_end <- grepl("[.!?]\\s*$", word)
+    }
+    paste(out, collapse = " ")
+}
+
+# ============================================================================
 # Chatterbox TTS Model
 # ============================================================================
 
@@ -251,15 +307,33 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #' @param backend Character. Inference backend, either "r" or "cpp". Default "r".
 #' @param top_k Integer. Top-k sampling parameter. Default 1000.
 #' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.
-#' @return List with audio (numeric vector) and sample_rate
+#' @param normalize_text Logical. If TRUE (default), pre-process text to
+#'   reduce model failure modes: lowercase words with internal capitals
+#'   (which the model interprets as emphasis cues and often produces
+#'   silent audio for). Set to FALSE to pass text through unchanged.
+#' @return List with elements:
+#'   \describe{
+#'     \item{audio}{Numeric vector of audio samples}
+#'     \item{sample_rate}{Sample rate in Hz}
+#'     \item{eos_found}{Logical. Whether the model emitted an end-of-speech
+#'       token (TRUE) or hit the token cap (FALSE). FALSE often indicates
+#'       garbage output and a need to retry or split the input.}
+#'     \item{n_tokens}{Number of speech tokens generated}
+#'     \item{audio_sec}{Audio duration in seconds}
+#'   }
 #' @export
 generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                       temperature = 0.8, top_p = 0.9, autocast = NULL,
                       traced = FALSE, backend = c("r", "cpp"),
-                      top_k = 1000L, repetition_penalty = 1.2)
+                      top_k = 1000L, repetition_penalty = 1.2,
+                      normalize_text = TRUE)
 {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
+    }
+
+    if (isTRUE(normalize_text)) {
+        text <- normalize_tts_text(text)
     }
 
     device <- model$device
@@ -362,12 +436,23 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
         }
     }
 
+    # Capture EOS status before drop_invalid_tokens strips the attribute
+    eos_found <- isTRUE(attr(speech_tokens, "eos_found"))
+
     # Drop invalid tokens
     speech_tokens <- drop_invalid_tokens(speech_tokens)
+    n_tokens <- as.integer(speech_tokens$size(1L))
 
     if (length(speech_tokens) == 0) {
         warning("No valid speech tokens generated")
-        return(list(audio = numeric(0), sample_rate = S3GEN_SR))
+        return(list(audio = numeric(0), sample_rate = S3GEN_SR,
+                    eos_found = eos_found, n_tokens = 0L, audio_sec = 0))
+    }
+
+    if (!eos_found) {
+        warning("Generation hit token cap without emitting end-of-speech ",
+                "(", n_tokens, " tokens). Output may be garbage; ",
+                "consider splitting the input or retrying.")
     }
 
     # Convert to integer vector and add silence for turbo
@@ -414,12 +499,16 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 
     # Convert to numeric
     audio_samples <- as.numeric(audio$squeeze()$cpu())
+    audio_sec <- length(audio_samples) / S3GEN_SR
 
-    message("Done! Generated ", round(length(audio_samples) / S3GEN_SR, 2), " seconds of audio.")
+    message("Done! Generated ", round(audio_sec, 2), " seconds of audio.")
 
     list(
         audio = audio_samples,
-        sample_rate = S3GEN_SR
+        sample_rate = S3GEN_SR,
+        eos_found = eos_found,
+        n_tokens = n_tokens,
+        audio_sec = audio_sec
     )
 }
 
@@ -430,14 +519,24 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
 #' @param voice Voice embedding or path to reference audio
 #' @param output_path Output file path (WAV format)
 #' @param ... Additional arguments passed to generate()
-#' @return Invisibly returns the output path
+#' @return Invisibly returns a list with elements: \code{path},
+#'   \code{eos_found}, \code{n_tokens}, \code{audio_sec}. When iterating
+#'   over many texts, collect these into a data.frame to identify which
+#'   inputs failed (\code{eos_found = FALSE}) and need reprocessing.
 #' @export
 tts_to_file <- function (model, text, voice, output_path, ...)
 {
     result <- generate(model, text, voice, ...)
     write_audio(result$audio, result$sample_rate, output_path)
-    invisible(output_path)
+    invisible(list(
+        path = output_path,
+        eos_found = isTRUE(result$eos_found),
+        n_tokens = result$n_tokens %||% NA_integer_,
+        audio_sec = result$audio_sec %||% NA_real_
+    ))
 }
+
+`%||%` <- function (a, b) if (is.null(a)) b else a
 
 # ============================================================================
 # Streaming TTS (for longer texts)

@@ -17,7 +17,10 @@ tts_to_file(model, text, voice, output_path, ...)
 \item{...}{Additional arguments passed to generate()}
 }
 \value{
-Invisibly returns the output path
+Invisibly returns a list with elements: \code{path},
+  \code{eos_found}, \code{n_tokens}, \code{audio_sec}. When iterating
+  over many texts, collect these into a data.frame to identify which
+  inputs failed (\code{eos_found = FALSE}) and need reprocessing.
 }
 \description{
 Generate speech and save to file
