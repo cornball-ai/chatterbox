@@ -318,7 +318,10 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   inference. Default FALSE: the Python reference runs float32, and
 #'   float16 output diverges slightly. Opt in for speed on tight VRAM.
 #' @param traced Logical. Use JIT-traced inference. Default FALSE.
-#' @param backend Character. Inference backend, either "r" or "cpp". Default "r".
+#' @param backend Character. Inference backend, either "r" or "cpp".
+#'   Default "r". The cpp backend is experimental: a compiled decode loop
+#'   on the stable ATen C++ API, kept as a hedge against TorchScript
+#'   deprecation, but currently slower than \code{traced = TRUE}.
 #' @param top_k Integer. Top-k sampling parameter (turbo model only).
 #'   Default 1000.
 #' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.
@@ -600,6 +603,12 @@ tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
 
         result <- generate(model, sentence, voice, ...)
         all_audio <- c(all_audio, result$audio)
+
+        # Collect once per utterance: frees the chunk's dead tensor
+        # handles (and their GPU memory) in one pass instead of letting
+        # torch's allocator conscript thousands of mid-loop collections.
+        # See ?chatterbox_gc_options.
+        gc(verbose = FALSE)
     }
 
     list(audio = all_audio, sample_rate = S3GEN_SR)

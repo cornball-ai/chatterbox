@@ -326,14 +326,19 @@ SEXP cpp_t3_decode(
         // === Repetition penalty ===
         // HF semantics are sign-dependent: divide positive logits, multiply
         // negative ones. Dividing a negative logit would move it toward 0,
-        // REWARDING repeats.
+        // REWARDING repeats. Vectorized: a per-token .item() here is a GPU
+        // sync per seen token per step, which dominated cpp's per-token cost
+        // as generations grew.
         if (rep_penalty != 1.0 && !seen_tokens.empty()) {
-            for (int64_t tok : seen_tokens) {
-                if (tok >= 0 && tok < vocab_size) {
-                    double v = combined_logits[tok].item<double>();
-                    combined_logits[tok] = v > 0 ? v / rep_penalty : v * rep_penalty;
-                }
-            }
+            std::vector<int64_t> ids(seen_tokens.begin(), seen_tokens.end());
+            auto idx = torch::tensor(ids,
+                torch::TensorOptions().dtype(torch::kLong)
+                    .device(combined_logits.device()));
+            auto vals = combined_logits.index_select(0, idx);
+            auto pen = torch::where(vals > 0,
+                                    vals / rep_penalty,
+                                    vals * rep_penalty);
+            combined_logits.index_copy_(0, idx, pen);
         }
 
         // === Temperature ===

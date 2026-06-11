@@ -45,9 +45,14 @@ few deliberate differences:
   (`normalize_text = TRUE`), and stops degenerate token loops early.
   Python 0.1.4 (English) generates until the token cap in those cases.
 - **Backend token caps.** The pure-R backend generates up to 1000 speech
-  tokens (~40 s); `traced = TRUE` and `backend = "cpp"` are limited by
-  their pre-allocated KV cache (350 positions including ~80-100 of
-  conditioning, so roughly 10 s of audio per call). Long texts:
-  use `tts_chunked()`.
+  tokens (~40 s); `traced = TRUE` and `backend = "cpp"` (experimental)
+  are limited by their pre-allocated KV cache (350 positions including
+  ~80-100 of conditioning, so roughly 10 s of audio per call). Long
+  texts: use `tts_chunked()`.
+- **Performance depends on torch's GC settings.** With torch's default
+  allocator settings, autoregressive inference spends most of its time
+  in R garbage collection. Run `chatterbox_gc_options()` for the
+  recommended `options()` snippet (set before torch loads), and see the
+  performance vignette for measurements.
 - **Voice conversion (`vc.py`) and the multilingual model are not
   ported.**
