@@ -17,5 +17,4 @@
 ^output\.wav$
 ^src/.*\.o$
 ^src/.*\.so$
-^inst/audio$
 ^tasks$
