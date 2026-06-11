@@ -301,12 +301,18 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #' @param exaggeration Emotion/expression exaggeration level (0-1, default 0.5)
 #' @param cfg_weight Classifier-free guidance weight (higher = more adherence to text, default 0.5)
 #' @param temperature Sampling temperature (default 0.8)
-#' @param top_p Top-p (nucleus) sampling threshold (default 0.9)
+#' @param top_p Top-p (nucleus) sampling threshold. Default 1.0 (disabled),
+#'   matching the Python reference.
+#' @param min_p Minimum probability threshold relative to the most likely
+#'   token (default 0.05, matching the Python reference). Standard model only.
 #' @param autocast Use mixed precision (float16) on CUDA for faster inference (default TRUE on CUDA)
 #' @param traced Logical. Use JIT-traced inference. Default FALSE.
 #' @param backend Character. Inference backend, either "r" or "cpp". Default "r".
-#' @param top_k Integer. Top-k sampling parameter. Default 1000.
+#' @param top_k Integer. Top-k sampling parameter (turbo model only).
+#'   Default 1000.
 #' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.
+#'   Applied sign-dependently like HF transformers: positive logits are
+#'   divided, negative ones multiplied.
 #' @param normalize_text Logical. If TRUE (default), pre-process text to
 #'   reduce model failure modes: lowercase words with internal capitals
 #'   (which the model interprets as emphasis cues and often produces
@@ -326,7 +332,8 @@ create_voice_embedding <- function (model, audio, sample_rate = NULL, autocast =
 #'   }
 #' @export
 generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
-                      temperature = 0.8, top_p = 0.9, autocast = NULL,
+                      temperature = 0.8, top_p = 1.0, min_p = 0.05,
+                      autocast = NULL,
                       traced = FALSE, backend = c("r", "cpp"),
                       top_k = 1000L, repetition_penalty = 1.2,
                       normalize_text = TRUE)
@@ -427,7 +434,9 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                         text_tokens = text_tokens,
                         cfg_weight = cfg_weight,
                         temperature = temperature,
-                        top_p = top_p
+                        top_p = top_p,
+                        min_p = min_p,
+                        repetition_penalty = repetition_penalty
                     )
                 })
             })
@@ -439,7 +448,9 @@ generate <- function (model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
                     text_tokens = text_tokens,
                     cfg_weight = cfg_weight,
                     temperature = temperature,
-                    top_p = top_p
+                    top_p = top_p,
+                    min_p = min_p,
+                    repetition_penalty = repetition_penalty
                 )
             })
         }

@@ -458,8 +458,65 @@ t3_model <- torch::nn_module(
 #' @param repetition_penalty Repetition penalty
 #' @return Generated speech tokens
 #' @export
+#' Sample the next speech token from CFG-combined logits
+#'
+#' Shared by the pure-R and traced inference loops so their sampling
+#' semantics cannot drift apart. Matches the HF logits-processor chain
+#' used by the Python reference: repetition penalty (sign-dependent),
+#' temperature, min-p, top-p, multinomial.
+#'
+#' @param logits CFG-combined logits, shape (1, vocab)
+#' @param generated_ids Previously generated ids, 1-indexed, shape (1, n)
+#' @param temperature Sampling temperature
+#' @param top_p Nucleus threshold (1.0 disables, like Python's default)
+#' @param min_p Minimum probability threshold relative to the max
+#' @param repetition_penalty Penalty applied to already-generated ids
+#' @return Sampled token, 1-indexed, shape (1, 1)
+#' @noRd
+.sample_speech_token <- function (logits, generated_ids, temperature, top_p,
+                                  min_p, repetition_penalty)
+{
+    # Repetition penalty. HF semantics are sign-dependent: divide positive
+    # logits, multiply negative ones. Dividing a negative logit would move
+    # it toward 0, REWARDING repeats.
+    if (repetition_penalty != 1.0 && generated_ids$numel() > 0L) {
+        unique_ids <- unique(as.integer(generated_ids$cpu()))
+        vals <- logits[1, unique_ids]
+        logits[1, unique_ids] <- torch::torch_where(
+            vals > 0, vals / repetition_penalty, vals * repetition_penalty
+        )
+    }
+
+    # Temperature scaling
+    if (temperature != 1.0) {
+        logits <- logits / temperature
+    }
+
+    # Min-p in prob space (equivalent to HF MinPLogitsWarper + re-softmax)
+    probs <- torch::nnf_softmax(logits, dim = -1)
+    probs[probs < min_p * probs$max()] <- 0
+    probs <- probs / probs$sum()
+
+    sorted_result <- torch::torch_sort(probs, descending = TRUE)
+    sorted_probs <- sorted_result[[1]]
+    sorted_indices <- sorted_result[[2]]
+
+    # Top-p: drop tokens past the threshold, but keep the token that
+    # crosses it (HF TopPLogitsWarper shifts the mask right one slot)
+    if (top_p < 1.0) {
+        cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = -1)
+        sorted_mask <- torch::torch_roll(cumsum_probs > top_p, 1L, dims = -1L)
+        sorted_mask[, 1] <- FALSE
+        sorted_probs[sorted_mask] <- 0
+        sorted_probs <- sorted_probs / sorted_probs$sum()
+    }
+
+    next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1)
+    sorted_indices$gather(2, next_token_idx)
+}
+
 t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
-                          temperature = 0.8, cfg_weight = 0.5, top_p = 0.95,
+                          temperature = 0.8, cfg_weight = 0.5, top_p = 1.0,
                           min_p = 0.05, repetition_penalty = 1.2)
 {
     config <- model$config
@@ -505,10 +562,15 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
             output <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
             past_key_values <- output$past_key_values
 
-            # Track generated tokens (only conditional path for CFG)
-            generated_ids <- bos_token[1,, drop = FALSE]$clone()
+            # Track generated tokens (only conditional path for CFG).
+            # Seed with BOS as 1-indexed so it matches the 1-indexed
+            # sorted_indices values appended below; the penalty then hits
+            # the actual BOS row, not valid speech token 6560.
+            generated_ids <- bos_token[1,, drop = FALSE]$add(1L)
             predicted <- list()
             eos_found <- FALSE
+            last_token_id <- -1L
+            repeat_run <- 0L
 
             # Generation loop
             for (i in seq_len(max_new_tokens)) {
@@ -524,48 +586,11 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                     logits <- logits[1,]$unsqueeze(1)
                 }
 
-                # Apply repetition penalty (vectorized - O(1) vs O(n) for loop)
-                # Note: generated_ids contains 1-indexed values (from sorted_indices),
-                # which is already correct for R tensor indexing (no +1 needed)
-                if (repetition_penalty != 1.0) {
-                    unique_ids <- unique(as.integer(generated_ids$cpu()))
-                    logits[1, unique_ids] <- logits[1, unique_ids] / repetition_penalty
-                }
-
-                # Temperature scaling
-                if (temperature != 1.0) {
-                    logits <- logits / temperature
-                }
-
-                # Single softmax, then apply min-p in prob space
-                probs <- torch::nnf_softmax(logits, dim = -1)
-
-                # Min-p filtering in prob space (avoids second softmax)
-                max_prob <- probs$max()
-                min_threshold <- min_p * max_prob
-                probs[probs < min_threshold] <- 0
-
-                # Renormalize after min-p
-                probs_filtered <- probs / probs$sum()
-
-                # Top-p (nucleus) sampling
-                sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
-                sorted_probs <- sorted_result[[1]]
-                sorted_indices <- sorted_result[[2]]
-                cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = - 1)
-
-                # Remove tokens with cumulative probability above threshold
-                sorted_mask <- cumsum_probs > top_p
-                # Shift mask right to keep at least one token
-                sorted_mask[, 1] <- FALSE
-                sorted_probs[sorted_mask] <- 0
-
-                # Re-normalize
-                sorted_probs <- sorted_probs / sorted_probs$sum()
-
-                # Sample
-                next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1)
-                next_token <- sorted_indices$gather(2, next_token_idx)
+                # Sample (1-indexed; generated_ids is 1-indexed throughout)
+                next_token <- .sample_speech_token(
+                    logits, generated_ids, temperature, top_p, min_p,
+                    repetition_penalty
+                )
 
                 predicted[[length(predicted) + 1]] <- next_token
                 generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2)
@@ -577,6 +602,22 @@ t3_inference <- function (model, cond, text_tokens, max_new_tokens = 1000,
                     message("EOS detected at step ", i)
                     eos_found <- TRUE
                     break
+                }
+
+                # Runaway guard: the same token sampled 3x in a row is a
+                # degenerate loop (Python's alignment analyzer forces EOS at
+                # 2x). Stop with eos_found = FALSE so callers see the failure.
+                if (token_id == last_token_id) {
+                    repeat_run <- repeat_run + 1L
+                    if (repeat_run >= 3L) {
+                        warning("Stopping generation: token ", token_id,
+                            " repeated 3x at step ", i,
+                            " (degenerate loop)", call. = FALSE)
+                        break
+                    }
+                } else {
+                    last_token_id <- token_id
+                    repeat_run <- 1L
                 }
 
                 # Get embedding for next token
@@ -686,7 +727,7 @@ get_traced_layers <- function(model, max_cache_len = 350L) {
 #' @param max_cache_len Maximum KV cache length
 #' @return Generated speech token tensor
 t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
-                                temperature = 0.8, cfg_weight = 0.5, top_p = 0.95,
+                                temperature = 0.8, cfg_weight = 0.5, top_p = 1.0,
                                 min_p = 0.05, repetition_penalty = 1.2,
                                 max_cache_len = 350L) {
     config <- model$config
@@ -747,10 +788,13 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
         # Initialize pre-allocated cache from first forward
         init_cache_from_first(cache, past_key_values)
 
-        # Track generated tokens
-        generated_ids <- bos_token[1,, drop = FALSE]$clone()
+        # Track generated tokens (1-indexed, including BOS, so the
+        # repetition penalty hits the real BOS row; see t3_inference)
+        generated_ids <- bos_token[1,, drop = FALSE]$add(1L)
         predicted <- list()
         eos_found <- FALSE
+        last_token_id <- -1L
+        repeat_run <- 0L
 
         # === GENERATION LOOP: Use traced transformer ===
         # Limit generation to fit in cache
@@ -774,36 +818,11 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
                 logits <- logits[1L,]$unsqueeze(1L)
             }
 
-            # Apply repetition penalty
-            if (repetition_penalty != 1.0) {
-                unique_ids <- unique(as.integer(generated_ids$cpu()))
-                logits[1L, unique_ids] <- logits[1L, unique_ids] / repetition_penalty
-            }
-
-            # Temperature scaling
-            if (temperature != 1.0) {
-                logits <- logits / temperature
-            }
-
-            # Sampling (same as original)
-            probs <- torch::nnf_softmax(logits, dim = -1L)
-            max_prob <- probs$max()
-            min_threshold <- min_p * max_prob
-            probs[probs < min_threshold] <- 0
-            probs_filtered <- probs / probs$sum()
-
-            sorted_result <- torch::torch_sort(probs_filtered, descending = TRUE)
-            sorted_probs <- sorted_result[[1]]
-            sorted_indices <- sorted_result[[2]]
-            cumsum_probs <- torch::torch_cumsum(sorted_probs, dim = -1L)
-
-            sorted_mask <- cumsum_probs > top_p
-            sorted_mask[, 1L] <- FALSE
-            sorted_probs[sorted_mask] <- 0
-            sorted_probs <- sorted_probs / sorted_probs$sum()
-
-            next_token_idx <- torch::torch_multinomial(sorted_probs, num_samples = 1L)
-            next_token <- sorted_indices$gather(2L, next_token_idx)
+            # Sample (1-indexed; shared with the pure-R loop)
+            next_token <- .sample_speech_token(
+                logits, generated_ids, temperature, top_p, min_p,
+                repetition_penalty
+            )
 
             predicted[[length(predicted) + 1L]] <- next_token
             generated_ids <- torch::torch_cat(list(generated_ids, next_token), dim = 2L)
@@ -814,6 +833,20 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
                 message("EOS detected at step ", i)
                 eos_found <- TRUE
                 break
+            }
+
+            # Runaway guard (see t3_inference)
+            if (token_id == last_token_id) {
+                repeat_run <- repeat_run + 1L
+                if (repeat_run >= 3L) {
+                    warning("Stopping generation: token ", token_id,
+                        " repeated 3x at step ", i,
+                        " (degenerate loop)", call. = FALSE)
+                    break
+                }
+            } else {
+                last_token_id <- token_id
+                repeat_run <- 1L
             }
 
             # Get embedding for next token
@@ -936,7 +969,7 @@ t3_inference_traced <- function(model, cond, text_tokens, max_new_tokens = 1000,
 #' @return Generated speech tokens (0-indexed integer vector)
 #' @export
 t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
-                               temperature = 0.8, cfg_weight = 0.5, top_p = 0.95,
+                               temperature = 0.8, cfg_weight = 0.5, top_p = 1.0,
                                min_p = 0.05, repetition_penalty = 1.2,
                                max_cache_len = 350L)
 {
@@ -1034,9 +1067,10 @@ t3_inference_cpp <- function (model, cond, text_tokens, max_new_tokens = 1000,
             min_p = as.double(min_p),
             rep_penalty = as.double(repetition_penalty),
             stop_token = as.integer(config$stop_speech_token),
+            start_token = as.integer(config$start_speech_token),
             n_heads = as.integer(n_heads),
             head_dim = as.integer(head_dim),
-            rms_eps = 1e-5
+            rms_eps = as.double(llama_config$rms_norm_eps)
         ),
         PACKAGE = "chatterbox"
     )
@@ -1621,9 +1655,11 @@ t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
         hidden <- output$last_hidden_state[, -1L, , drop = FALSE]
         logits <- model$speech_head$forward(hidden)$squeeze(2L) # (B, vocab)
 
-        # Process first token
+        # Process first token. speech_start is 0-indexed; the penalty set
+        # is 1-indexed, so shift it (penalize BOS, not speech token 6560).
         first_token <- .turbo_sample_token(
-            logits, speech_start, temperature, top_k, top_p, repetition_penalty
+            logits, speech_start$add(1L), temperature, top_k, top_p,
+            repetition_penalty
         )
         generated_tokens[[1L]] <- first_token
         current_token <- first_token
@@ -1650,8 +1686,11 @@ t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
                 # Get logits
                 logits <- model$speech_head$forward(output$last_hidden_state)$squeeze(2L)
 
-                # Build generated_ids for repetition penalty
-                gen_ids <- torch::torch_cat(generated_tokens, dim = 2L)
+                # Build generated_ids for repetition penalty (include BOS,
+                # 1-indexed, matching the HF processor's full input_ids view)
+                gen_ids <- torch::torch_cat(
+                    c(list(speech_start$add(1L)), generated_tokens), dim = 2L
+                )
 
                 # Sample
                 next_token <- .turbo_sample_token(
@@ -1741,8 +1780,9 @@ t3_inference_turbo <- function (model, cond, text_tokens, max_new_tokens = 1000,
         sorted_indices <- sorted_result[[2]]
         cumprobs <- torch::torch_cumsum(torch::nnf_softmax(sorted_logits, dim = -1L), dim = -1L)
 
-        # Remove tokens with cumulative probability above threshold
-        sorted_mask <- cumprobs > top_p
+        # Remove tokens past the threshold, keeping the one that crosses
+        # it (HF TopPLogitsWarper shifts the mask right one slot)
+        sorted_mask <- torch::torch_roll(cumprobs > top_p, 1L, dims = -1L)
         sorted_mask[, 1L] <- FALSE
         # Scatter back
         indices_to_remove <- sorted_mask$scatter(2L, sorted_indices, sorted_mask)
