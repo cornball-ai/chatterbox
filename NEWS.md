@@ -1,5 +1,20 @@
 # chatterbox 0.1.0.2 (development)
 
+## C++ apparatus retired in favor of a TorchScript backend (June 2026)
+
+- New `backend = "jit"`: each token's 30-layer forward runs as one
+  TorchScript function (`torch::jit_compile`, compiled per session in
+  milliseconds). 11 ms/token long-form with tuned GC settings, within
+  ~20% of the C++ backend it replaces, auto-sized KV cache, no
+  compiled code.
+- Deleted `src/`, `configure`, and `cleanup`: the C++ backend linked
+  against the torch package's private libtorch, which broke on install
+  order, was dead in CRAN-built binaries, and could go stale on torch
+  upgrades. chatterbox is now a pure-R package.
+- Measured dispatch attribution (see the performance vignette): even
+  eager R written directly against ATen builtins keeps a ~70 ms/token
+  floor; the per-op R call is the cost, not wrapper style.
+
 ## Container parity for long-form (June 2026)
 
 - The CFM estimator's attention uses the fused SDPA kernel: the mel

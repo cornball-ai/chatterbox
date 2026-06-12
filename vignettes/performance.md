@@ -39,7 +39,8 @@ Per generated token, warm:
 
 | Backend | default torch GC settings | tuned GC settings |
 |---------|--------------------------|-------------------|
-| cpp (`backend = "cpp"`) | 229-429 ms | **9-28 ms** |
+| jit (`backend = "jit"`) | - | **11 ms** (long-form) |
+| cpp (retired; see below) | 229-429 ms | 9-28 ms |
 | traced (`traced = TRUE`) | 41-47 ms | **34-39 ms** |
 | pure R | 920-1598 ms | **100-113 ms** |
 | Python container (reference) | ~8 ms | - |
@@ -103,12 +104,21 @@ One option. `chatterbox_gc_options()` prints it for your card. For a
 options(torch.cuda_allocator_reserved_rate = 0.5)
 ```
 
-For a 6 GB GPU use `0.75` (the ~3.2 GB model floor is already 53% of a
-small card, so the line must sit higher). Optionally add
-`torch.cuda_allocator_allocated_rate = 0.6` to hold the VRAM plateau
-lower at no speed cost - but only where 60% of the card clears the
-model floor (roughly 8 GB cards and up); below that the cap recreates
-the constant-collection regime.
+Per-card recommendations (the rule: the trigger line, a fraction of
+total VRAM, must clear what the loaded model reserves):
+
+| card | reserved_rate | status |
+|------|--------------|--------|
+| 16 GB | 0.50 | measured (RTX 5060 Ti) |
+| 8 GB | 0.60 | projected from the rule; not yet validated |
+| 6 GB | 0.75 | measured (GTX 1660 Ti) |
+
+To validate on new hardware, run `scripts/tune_gc.R` with a few values;
+the win is a cliff, so any rate that clears the floor gives full speed.
+Optionally add `torch.cuda_allocator_allocated_rate = 0.6` to hold the
+VRAM plateau lower at no speed cost - but only where 60% of the card
+clears the model floor (roughly 8 GB cards and up); below that the cap
+recreates the constant-collection regime.
 
 ### Measured on 6 GB hardware (GTX 1660 Ti)
 
@@ -167,29 +177,39 @@ cannot be batched away.
 
 ## Backend Details
 
-### cpp (`backend = "cpp"`) - fastest native, experimental
+### jit (`backend = "jit"`) - fastest native
 
-The T3 decode loop as a single `.Call()` into a compiled loop on the
-ATen C++ API. With tuned GC settings: **9 ms/token at long form,
-19-28 ms at short** (per-call overhead amortizes), container-parity
-end-to-end - 6.4-8.3s of wall for 21-27s of audio vs the container's
-5.9-6.0s for ~20s. Its KV cache auto-sizes so generation always
-completes (~1 MB VRAM per position; pass `max_cache_len` to bound it).
-No JIT
-compilation cold start, and ~1 GB less VRAM than traced (no duplicate
-weight copies). It also has no TorchScript dependency, so it is immune
-to the deprecation that will eventually strand traced mode.
+Each token's full 30-layer forward runs as one TorchScript function,
+compiled once per session (in milliseconds) via `torch::jit_compile()`.
+**11 ms/token long-form** with tuned GC - container-parity territory -
+with an auto-sized KV cache so generation always completes (~1 MB VRAM
+per position; pass `max_cache_len` to bound it). No shape freezing, no
+per-size recompilation, no JIT-trace cold start, and no duplicate
+weight copies (the script borrows the model's tensors by reference).
 
-Under default GC settings it measured 230-430 ms/token, which is why it
-was long believed slow: its allocations flow through the same allocator
-that invokes R collections, even though the loop never returns to R.
-Tune the one option and the compiled loop shows its true cost.
+It replaced an equivalent C++ backend (9 ms/token long-form, 19-28 ms
+short - within ~20%) that required a configure script and linking
+against the torch package's private libtorch: that linkage broke on
+install order, was permanently dead in any CRAN-built binary, and
+could go stale on torch upgrades. The TorchScript route shares traced
+mode's deprecation caveat but none of those failure modes. The 6 GB
+rows below labelled cpp are historical measurements of the retired
+backend; jit has not yet been re-validated on that hardware.
 
-Still marked experimental: it shares traced's 350-position cache cap
-(liftable - the loop attends only over valid positions, so a larger
-cache costs VRAM but no speed), and has had less soak time than the
-other paths. Requires libtorch headers at install time (auto-detected
-by the configure script; without them it compiles to a stub).
+### Where the speed actually comes from
+
+Same long text, T3 stage, tuned GC (`scripts/bench_jit_vs_eager.R`):
+
+| variant | ms/token |
+|---------|----------|
+| pure R, nn_module forward path | 87-88 |
+| lean eager R: identical math, ATen builtins only (no nn_module/nnf dispatch) | 71 |
+| jit (one TorchScript call per token) | 11 |
+
+Rewriting eager R in the leanest possible style buys ~20%: the
+dominant cost is the per-op R-to-lantern call itself (~190 us across
+~370 ops/token), not wrapper style. The 8x comes from removing the
+per-op R call structurally, which is what the TorchScript step does.
 
 ### Traced (`traced = TRUE`)
 
@@ -230,13 +250,13 @@ perceiver, and the flow prompt adds ~50 mel frames per second of
 
 ## When to Use What
 
-- **Container** (`tts.api` backend): production speed (~8 ms/token).
-- **cpp + tuned GC**: fastest native path (19-28 ms/token), no JIT
-  warmup; utterance-length text (350-position cache cap).
-- **Traced**: when libtorch headers were unavailable at install time
-  but speed matters in a long-running session.
-- **Pure R + tuned GC**: long texts, small cards, debugging, anywhere
-  else.
+- **jit + tuned GC**: fastest native path (~11 ms/token), no warmup,
+  any length (auto-sized cache). The default choice on a GPU.
+- **Container** (`tts.api` backend): still the fastest overall
+  (~8 ms/token) and the most battle-tested.
+- **Traced**: long-running sessions where the ~50s trace cost amortizes
+  and utterance-length text fits its 350-position cache.
+- **Pure R + tuned GC**: debugging, CPU-only, anywhere else.
 
 ## Optimizations Applied
 

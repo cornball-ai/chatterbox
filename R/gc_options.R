@@ -55,10 +55,11 @@ chatterbox_gc_options <- function (vram_gb = NULL) {
         }
     }
 
-    # The trigger line (a fraction of total VRAM) must clear the ~4.6GB
-    # the loaded model reserves; the exact value past that only moves
-    # the VRAM plateau. Measured: 0.3-0.8 all equally fast on 16GB.
-    rate <- round(min(max(4.5 / vram_gb, 0.5), 0.8), 2)
+    # The trigger line (a fraction of total VRAM) must clear what the
+    # loaded model reserves (~3.6-4.6 GB depending on card); the exact
+    # value past that only moves the VRAM plateau, not speed. Tiers:
+    # 16 GB and 6 GB measured, 8 GB projected from the rule.
+    rate <- if (vram_gb <= 6.5) 0.75 else if (vram_gb <= 10) 0.6 else 0.5
 
     opts <- list(torch.cuda_allocator_reserved_rate = rate)
 

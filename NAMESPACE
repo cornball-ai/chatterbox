@@ -1,9 +1,5 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
-# MANUAL LINE - tinyrox does not support @useDynLib (tinyrox#17) and
-# drops this on every document() run; it MUST be re-added or the C++
-# backend silently dies (test_cpp_backend.R guards this)
-useDynLib(chatterbox, .registration = TRUE)
 export(chatterbox)
 export(chatterbox_gc_options)
 export(compute_mel_spectrogram)
@@ -34,9 +30,8 @@ export(read_audio)
 export(read_safetensors)
 export(resample_audio)
 export(s3_tokenizer)
-export(split_text_chunks)
 export(t3_inference)
-export(t3_inference_cpp)
+export(t3_inference_jit)
 export(t3_inference_turbo)
 export(text_to_tokens)
 export(tts_to_file)

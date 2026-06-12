@@ -5,7 +5,7 @@
 \usage{
 generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
          temperature = 0.8, top_p = 1, min_p = 0.05, autocast = NULL,
-         traced = FALSE, backend = c("r", "cpp"), top_k = 1000L,
+         traced = FALSE, backend = c("r", "jit"), top_k = 1000L,
          repetition_penalty = 1.2, normalize_text = TRUE,
          max_new_tokens = 1000L, max_cache_len = NULL)
 }
@@ -34,12 +34,15 @@ float16 output diverges slightly. Opt in for speed on tight VRAM.}
 
 \item{traced}{Logical. Use JIT-traced inference. Default FALSE.}
 
-\item{backend}{Character. Inference backend, either "r" or "cpp".
-Default "r". The cpp backend (experimental) runs the decode loop as
-compiled C++ on the stable ATen API: with tuned GC settings (see
-\code{\link{chatterbox_gc_options}}) it is the fastest native path
-and, unlike \code{traced = TRUE}, has no JIT cold start and no
-TorchScript dependency.}
+\item{backend}{Character. Inference backend, either "r" or "jit".
+Default "r". The jit backend runs each token's full 30-layer
+forward as one TorchScript call (compiled once per session, in
+milliseconds, via \code{torch::jit_compile}): with tuned GC
+settings (see \code{\link{chatterbox_gc_options}}) it is the
+fastest native path (~11 ms/token long-form), auto-sizes its KV
+cache so generation always completes, and ships no compiled code.
+It replaced an equivalent C++ backend (within ~20\\% of its speed)
+that required linking against torch's private libraries.}
 
 \item{top_k}{Integer. Top-k sampling parameter (turbo model only).
 Default 1000.}
@@ -59,10 +62,10 @@ reference implementation.}
 \item{max_new_tokens}{Maximum speech tokens to generate (default 1000,
 = 40 s of audio; the model's own ceiling is 4096).}
 
-\item{max_cache_len}{KV cache positions for the cpp and traced
-backends. Default NULL: cpp auto-sizes so generation always fits
+\item{max_cache_len}{KV cache positions for the jit and traced
+backends. Default NULL: jit auto-sizes so generation always fits
 (~1 MB VRAM per position); traced keeps its 350-position trace (a
-new size triggers a fresh ~50 s JIT compile). Ignored by the pure-R
+new size triggers a fresh ~50 s trace). Ignored by the pure-R
 backend, which has no pre-allocated cache.}
 }
 \value{

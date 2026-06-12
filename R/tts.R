@@ -318,12 +318,15 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   inference. Default FALSE: the Python reference runs float32, and
 #'   float16 output diverges slightly. Opt in for speed on tight VRAM.
 #' @param traced Logical. Use JIT-traced inference. Default FALSE.
-#' @param backend Character. Inference backend, either "r" or "cpp".
-#'   Default "r". The cpp backend (experimental) runs the decode loop as
-#'   compiled C++ on the stable ATen API: with tuned GC settings (see
-#'   \code{\link{chatterbox_gc_options}}) it is the fastest native path
-#'   and, unlike \code{traced = TRUE}, has no JIT cold start and no
-#'   TorchScript dependency.
+#' @param backend Character. Inference backend, either "r" or "jit".
+#'   Default "r". The jit backend runs each token's full 30-layer
+#'   forward as one TorchScript call (compiled once per session, in
+#'   milliseconds, via \code{torch::jit_compile}): with tuned GC
+#'   settings (see \code{\link{chatterbox_gc_options}}) it is the
+#'   fastest native path (~11 ms/token long-form), auto-sizes its KV
+#'   cache so generation always completes, and ships no compiled code.
+#'   It replaced an equivalent C++ backend (within ~20\% of its speed)
+#'   that required linking against torch's private libraries.
 #' @param top_k Integer. Top-k sampling parameter (turbo model only).
 #'   Default 1000.
 #' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.
@@ -338,10 +341,10 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   reference implementation.
 #' @param max_new_tokens Maximum speech tokens to generate (default 1000,
 #'   = 40 s of audio; the model's own ceiling is 4096).
-#' @param max_cache_len KV cache positions for the cpp and traced
-#'   backends. Default NULL: cpp auto-sizes so generation always fits
+#' @param max_cache_len KV cache positions for the jit and traced
+#'   backends. Default NULL: jit auto-sizes so generation always fits
 #'   (~1 MB VRAM per position); traced keeps its 350-position trace (a
-#'   new size triggers a fresh ~50 s JIT compile). Ignored by the pure-R
+#'   new size triggers a fresh ~50 s trace). Ignored by the pure-R
 #'   backend, which has no pre-allocated cache.
 #' @return List with elements:
 #'   \describe{
@@ -357,7 +360,7 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 generate <- function(model, text, voice, exaggeration = 0.5,
                      cfg_weight = 0.5, temperature = 0.8, top_p = 1.0,
                      min_p = 0.05, autocast = NULL, traced = FALSE,
-                     backend = c("r", "cpp"), top_k = 1000L,
+                     backend = c("r", "jit"), top_k = 1000L,
                      repetition_penalty = 1.2, normalize_text = TRUE,
                      max_new_tokens = 1000L, max_cache_len = NULL) {
     if (!is_loaded(model)) {
@@ -442,8 +445,8 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     } else {
         # Standard inference with CFG
         backend <- match.arg(backend)
-        if (backend == "cpp") {
-            inference_fn <- t3_inference_cpp
+        if (backend == "jit") {
+            inference_fn <- t3_inference_jit
         } else if (traced) {
             inference_fn <- t3_inference_traced
         } else {
@@ -464,7 +467,7 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         # Cache sizing only applies to the pre-allocated-cache backends;
         # cpp auto-sizes when NULL, traced keeps its 350 default (a new
         # size means a fresh ~50s JIT trace)
-        if (!is.null(max_cache_len) && (backend == "cpp" || traced)) {
+        if (!is.null(max_cache_len) && (backend == "jit" || traced)) {
             inf_args$max_cache_len <- max_cache_len
         }
 
@@ -596,18 +599,13 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param ... Additional arguments passed to generate()
 #' @return List with audio and sample_rate
 #' @export
-#' Split text into TTS-sized chunks
-#'
-#' Sentences first; sentences longer than \code{chunk_size} characters
-#' are further split at comma boundaries, packed greedily. A clause
-#' with no commas stays whole (splitting mid-clause hurts prosody more
-#' than a long generation does).
-#'
-#' @param text Input text
-#' @param chunk_size Target maximum characters per chunk
-#' @return Character vector of chunks
-#' @noRd
-split_text_chunks <- function (text, chunk_size = 200L) {
+# Split text into TTS-sized chunks: sentences first; sentences longer
+# than chunk_size chars are further split at comma boundaries, packed
+# greedily. A clause with no commas stays whole (splitting mid-clause
+# hurts prosody more than a long generation does).
+# (Plain comments, not roxygen: tinyrox exports any function with a
+# roxygen block, @noRd and dot-prefix notwithstanding.)
+.split_text_chunks <- function (text, chunk_size = 200L) {
     sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
     chunks <- character(0)
     for (s in sentences) {
@@ -640,7 +638,7 @@ tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
     # Sentences, with oversized sentences subdivided at commas
     # (chunk_size was previously accepted but never used: run-on
     # sentences passed through whole and hit backend token caps)
-    sentences <- split_text_chunks(text, chunk_size)
+    sentences <- .split_text_chunks(text, chunk_size)
 
     all_audio <- numeric(0)
 

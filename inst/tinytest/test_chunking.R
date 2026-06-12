@@ -1,7 +1,7 @@
-# split_text_chunks: sentence splitting with chunk_size enforcement
+# .split_text_chunks: sentence splitting with chunk_size enforcement
 # (chunk_size was previously dead code; run-on sentences passed whole)
 
-sc <- chatterbox:::split_text_chunks
+sc <- chatterbox:::.split_text_chunks
 
 # Multi-sentence text splits at sentence boundaries
 out <- sc("One sentence. Another one. A third!", 200L)
