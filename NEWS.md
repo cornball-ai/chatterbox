@@ -1,3 +1,10 @@
+# chatterbox 0.1.0.6 (development)
+
+- `generate(skip_vocoder = TRUE)` returns the mel spectrogram instead of
+  audio (Python 0.1.7 parity).
+- New `save_voice_embedding()`/`load_voice_embedding()`: torch_save-based
+  voice presets, reusable across sessions without the reference audio.
+
 # chatterbox 0.1.0.5 (development)
 
 - New `integrated_loudness()` and `normalize_loudness()` (ITU-R
