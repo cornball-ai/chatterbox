@@ -5,7 +5,7 @@
 \usage{
 t3_inference_cpp(model, cond, text_tokens, max_new_tokens = 1000,
                  temperature = 0.8, cfg_weight = 0.5, top_p = 1, min_p = 0.05,
-                 repetition_penalty = 1.2, max_cache_len = 350L)
+                 repetition_penalty = 1.2, max_cache_len = NULL)
 }
 \arguments{
 \item{model}{T3 model}

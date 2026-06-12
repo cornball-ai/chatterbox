@@ -6,7 +6,8 @@
 generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
          temperature = 0.8, top_p = 1, min_p = 0.05, autocast = NULL,
          traced = FALSE, backend = c("r", "cpp"), top_k = 1000L,
-         repetition_penalty = 1.2, normalize_text = TRUE)
+         repetition_penalty = 1.2, normalize_text = TRUE,
+         max_new_tokens = 1000L, max_cache_len = NULL)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -54,6 +55,15 @@ silent audio for). Set to FALSE to skip case normalization.
 Punctuation normalization (whitespace collapse, first-letter
 capitalization, trailing period) always runs, matching the Python
 reference implementation.}
+
+\item{max_new_tokens}{Maximum speech tokens to generate (default 1000,
+= 40 s of audio; the model's own ceiling is 4096).}
+
+\item{max_cache_len}{KV cache positions for the cpp and traced
+backends. Default NULL: cpp auto-sizes so generation always fits
+(~1 MB VRAM per position); traced keeps its 350-position trace (a
+new size triggers a fresh ~50 s JIT compile). Ignored by the pure-R
+backend, which has no pre-allocated cache.}
 }
 \value{
 List with elements:
