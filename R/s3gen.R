@@ -1122,7 +1122,7 @@ s3gen <- torch::nn_module(
     if (!is.null(speech_token_lens)) {
         gen_mel_lens <- (speech_token_len * 2L)$to(dtype = torch::torch_long())
         gen_mask <- (!make_pad_mask(gen_mel_lens,
-            max_len = output_mels$size(3)))$unsqueeze(2)$to(
+                                    max_len = output_mels$size(3)))$unsqueeze(2)$to(
             dtype = output_mels$dtype, device = output_mels$device)
         output_mels <- output_mels * gen_mask
     }

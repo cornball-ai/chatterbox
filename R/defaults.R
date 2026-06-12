@@ -27,14 +27,15 @@
 #' chatterbox_defaults(vram_gb = 6)
 #' chatterbox_defaults(vram_gb = 0) # CPU
 #' @export
-chatterbox_defaults <- function (vram_gb = NULL) {
+chatterbox_defaults <- function(vram_gb = NULL) {
     if (is.null(vram_gb)) {
         smi <- suppressWarnings(tryCatch(
-            system2("nvidia-smi",
-                c("--query-gpu=memory.total", "--format=csv,noheader,nounits"),
-                stdout = TRUE, stderr = FALSE),
-            error = function (e) character(0)
-        ))
+                system2("nvidia-smi",
+                        c("--query-gpu=memory.total",
+                          "--format=csv,noheader,nounits"),
+                        stdout = TRUE, stderr = FALSE),
+                error = function(e) character(0)
+            ))
         vram_gb <- if (length(smi) >= 1 && nzchar(smi[1]) &&
             !is.na(suppressWarnings(as.numeric(smi[1])))) {
             round(as.numeric(smi[1]) / 1024, 1)
@@ -48,31 +49,31 @@ chatterbox_defaults <- function (vram_gb = NULL) {
         # The CUDA allocator knobs are irrelevant; only the CPU
         # allocation odometer exists, and it measured as minor.
         out <- list(
-            device = "cpu",
-            vram_gb = vram_gb,
-            options = list(),
-            backend = "r",
-            max_new_tokens = 1000L,
-            chunk_chars = 200L,
-            measured = FALSE
+                    device = "cpu",
+                    vram_gb = vram_gb,
+                    options = list(),
+                    backend = "r",
+                    max_new_tokens = 1000L,
+                    chunk_chars = 200L,
+                    measured = FALSE
         )
     } else {
         rate <- if (vram_gb <= 6.5) 0.75 else if (vram_gb <= 10) 0.6 else 0.5
         out <- list(
-            device = "cuda",
-            vram_gb = vram_gb,
-            options = list(torch.cuda_allocator_reserved_rate = rate),
-            backend = "jit",
-            max_new_tokens = 1000L,
-            chunk_chars = 200L,
-            measured = vram_gb <= 6.5 || vram_gb > 12
+                    device = "cuda",
+                    vram_gb = vram_gb,
+                    options = list(torch.cuda_allocator_reserved_rate = rate),
+                    backend = "jit",
+                    max_new_tokens = 1000L,
+                    chunk_chars = 200L,
+                    measured = vram_gb <= 6.5 || vram_gb > 12
         )
     }
 
     if (isNamespaceLoaded("torch") && length(out$options) > 0) {
         warning("torch is already initialized in this session; the GC ",
-            "options take effect only in a fresh R session that sets ",
-            "them before torch loads.", call. = FALSE)
+                "options take effect only in a fresh R session that sets ",
+                "them before torch loads.", call. = FALSE)
     }
 
     structure(out, class = "chatterbox_defaults")
@@ -84,7 +85,7 @@ chatterbox_defaults <- function (vram_gb = NULL) {
 #' @param ... Ignored
 #' @return \code{x}, invisibly
 #' @export
-print.chatterbox_defaults <- function (x, ...) {
+print.chatterbox_defaults <- function(x, ...) {
     if (x$device == "cpu") {
         cat("CPU-only setup (no usable GPU detected).\n\n",
             "    library(chatterbox)\n",
@@ -95,25 +96,29 @@ print.chatterbox_defaults <- function (x, ...) {
         return(invisible(x))
     }
 
-    tier <- if (isTRUE(x$measured)) "measured" else "projected"
+    if (isTRUE(x$measured)) {
+        tier <- "measured"
+    } else {
+        tier <- "projected"
+    }
     rate <- x$options$torch.cuda_allocator_reserved_rate
     cat(sprintf("Recommended for a %s GB GPU (%s tier) - put the\n",
-        format(x$vram_gb), tier))
+                format(x$vram_gb), tier))
     cat("options() line in .Rprofile or at the top of your script,\n")
     cat("BEFORE torch loads:\n\n")
     cat(sprintf("    options(torch.cuda_allocator_reserved_rate = %.2f)\n",
-        rate))
+                rate))
     cat("    library(chatterbox)\n")
     cat("    model <- load_chatterbox(chatterbox(\"cuda\"))\n")
     cat(sprintf(
-        "    result <- generate(model, text, voice, backend = \"%s\")\n\n",
-        x$backend))
+                "    result <- generate(model, text, voice, backend = \"%s\")\n\n",
+                x$backend))
     cat(sprintf(
-        "Per call, up to max_new_tokens = %d (~40 s of audio). For\n",
-        x$max_new_tokens))
+                "Per call, up to max_new_tokens = %d (~40 s of audio). For\n",
+                x$max_new_tokens))
     cat(sprintf(
-        "longer texts use tts_chunked() (sentence chunks, ~%d chars,\n",
-        x$chunk_chars))
+                "longer texts use tts_chunked() (sentence chunks, ~%d chars,\n",
+                x$chunk_chars))
     cat("one gc() per chunk). In your own batch loops, call gc() after\n")
     cat("each generate().\n")
 
