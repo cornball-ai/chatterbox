@@ -17,9 +17,10 @@ read_audio <- function(path) {
     }
 
     # Stereo downmix by channel mean (librosa.load mono= default; the
-    # old behavior silently dropped the right channel)
+    # old behavior silently dropped the right channel). as.numeric
+    # first: integer + integer overflows to NA on 32-bit samples.
     if (wav@stereo) {
-        raw <- (wav@left + wav@right) / 2
+        raw <- (as.numeric(wav@left) + as.numeric(wav@right)) / 2
     } else {
         raw <- wav@left
     }

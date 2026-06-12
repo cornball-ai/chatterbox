@@ -3,8 +3,8 @@
 \alias{create_voice_embedding}
 \title{Create voice embedding from reference audio}
 \usage{
-create_voice_embedding(model, audio, sample_rate = NULL, norm_loudness = NULL,
-                       autocast = NULL)
+create_voice_embedding(model, audio, sample_rate = NULL, autocast = NULL,
+                       norm_loudness = NULL)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -13,11 +13,11 @@ create_voice_embedding(model, audio, sample_rate = NULL, norm_loudness = NULL,
 
 \item{sample_rate}{Sample rate of audio (if not a file)}
 
+\item{autocast}{Ignored (kept for API compatibility)}
+
 \item{norm_loudness}{Normalize the reference to -27 LUFS before
 conditioning (\code{\link{normalize_loudness}}). Default matches
 Python: \code{TRUE} for turbo models, \code{FALSE} for standard.}
-
-\item{autocast}{Ignored (kept for API compatibility)}
 }
 \value{
 Voice embedding that can be used for synthesis

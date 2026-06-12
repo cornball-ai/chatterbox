@@ -214,14 +214,14 @@ is_loaded <- function(model) {
 #' @param model Chatterbox model
 #' @param audio Reference audio (file path, numeric vector, or torch tensor)
 #' @param sample_rate Sample rate of audio (if not a file)
+#' @param autocast Ignored (kept for API compatibility)
 #' @param norm_loudness Normalize the reference to -27 LUFS before
 #'   conditioning (\code{\link{normalize_loudness}}). Default matches
 #'   Python: \code{TRUE} for turbo models, \code{FALSE} for standard.
-#' @param autocast Ignored (kept for API compatibility)
 #' @return Voice embedding that can be used for synthesis
 #' @export
 create_voice_embedding <- function(model, audio, sample_rate = NULL,
-                                   norm_loudness = NULL, autocast = NULL) {
+                                   autocast = NULL, norm_loudness = NULL) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
