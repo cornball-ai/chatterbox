@@ -359,9 +359,14 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   (~1 MB VRAM per position); traced keeps its 350-position trace (a
 #'   new size triggers a fresh ~50 s trace). Ignored by the pure-R
 #'   backend, which has no pre-allocated cache.
+#' @param skip_vocoder Logical. If TRUE, stop after flow matching and
+#'   return the mel spectrogram instead of audio (Python 0.1.7's
+#'   \code{skip_vocoder}). The result has a \code{mel} element (tensor,
+#'   batch x 80 x frames; 50 frames/s) and no \code{audio}.
 #' @return List with elements:
 #'   \describe{
-#'     \item{audio}{Numeric vector of audio samples}
+#'     \item{audio}{Numeric vector of audio samples (omitted when
+#'       \code{skip_vocoder = TRUE}, which returns \code{mel} instead)}
 #'     \item{sample_rate}{Sample rate in Hz}
 #'     \item{eos_found}{Logical. Whether the model emitted an end-of-speech
 #'       token (TRUE) or hit the token cap (FALSE). FALSE often indicates
@@ -375,7 +380,8 @@ generate <- function(model, text, voice, exaggeration = 0.5,
                      min_p = 0.05, autocast = NULL, traced = FALSE,
                      backend = c("r", "jit"), top_k = 1000L,
                      repetition_penalty = 1.2, normalize_text = TRUE,
-                     max_new_tokens = 1000L, max_cache_len = NULL) {
+                     max_new_tokens = 1000L, max_cache_len = NULL,
+                     skip_vocoder = FALSE) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -544,7 +550,8 @@ generate <- function(model, text, voice, exaggeration = 0.5,
                     ref_dict = voice$ref_dict,
                     finalize = TRUE,
                     traced = traced,
-                    n_cfm_timesteps = n_cfm_steps
+                    n_cfm_timesteps = n_cfm_steps,
+                    skip_vocoder = skip_vocoder
                 )
                 audio <- result[[1]]
             })
@@ -556,10 +563,25 @@ generate <- function(model, text, voice, exaggeration = 0.5,
                 ref_dict = voice$ref_dict,
                 finalize = TRUE,
                 traced = traced,
-                n_cfm_timesteps = n_cfm_steps
+                n_cfm_timesteps = n_cfm_steps,
+                skip_vocoder = skip_vocoder
             )
             audio <- result[[1]]
         })
+    }
+
+    if (skip_vocoder) {
+        # audio here is the mel (batch, 80, frames); 50 frames/s
+        audio_sec <- audio$size(3) / 50
+        message("Done! Generated mel for ", round(audio_sec, 2),
+            " seconds of audio (vocoder skipped).")
+        return(list(
+            mel = audio,
+            sample_rate = S3GEN_SR,
+            eos_found = eos_found,
+            n_tokens = n_tokens,
+            audio_sec = audio_sec
+        ))
     }
 
     # Convert to numeric
