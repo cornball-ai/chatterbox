@@ -16,15 +16,19 @@ read_audio <- function(path) {
         wav <- tuneR::readWave(path)
     }
 
-    # Extract samples and normalize to [-1, 1]
+    # Stereo downmix by channel mean (librosa.load mono= default; the
+    # old behavior silently dropped the right channel)
+    raw <- if (wav@stereo) (wav@left + wav@right) / 2 else wav@left
+
+    # Normalize to [-1, 1]
     if (wav@bit == 16) {
-        samples <- wav@left / 32768
+        samples <- raw / 32768
     } else if (wav@bit == 24) {
-        samples <- wav@left / 8388608
+        samples <- raw / 8388608
     } else if (wav@bit == 32) {
-        samples <- wav@left / 2147483648
+        samples <- raw / 2147483648
     } else {
-        samples <- wav@left / (2 ^ (wav@bit - 1))
+        samples <- raw / (2 ^ (wav@bit - 1))
     }
 
     list(samples = as.numeric(samples), sr = wav@samp.rate)

@@ -214,11 +214,14 @@ is_loaded <- function(model) {
 #' @param model Chatterbox model
 #' @param audio Reference audio (file path, numeric vector, or torch tensor)
 #' @param sample_rate Sample rate of audio (if not a file)
+#' @param norm_loudness Normalize the reference to -27 LUFS before
+#'   conditioning (\code{\link{normalize_loudness}}). Default matches
+#'   Python: \code{TRUE} for turbo models, \code{FALSE} for standard.
 #' @param autocast Ignored (kept for API compatibility)
 #' @return Voice embedding that can be used for synthesis
 #' @export
 create_voice_embedding <- function(model, audio, sample_rate = NULL,
-                                   autocast = NULL) {
+                                   norm_loudness = NULL, autocast = NULL) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -244,6 +247,16 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
     }
 
     device <- model$device
+
+    # Python parity (tts_turbo.py prepare_conditionals): turbo
+    # normalizes the reference to -27 LUFS before any conditioning;
+    # standard chatterbox does not.
+    if (is.null(norm_loudness)) {
+        norm_loudness <- isTRUE(model$turbo)
+    }
+    if (isTRUE(norm_loudness)) {
+        samples <- normalize_loudness(samples, sample_rate)
+    }
 
     # Resample to 16kHz for voice encoder and tokenizer
     if (sample_rate != 16000) {
