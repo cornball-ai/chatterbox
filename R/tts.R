@@ -454,15 +454,15 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         }
 
         inf_args <- list(
-            model = model$t3,
-            cond = cond,
-            text_tokens = text_tokens,
-            cfg_weight = cfg_weight,
-            temperature = temperature,
-            top_p = top_p,
-            min_p = min_p,
-            repetition_penalty = repetition_penalty,
-            max_new_tokens = max_new_tokens
+                         model = model$t3,
+                         cond = cond,
+                         text_tokens = text_tokens,
+                         cfg_weight = cfg_weight,
+                         temperature = temperature,
+                         top_p = top_p,
+                         min_p = min_p,
+                         repetition_penalty = repetition_penalty,
+                         max_new_tokens = max_new_tokens
         )
         # Cache sizing only applies to the pre-allocated-cache backends;
         # cpp auto-sizes when NULL, traced keeps its 350 default (a new
@@ -601,7 +601,7 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param chunk_size Target maximum chunk length in characters
 #' @return Character vector of chunks
 #' @noRd
-.split_text_chunks <- function (text, chunk_size = 200L) {
+.split_text_chunks <- function(text, chunk_size = 200L) {
     sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
     chunks <- character(0)
     for (s in sentences) {
@@ -616,7 +616,11 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
                 chunks <- c(chunks, cur)
                 cur <- p
             } else {
-                cur <- if (nzchar(cur)) paste(cur, p) else p
+                if (nzchar(cur)) {
+                    cur <- paste(cur, p)
+                } else {
+                    cur <- p
+                }
             }
         }
         if (nzchar(cur)) {

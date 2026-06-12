@@ -24,7 +24,7 @@
 #' @param n_layers,n_heads,head_dim,eps Llama architecture parameters
 #' @return The compiled script function
 #' @noRd
-.get_jit_decode_step <- function (n_layers, n_heads, head_dim, eps) {
+.get_jit_decode_step <- function(n_layers, n_heads, head_dim, eps) {
     key <- paste(n_layers, n_heads, head_dim, eps, sep = "_")
     if (!is.null(.jit_decode_cache[[key]])) {
         return(.jit_decode_cache[[key]])
@@ -68,7 +68,8 @@ def decode_step(h: Tensor, w: List[Tensor], k_cache: Tensor, v_cache: Tensor,
         up = torch.matmul(normed, w[b + 7].t())
         h = resid + torch.matmul(torch.silu(gate) * up, w[b + 8].t())
     return h
-", n_layers, n_heads, head_dim, format(eps, scientific = FALSE))
+"
+                   , n_layers, n_heads, head_dim, format(eps, scientific = FALSE))
 
     cu <- torch::jit_compile(src)
     .jit_decode_cache[[key]] <- cu$decode_step
@@ -84,7 +85,7 @@ def decode_step(h: Tensor, w: List[Tensor], k_cache: Tensor, v_cache: Tensor,
 #' @param model T3 model
 #' @return Flat list of n_layers * 9 tensors
 #' @noRd
-.get_layer_weights <- function (model) {
+.get_layer_weights <- function(model) {
     n_layers <- model$tfmr$config$num_hidden_layers
     layers <- vector("list", n_layers)
     for (i in seq_len(n_layers)) {
@@ -122,10 +123,10 @@ def decode_step(h: Tensor, w: List[Tensor], k_cache: Tensor, v_cache: Tensor,
 #' @param max_cache_len KV cache positions; NULL (default) auto-sizes
 #' @return Generated speech tokens (0-indexed), with eos_found attribute
 #' @export
-t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
-                              temperature = 0.8, cfg_weight = 0.5, top_p = 1.0,
-                              min_p = 0.05, repetition_penalty = 1.2,
-                              max_cache_len = NULL) {
+t3_inference_jit <- function(model, cond, text_tokens, max_new_tokens = 1000,
+                             temperature = 0.8, cfg_weight = 0.5,
+                             top_p = 1.0, min_p = 0.05,
+                             repetition_penalty = 1.2, max_cache_len = NULL) {
     config <- model$config
     lcfg <- model$tfmr$config
     device <- model$text_emb$weight$device
@@ -134,24 +135,24 @@ t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
     head_dim <- lcfg$head_dim
 
     step_fn <- .get_jit_decode_step(n_layers, n_heads, head_dim,
-        lcfg$rms_norm_eps)
+                                    lcfg$rms_norm_eps)
     wflat <- .get_layer_weights(model)
 
     if (text_tokens$dim() == 1) {
         text_tokens <- text_tokens$unsqueeze(1)
     }
     text_tokens <- torch::nnf_pad(text_tokens, c(1, 0),
-        value = config$start_text_token)
+                                  value = config$start_text_token)
     text_tokens <- torch::nnf_pad(text_tokens, c(0, 1),
-        value = config$stop_text_token)
+                                  value = config$stop_text_token)
     use_cfg <- cfg_weight > 0.0
     if (use_cfg) {
         text_tokens <- torch::torch_cat(list(text_tokens, text_tokens), dim = 1)
     }
 
     bos_token <- torch::torch_tensor(
-        matrix(config$start_speech_token, nrow = 1),
-        device = device, dtype = torch::torch_long()
+                                     matrix(config$start_speech_token, nrow = 1),
+                                     device = device, dtype = torch::torch_long()
     )
     bos_in <- if (use_cfg) {
         torch::torch_cat(list(bos_token, bos_token), dim = 1)
@@ -163,7 +164,7 @@ t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
     prep <- model$prepare_input_embeds(cond, text_tokens, bos_in, cfg_weight)
     embeds <- prep$embeds
     bos_emb <- model$speech_emb$forward(bos_token$add(1L)) +
-        model$speech_pos_emb$get_fixed_embedding(0)
+    model$speech_pos_emb$get_fixed_embedding(0)
     if (use_cfg) {
         bos_emb <- torch::torch_cat(list(bos_emb, bos_emb), dim = 1)
     }
@@ -175,19 +176,19 @@ t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
         max_cache_len <- cond_len + max_new_tokens + 1L
     }
     rope <- compute_rope_frequencies(head_dim, max_cache_len + 100L,
-        theta = lcfg$rope_theta, scaling = lcfg$rope_scaling, device = device)
+                                     theta = lcfg$rope_theta, scaling = lcfg$rope_scaling, device = device)
 
     torch::with_no_grad({
         out <- model$tfmr$forward(inputs_embeds = embeds, use_cache = TRUE)
         k_cache <- torch::torch_zeros(n_layers, batch, n_heads,
-            max_cache_len, head_dim, device = device)
+                                      max_cache_len, head_dim, device = device)
         v_cache <- torch::torch_zeros_like(k_cache)
         for (l in seq_len(n_layers)) {
             kv <- out$past_key_values[[l]]
-            k_cache[l, , , 1:cond_len, ] <- kv[[1]]
-            v_cache[l, , , 1:cond_len, ] <- kv[[2]]
+            k_cache[l,,, 1:cond_len,] <- kv[[1]]
+            v_cache[l,,, 1:cond_len,] <- kv[[2]]
         }
-        h_last <- out$last_hidden_state[, -1, , drop = FALSE]
+        h_last <- out$last_hidden_state[, -1,, drop = FALSE]
 
         # 1-indexed throughout (see t3_inference); penalty set includes BOS
         generated_ids <- bos_token$add(1L)
@@ -199,11 +200,11 @@ t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
         for (i in seq_len(max_new_tokens)) {
             logits <- model$speech_head$forward(h_last)$squeeze(2)
             if (use_cfg) {
-                cond_logits <- logits[1, ]$unsqueeze(1)
-                uncond_logits <- logits[2, ]$unsqueeze(1)
+                cond_logits <- logits[1,]$unsqueeze(1)
+                uncond_logits <- logits[2,]$unsqueeze(1)
                 logits <- cond_logits + cfg_weight * (cond_logits - uncond_logits)
             } else {
-                logits <- logits[1, ]$unsqueeze(1)
+                logits <- logits[1,]$unsqueeze(1)
             }
 
             next_token <- .sample_speech_token(logits, generated_ids,
@@ -224,8 +225,8 @@ t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
                 repeat_run <- repeat_run + 1L
                 if (repeat_run >= 10L) {
                     warning("Stopping generation: token ", token_id,
-                        " repeated 10x at step ", i,
-                        " (degenerate loop)", call. = FALSE)
+                            " repeated 10x at step ", i,
+                            " (degenerate loop)", call. = FALSE)
                     break
                 }
             } else {
@@ -234,16 +235,16 @@ t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
             }
 
             emb <- model$speech_emb$forward(next_token) +
-                model$speech_pos_emb$get_fixed_embedding(i)
+            model$speech_pos_emb$get_fixed_embedding(i)
             if (use_cfg) {
                 emb <- torch::torch_cat(list(emb, emb), dim = 1)
             }
 
             pos0 <- cond_len + i - 1L # 0-based absolute position
-            cosp <- rope$cos[pos0 + 1L, ]$view(c(1L, 1L, 1L, head_dim))
-            sinp <- rope$sin[pos0 + 1L, ]$view(c(1L, 1L, 1L, head_dim))
+            cosp <- rope$cos[pos0 + 1L,]$view(c(1L, 1L, 1L, head_dim))
+            sinp <- rope$sin[pos0 + 1L,]$view(c(1L, 1L, 1L, head_dim))
             h <- step_fn(emb, wflat, k_cache, v_cache, cosp, sinp,
-                torch::jit_scalar(pos0), torch::jit_scalar(pos0 + 1L))
+                         torch::jit_scalar(pos0), torch::jit_scalar(pos0 + 1L))
             h_last <- model$tfmr$norm$forward(h)
         }
     })
@@ -257,3 +258,4 @@ t3_inference_jit <- function (model, cond, text_tokens, max_new_tokens = 1000,
     attr(tokens, "eos_found") <- eos_found
     tokens
 }
+

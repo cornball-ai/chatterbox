@@ -276,10 +276,8 @@ cfm_attention <- torch::nn_module(
     # hundreds of MB and was both the slowest op and the main GC trigger
     # in the mel stage (an additive mask rides in unchanged; the
     # inference path passes none)
-    out <- torch::torch_scaled_dot_product_attention(
-        q, k, v,
-        attn_mask = if (!is.null(attention_mask)) attention_mask else list()
-    )
+    out <- torch::torch_scaled_dot_product_attention(q, k, v,
+        attn_mask = if (!is.null(attention_mask)) attention_mask else list())
 
     # Reshape back to (B, T, inner_dim)
     out <- out$transpose(2L, 3L)$contiguous()$view(c(batch_size, seq_len, -1L))
