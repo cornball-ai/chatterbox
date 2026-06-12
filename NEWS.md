@@ -1,3 +1,13 @@
+# chatterbox 0.1.0.5 (development)
+
+- New `integrated_loudness()` and `normalize_loudness()` (ITU-R
+  BS.1770-4, pure base R, matches pyloudnorm to 6 decimals);
+  `create_voice_embedding()` gains `norm_loudness`, defaulting to TRUE
+  for turbo models (Python parity).
+- `read_audio()` downmixes stereo files by channel mean (librosa
+  parity); previously the right channel was silently dropped.
+- Parity reference retargeted to chatterbox-tts 0.1.7.
+
 # chatterbox 0.1.0.4 (development)
 
 - `chatterbox_gc_options()` now returns a classed list of the
