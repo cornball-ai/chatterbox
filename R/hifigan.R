@@ -810,4 +810,3 @@ create_s3gen_vocoder <- function(device = "cpu") {
 
     model$to(device = device)
 }
-

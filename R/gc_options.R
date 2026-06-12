@@ -112,4 +112,3 @@ print.chatterbox_gc_options <- function(x, ...) {
 
     invisible(x)
 }
-

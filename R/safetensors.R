@@ -7,4 +7,3 @@
 read_safetensors <- function(path, device = "cpu") {
     safetensors::safe_load_file(path, framework = "torch", device = device)
 }
-

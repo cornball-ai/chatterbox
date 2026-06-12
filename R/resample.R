@@ -163,4 +163,3 @@ sinc_resample <- function(audio, orig_sr, new_sr, lowpass_filter_width = 6L,
         resampled
     }
 }
-

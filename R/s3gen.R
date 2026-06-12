@@ -1284,4 +1284,3 @@ load_s3gen <- function(path, device = "cpu", meanflow = FALSE) {
 
     model
 }
-

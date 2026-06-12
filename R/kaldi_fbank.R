@@ -208,4 +208,3 @@ kaldi_fbank <- function(audio, num_mel_bins = 80L, sample_rate = 16000) {
 
     mel_energies
 }
-

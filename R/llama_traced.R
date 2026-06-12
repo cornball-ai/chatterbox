@@ -353,4 +353,3 @@ init_cache_from_first <- function(cache, past_key_values) {
 
     invisible(cache)
 }
-

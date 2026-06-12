@@ -258,4 +258,3 @@ t3_inference_jit <- function(model, cond, text_tokens, max_new_tokens = 1000,
     attr(tokens, "eos_found") <- eos_found
     tokens
 }
-

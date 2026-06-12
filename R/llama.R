@@ -607,4 +607,3 @@ load_llama_weights <- function(model, state_dict, prefix = "model.") {
 
     model
 }
-

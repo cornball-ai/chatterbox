@@ -715,4 +715,3 @@ load_conformer_encoder_weights <- function(model, state_dict,
 
     model
 }
-

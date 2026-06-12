@@ -1623,4 +1623,3 @@ t3_inference_turbo <- function(model, cond, text_tokens,
     probs <- torch::nnf_softmax(logits, dim = -1L)
     torch::torch_multinomial(probs, num_samples = 1L) # (B, 1)
 }
-

@@ -301,4 +301,3 @@ compute_mel_spectrogram_ve <- function(y, sr = 16000) {
     # Transpose to (batch, time, mels) for LSTM
     spec$transpose(2, 3)
 }
-
