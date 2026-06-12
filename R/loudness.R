@@ -7,9 +7,9 @@
 # pyloudnorm's IIRfilter.generate_coefficients for the two K-weighting
 # stages: high shelf (G = 4 dB, Q = 1/sqrt(2), fc = 1500) and high pass
 # (Q = 0.5, fc = 38).
-.k_weighting_coeffs <- function (sample_rate) {
-    rbj <- function (G, Q, fc, type) {
-        A <- 10^(G / 40)
+.k_weighting_coeffs <- function(sample_rate) {
+    rbj <- function(G, Q, fc, type) {
+        A <- 10 ^ (G / 40)
         w0 <- 2 * pi * fc / sample_rate
         alpha <- sin(w0) / (2 * Q)
         if (type == "high_shelf") {
@@ -31,14 +31,14 @@
 
 # scipy.signal.lfilter for a biquad: zero initial state, normalized by
 # a[1]. FIR part vectorized, IIR part via stats::filter(recursive).
-.biquad <- function (x, b, a) {
+.biquad <- function(x, b, a) {
     b <- b / a[1]
     a <- a / a[1]
     v <- b[1] * x +
-        b[2] * c(0, x[-length(x)]) +
-        b[3] * c(0, 0, x[-((length(x) - 1):length(x))])
+    b[2] * c(0, x[-length(x)]) +
+    b[3] * c(0, 0, x[-((length(x) - 1):length(x))])
     y <- stats::filter(v, filter = -a[2:3], method = "recursive",
-        init = c(0, 0))
+                       init = c(0, 0))
     as.numeric(y)
 }
 
@@ -53,7 +53,7 @@
 #' @return Loudness in LUFS (\code{-Inf} for silence or when no block
 #'   passes the gates).
 #' @export
-integrated_loudness <- function (samples, sample_rate) {
+integrated_loudness <- function(samples, sample_rate) {
     if (!is.numeric(samples) || length(samples) < 0.4 * sample_rate) {
         stop("samples must be numeric mono audio of at least 400 ms")
     }
@@ -71,7 +71,7 @@ integrated_loudness <- function (samples, sample_rate) {
     j <- 0:(n_blocks - 1)
     lower <- trunc(t_g * j * step * sample_rate)
     upper <- trunc(t_g * (j * step + 1) * sample_rate)
-    cs <- c(0, cumsum(x^2))
+    cs <- c(0, cumsum(x ^ 2))
     z <- (cs[upper + 1] - cs[lower + 1]) / (t_g * sample_rate)
     l <- -0.691 + 10 * log10(z)
 
@@ -102,13 +102,13 @@ integrated_loudness <- function (samples, sample_rate) {
 #'   Python turbo conditioning default).
 #' @return Gain-adjusted samples.
 #' @export
-normalize_loudness <- function (samples, sample_rate, target_lufs = -27) {
+normalize_loudness <- function(samples, sample_rate, target_lufs = -27) {
     loudness <- tryCatch(integrated_loudness(samples, sample_rate),
-        error = function (e) NA_real_)
+                         error = function(e) NA_real_)
     if (is.na(loudness)) {
         return(samples)
     }
-    gain <- 10^((target_lufs - loudness) / 20)
+    gain <- 10 ^ ((target_lufs - loudness) / 20)
     if (!is.finite(gain) || gain <= 0) {
         return(samples)
     }

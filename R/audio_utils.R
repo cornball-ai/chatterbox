@@ -18,7 +18,11 @@ read_audio <- function(path) {
 
     # Stereo downmix by channel mean (librosa.load mono= default; the
     # old behavior silently dropped the right channel)
-    raw <- if (wav@stereo) (wav@left + wav@right) / 2 else wav@left
+    if (wav@stereo) {
+        raw <- (wav@left + wav@right) / 2
+    } else {
+        raw <- wav@left
+    }
 
     # Normalize to [-1, 1]
     if (wav@bit == 16) {
