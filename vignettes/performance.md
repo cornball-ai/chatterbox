@@ -39,7 +39,7 @@ Per generated token, warm:
 
 | Backend | default torch GC settings | tuned GC settings |
 |---------|--------------------------|-------------------|
-| cpp (`backend = "cpp"`) | 229-429 ms | **19-28 ms** |
+| cpp (`backend = "cpp"`) | 229-429 ms | **9-28 ms** |
 | traced (`traced = TRUE`) | 41-47 ms | **34-39 ms** |
 | pure R | 920-1598 ms | **100-113 ms** |
 | Python container (reference) | ~8 ms | - |
@@ -170,7 +170,12 @@ cannot be batched away.
 ### cpp (`backend = "cpp"`) - fastest native, experimental
 
 The T3 decode loop as a single `.Call()` into a compiled loop on the
-ATen C++ API. With tuned GC settings: **19-28 ms/token**, no JIT
+ATen C++ API. With tuned GC settings: **9 ms/token at long form,
+19-28 ms at short** (per-call overhead amortizes), container-parity
+end-to-end - 6.4-8.3s of wall for 21-27s of audio vs the container's
+5.9-6.0s for ~20s. Its KV cache auto-sizes so generation always
+completes (~1 MB VRAM per position; pass `max_cache_len` to bound it).
+No JIT
 compilation cold start, and ~1 GB less VRAM than traced (no duplicate
 weight copies). It also has no TorchScript dependency, so it is immune
 to the deprecation that will eventually strand traced mode.

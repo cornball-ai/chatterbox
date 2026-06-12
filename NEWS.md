@@ -1,5 +1,17 @@
 # chatterbox 0.1.0.2 (development)
 
+## Container parity for long-form (June 2026)
+
+- The CFM estimator's attention uses the fused SDPA kernel: the mel
+  stage runs 2.5x faster and stops triggering GC storms at long
+  sequence lengths.
+- `backend = "cpp"` auto-sizes its KV cache, so generations of any
+  length complete; with tuned GC settings, long-form native generation
+  runs at container speed (0.30 vs 0.29 wall-seconds per audio-second).
+- `generate()` gains `max_new_tokens` and `max_cache_len`.
+- `tts_chunked()` actually enforces `chunk_size` now (it was dead
+  code): run-on sentences split at comma boundaries.
+
 ## GC tuning and performance (June 2026)
 
 - With torch's default allocator settings, inference is
