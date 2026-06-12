@@ -534,8 +534,9 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         dtype = torch::torch_long()
     )$unsqueeze(1L)$to(device = device)
 
-    # Generate waveform with S3Gen
-    message("Synthesizing waveform...")
+    # Generate waveform (or just the mel) with S3Gen
+    message(if (skip_vocoder) "Synthesizing mel spectrogram..."
+        else "Synthesizing waveform...")
     if (is_turbo) {
         n_cfm_steps <- 2L
     } else {
@@ -612,6 +613,10 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #'   inputs failed (\code{eos_found = FALSE}) and need reprocessing.
 #' @export
 tts_to_file <- function(model, text, voice, output_path, ...) {
+    if (isTRUE(list(...)$skip_vocoder)) {
+        stop("skip_vocoder makes no sense here: there is no audio to ",
+            "write. Use generate() to get the mel.")
+    }
     result <- generate(model, text, voice, ...)
     write_audio(result$audio, result$sample_rate, output_path)
     invisible(list(path = output_path, eos_found = isTRUE(result$eos_found),
