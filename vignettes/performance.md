@@ -119,6 +119,9 @@ the constant-collection regime.
 | 0.75 + allocated_rate 0.6 | 423-441 (worse) | 4.7-4.9 GB |
 | 0.75, traced (warm) | **88-94** | 5.0 GB - tight, no OOM |
 | 0.75, cpp | 150-163 | 4.4 GB stable |
+| 0.75, long text (~20-23s audio) | 351-392, completes | 4.4 GB stable |
+| 0.9 + 0.9 backstop, short text | 302-305, steadier | 5.3 GB flat |
+| 0.9 + 0.9 backstop, long text | **OOM, both runs** | - |
 
 The same mechanism on a different GPU generation: the untuned storm
 reproduces, and one knob buys ~4x for pure R (not 10x - the card is
@@ -133,6 +136,17 @@ small host-side dispatches (a laptop CPU pays full price); traced's few
 fused launches hold up on weak hosts. Both compiled paths beat pure R
 everywhere measured - which one wins is machine-dependent, so benchmark
 on your hardware (`scripts/bench_backends.R`).
+
+The 0.9 rows are why the backstop stays at its default. Pushing both
+lines to 90% runs steadier on short utterances (the card parks at a
+flat 5.3 GB, container-style) but OOMs on long ones - and the autopsy
+is instructive: allocated peaked at 4.88 GB, just UNDER the 5.04 GB
+rescue line, while ~0.6 GB of fragmentation filled the rest of the
+card. R frees tensors only at collection (unlike Python's refcounting,
+which is how the container lives at 5.5 GB safely), so the gap between
+the backstop and the top of the card must absorb fragmentation plus
+the largest single allocation. 0.75 with default backstops completes
+20+ second generations on this card; that is the recommendation.
 
 **Rule of thumb: collect once per utterance, not thousands of times
 inside it.** `tts_chunked()` calls `gc()` after each chunk; do the same
