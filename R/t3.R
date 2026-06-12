@@ -986,7 +986,7 @@ t3_inference_traced <- function(model, cond, text_tokens,
 t3_inference_cpp <- function(model, cond, text_tokens, max_new_tokens = 1000,
                              temperature = 0.8, cfg_weight = 0.5,
                              top_p = 1.0, min_p = 0.05,
-                             repetition_penalty = 1.2, max_cache_len = 350L) {
+                             repetition_penalty = 1.2, max_cache_len = NULL) {
     config <- model$config
     llama_config <- model$tfmr$config
     device <- model$text_emb$weight$device
@@ -1028,6 +1028,14 @@ t3_inference_cpp <- function(model, cond, text_tokens, max_new_tokens = 1000,
     }
     embeds <- torch::torch_cat(list(embeds, bos_emb), dim = 2L)
     cond_len <- embeds$size(2) # Total conditioning sequence length
+
+    # Auto-size the cache so generation always fits: the C++ loop
+    # attends only over valid positions, so a bigger cache costs VRAM
+    # (~1 MB/position) but no per-token speed. Pass max_cache_len to
+    # bound memory instead.
+    if (is.null(max_cache_len)) {
+        max_cache_len <- cond_len + max_new_tokens + 1L
+    }
 
     # Create pre-allocated KV cache
     batch_size <- embeds$size(1)

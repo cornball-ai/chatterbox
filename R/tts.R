@@ -336,6 +336,13 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   Punctuation normalization (whitespace collapse, first-letter
 #'   capitalization, trailing period) always runs, matching the Python
 #'   reference implementation.
+#' @param max_new_tokens Maximum speech tokens to generate (default 1000,
+#'   = 40 s of audio; the model's own ceiling is 4096).
+#' @param max_cache_len KV cache positions for the cpp and traced
+#'   backends. Default NULL: cpp auto-sizes so generation always fits
+#'   (~1 MB VRAM per position); traced keeps its 350-position trace (a
+#'   new size triggers a fresh ~50 s JIT compile). Ignored by the pure-R
+#'   backend, which has no pre-allocated cache.
 #' @return List with elements:
 #'   \describe{
 #'     \item{audio}{Numeric vector of audio samples}
@@ -351,7 +358,8 @@ generate <- function(model, text, voice, exaggeration = 0.5,
                      cfg_weight = 0.5, temperature = 0.8, top_p = 1.0,
                      min_p = 0.05, autocast = NULL, traced = FALSE,
                      backend = c("r", "cpp"), top_k = 1000L,
-                     repetition_penalty = 1.2, normalize_text = TRUE) {
+                     repetition_penalty = 1.2, normalize_text = TRUE,
+                     max_new_tokens = 1000L, max_cache_len = NULL) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -442,33 +450,33 @@ generate <- function(model, text, voice, exaggeration = 0.5,
             inference_fn <- t3_inference
         }
 
+        inf_args <- list(
+            model = model$t3,
+            cond = cond,
+            text_tokens = text_tokens,
+            cfg_weight = cfg_weight,
+            temperature = temperature,
+            top_p = top_p,
+            min_p = min_p,
+            repetition_penalty = repetition_penalty,
+            max_new_tokens = max_new_tokens
+        )
+        # Cache sizing only applies to the pre-allocated-cache backends;
+        # cpp auto-sizes when NULL, traced keeps its 350 default (a new
+        # size means a fresh ~50s JIT trace)
+        if (!is.null(max_cache_len) && (backend == "cpp" || traced)) {
+            inf_args$max_cache_len <- max_cache_len
+        }
+
         if (use_autocast) {
             torch::with_autocast(device_type = "cuda", {
                 torch::with_no_grad({
-                    speech_tokens <- inference_fn(
-                        model = model$t3,
-                        cond = cond,
-                        text_tokens = text_tokens,
-                        cfg_weight = cfg_weight,
-                        temperature = temperature,
-                        top_p = top_p,
-                        min_p = min_p,
-                        repetition_penalty = repetition_penalty
-                    )
+                    speech_tokens <- do.call(inference_fn, inf_args)
                 })
             })
         } else {
             torch::with_no_grad({
-                speech_tokens <- inference_fn(
-                    model = model$t3,
-                    cond = cond,
-                    text_tokens = text_tokens,
-                    cfg_weight = cfg_weight,
-                    temperature = temperature,
-                    top_p = top_p,
-                    min_p = min_p,
-                    repetition_penalty = repetition_penalty
-                )
+                speech_tokens <- do.call(inference_fn, inf_args)
             })
         }
     }
@@ -588,13 +596,51 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param ... Additional arguments passed to generate()
 #' @return List with audio and sample_rate
 #' @export
+#' Split text into TTS-sized chunks
+#'
+#' Sentences first; sentences longer than \code{chunk_size} characters
+#' are further split at comma boundaries, packed greedily. A clause
+#' with no commas stays whole (splitting mid-clause hurts prosody more
+#' than a long generation does).
+#'
+#' @param text Input text
+#' @param chunk_size Target maximum characters per chunk
+#' @return Character vector of chunks
+#' @noRd
+split_text_chunks <- function (text, chunk_size = 200L) {
+    sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
+    chunks <- character(0)
+    for (s in sentences) {
+        if (nchar(s) <= chunk_size) {
+            chunks <- c(chunks, s)
+            next
+        }
+        parts <- strsplit(s, "(?<=,)\\s+", perl = TRUE)[[1]]
+        cur <- ""
+        for (p in parts) {
+            if (nzchar(cur) && nchar(cur) + 1L + nchar(p) > chunk_size) {
+                chunks <- c(chunks, cur)
+                cur <- p
+            } else {
+                cur <- if (nzchar(cur)) paste(cur, p) else p
+            }
+        }
+        if (nzchar(cur)) {
+            chunks <- c(chunks, cur)
+        }
+    }
+    chunks[nzchar(trimws(chunks))]
+}
+
 tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
 
-    # Split text into sentences
-    sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
+    # Sentences, with oversized sentences subdivided at commas
+    # (chunk_size was previously accepted but never used: run-on
+    # sentences passed through whole and hit backend token caps)
+    sentences <- split_text_chunks(text, chunk_size)
 
     all_audio <- numeric(0)
 
