@@ -102,12 +102,11 @@ print.chatterbox_gc_options <- function(x, ...) {
     if (vram_gb <= 6.5) {
         cat("\nNote: on a ", vram_gb, " GB card the model floor leaves",
             " little headroom, so the\n0.8 backstop still fires some",
-            " collections: expect ~3-5x from tuning for\npure R, not",
-            " the ~10x larger cards see. traced = TRUE measured",
-            " fastest\non 6 GB hardware (88-94 ms/token, ~5 GB peak -",
-            " tight but it fits).\nDo NOT lower allocated_rate here -",
-            " 60% of a small card sits below\nthe model floor and",
-            " recreates the constant-collection regime.\n", sep = "")
+            " collections. backend = \"jit\" measured\nfastest on 6 GB",
+            " hardware (35-38 ms/token, ~4.7 GB peak, vs the\n",
+            "container's 30). Do NOT lower allocated_rate here - 60%",
+            " of a small\ncard sits below the model floor and recreates",
+            " the\nconstant-collection regime.\n", sep = "")
     }
 
     invisible(x)

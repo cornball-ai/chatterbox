@@ -47,6 +47,7 @@ chatterbox
 | `generate(model, text, voice)` | Generate speech |
 | `create_voice_embedding(model, audio)` | Create speaker embedding |
 | `tts_chunked(model, text, voice)` | Long texts, sentence-chunked, gc per chunk |
+| `chatterbox_defaults()` | Per-card setup: GC options + backend + chunking thresholds |
 | `chatterbox_gc_options()` | Print torch GC settings for this GPU (set before torch loads) |
 | `quick_tts(text, ref_audio, output)` | One-liner convenience (loads whole model per call) |
 
@@ -694,8 +695,11 @@ See `vignettes/performance.md` for the full story. Two facts dominate:
 | lean eager R (ATen builtins, no nn_module) | 71 | proves the per-op R call is the cost, not wrapper style |
 
 End-to-end long-form (~20s audio): jit ~6s wall vs container ~6s -
-container parity. On 6GB hardware (GTX 1660 Ti, rate 0.75): traced
-88-94, pure R 300-360; jit not yet validated there.
+container parity. On 6GB hardware (GTX 1660 Ti, rate 0.75, June 2026):
+jit 35-38 ms/token (4.7GB peak) vs container 30 - jit wins there too;
+traced 88-94 but its 350-position cache truncates long-form at ~120
+tokens; pure R 254-287. `chatterbox_defaults()` returns the per-card
+setup (GC tier + backend + chunking).
 
 ### Architecture note: pure R package since June 2026
 
@@ -722,10 +726,12 @@ There is no `useDynLib` and no compiled code.
 
 ### When to Use What
 
-- jit + tuned GC: default on any GPU.
+- jit + tuned GC: default on any GPU (fastest on both measured cards).
 - Container: production deployments via tts.api/gpu.ctl.
-- Traced: long-running sessions, short utterances.
+- Traced: niche - short utterances only (350-position cache cap).
 - Pure R: debugging, CPU-only.
+- `chatterbox_defaults()`: detects the card, returns GC options +
+  backend + chunking thresholds as one pasteable snippet.
 ## Related
 
 - Alternative to tts.api container backend for local TTS (no Docker required)

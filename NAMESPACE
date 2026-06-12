@@ -1,6 +1,7 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
 export(chatterbox)
+export(chatterbox_defaults)
 export(chatterbox_gc_options)
 export(compute_mel_spectrogram)
 export(compute_mel_spectrogram_ve)
@@ -46,5 +47,6 @@ export(voice_convert)
 export(write_audio)
 
 S3method(print,chatterbox)
+S3method(print,chatterbox_defaults)
 S3method(print,chatterbox_gc_options)
 S3method(print,voice_embedding)

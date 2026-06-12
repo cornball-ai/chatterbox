@@ -22,16 +22,15 @@ settings that matter more than the backend choice.
 - Scripts: `scripts/bench_backends.R`, `scripts/tune_gc.R`,
   `scripts/profile_backends.R`
 
-**Scope caveat: all numbers are from this one machine.** The GC
+**Scope caveat: most numbers are from this one machine.** The GC
 mechanism is R/torch-side and applies on any CUDA GPU, and the cliff
 is ratio arithmetic - collections strangle inference whenever the
 model's reserved fraction of the card exceeds `reserved_rate`. So
 severity scales with card size: a 24 GB card's ~19% floor sits under
 the default 0.2 line and may never hit this at all, while small cards
-live deep past it. Absolute ms/token figures do not travel, and the
-cpp-vs-traced ranking is measured to FLIP between machines (cpp wins
-on the 16 GB desktop, traced wins on a 6 GB laptop) - benchmark on
-your own hardware before choosing.
+live deep past it. Absolute ms/token figures do not travel; the 6 GB
+section below has the second measured machine, and
+`chatterbox_defaults()` encodes both tiers.
 
 ## Headline Numbers
 
@@ -110,8 +109,12 @@ total VRAM, must clear what the loaded model reserves):
 | card | reserved_rate | status |
 |------|--------------|--------|
 | 16 GB | 0.50 | measured (RTX 5060 Ti) |
+| 12 GB | 0.50 | projected from the rule; not yet validated |
 | 8 GB | 0.60 | projected from the rule; not yet validated |
 | 6 GB | 0.75 | measured (GTX 1660 Ti) |
+
+`chatterbox_defaults()` returns the full per-card setup (this option
+plus backend and chunking thresholds) as a ready-to-paste snippet.
 
 To validate on new hardware, run `scripts/tune_gc.R` with a few values;
 the win is a cliff, so any rate that clears the floor gives full speed.
@@ -127,8 +130,9 @@ recreates the constant-collection regime.
 | default | 1032-1811 | 3.6 GB flat |
 | reserved_rate 0.75 | **300-360** | 4.4-5.4 GB oscillating |
 | 0.75 + allocated_rate 0.6 | 423-441 (worse) | 4.7-4.9 GB |
-| 0.75, traced (warm) | **88-94** | 5.0 GB - tight, no OOM |
-| 0.75, cpp | 150-163 | 4.4 GB stable |
+| 0.75, jit, long-form (June 2026) | **35-38** | 4.7 GB |
+| 0.75, traced (warm, short text) | 88-94 | 5.0 GB - tight, no OOM |
+| 0.75, cpp (retired) | 150-163 | 4.4 GB stable |
 | 0.75, long text (~20-23s audio) | 351-392, completes | 4.4 GB stable |
 | 0.9 + 0.9 backstop, short text | 302-305, steadier | 5.3 GB flat |
 | 0.9 + 0.9 backstop, long text | **OOM, both runs** | - |
@@ -140,12 +144,16 @@ visible as the oscillating VRAM). The allocated_rate=0.6 row is the
 floor rule above demonstrated: 60% of this card sits below the model
 floor.
 
-Note the backend ranking **flips** on this card: traced beats cpp here,
-the reverse of the 16 GB machine. cpp's per-token cost is hundreds of
-small host-side dispatches (a laptop CPU pays full price); traced's few
-fused launches hold up on weak hosts. Both compiled paths beat pure R
-everywhere measured - which one wins is machine-dependent, so benchmark
-on your hardware (`scripts/bench_backends.R`).
+The jit row (validated June 2026, after the cpp retirement) settles the
+backend question on small cards too: 35-38 ms/token long-form against
+the container's 30 on the same box - within ~25% of Python, 2.6x faster
+than traced, ~8x faster than pure R, in 4.7 GB. Traced is additionally
+disqualified for long-form here: its 350-position cache cap truncates
+this test's text at 120 tokens (~5 s of audio) without an EOS. The
+earlier "traced wins on 6 GB" finding was an artifact of jit not yet
+existing when those rows were measured. **backend = "jit" is the
+recommendation on every measured card**; `chatterbox_defaults()`
+returns it along with the GC tier.
 
 The 0.9 rows are why the backstop stays at its default. Pushing both
 lines to 90% runs steadier on short utterances (the card parks at a
