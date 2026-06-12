@@ -1,4 +1,4 @@
-# chatterbox 0.1.0.2 (development)
+# chatterbox 0.1.0.3 (development)
 
 ## C++ apparatus retired in favor of a TorchScript backend (June 2026)
 
