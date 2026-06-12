@@ -1,3 +1,9 @@
+# chatterbox 0.1.0.4 (development)
+
+- `chatterbox_gc_options()` now returns a classed list of the
+  recommended `options()` values (apply with `do.call(options, ...)`
+  before torch loads); the printed advice moved to its print method.
+
 # chatterbox 0.1.0.3 (development)
 
 ## C++ apparatus retired in favor of a TorchScript backend (June 2026)
