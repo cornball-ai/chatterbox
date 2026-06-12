@@ -41,7 +41,9 @@ chatterbox
 | `load_chatterbox(model)` | Load pretrained weights |
 | `generate(model, text, voice)` | Generate speech |
 | `create_voice_embedding(model, audio)` | Create speaker embedding |
-| `quick_tts(text, ref_audio, output)` | One-liner convenience |
+| `tts_chunked(model, text, voice)` | Long texts, sentence-chunked, gc per chunk |
+| `chatterbox_gc_options()` | Print torch GC settings for this GPU (set before torch loads) |
+| `quick_tts(text, ref_audio, output)` | One-liner convenience (loads whole model per call) |
 
 ## Usage
 
@@ -56,8 +58,8 @@ model <- load_chatterbox(model)
 result <- generate(model, "Hello world!", "reference_voice.wav")
 write_audio(result$audio, result$sample_rate, "output.wav")
 
-# Use traced inference for 2.2x faster generation
-result <- generate(model, "Hello world!", "reference_voice.wav", traced = TRUE)
+# Fastest native path: TorchScript decode loop (11 ms/token, tuned GC)
+result <- generate(model, "Hello world!", "reference_voice.wav", backend = "jit")
 
 # Or one-liner:
 quick_tts("Hello!", "ref.wav", "out.wav")
@@ -125,7 +127,8 @@ Files:
 - `s3gen.safetensors` - S3Gen vocoder (1.1GB)
 - `ve.safetensors` - Voice encoder (17MB)
 - `tokenizer.json` - BPE tokenizer
-- `conds.pt` - Pre-computed conditioning tensors
+  (conds.pt is intentionally NOT downloaded: nested torch pickle R can't
+  read; the R API requires a reference voice)
 
 ## PyTorch Migration Notes
 
@@ -665,64 +668,61 @@ Effective weight: `w = g * v / ||v||`
 
 **Test script**: `scripts/test_hifigan.R`
 
-## Performance
+## Performance (June 2026, RTX 5060 Ti 16GB, torch 0.17/libtorch 2.8)
 
-See `vignettes/performance.md` for detailed comparison.
+See `vignettes/performance.md` for the full story. Two facts dominate:
 
-### Comparison: Native R vs Container (Feb 2026)
+1. **GC settings matter more than backend choice.** With torch's default
+   allocator settings, inference is collection-bound (~91% of pure-R wall
+   time was R GC). One option fixes it, set BEFORE torch loads:
+   `options(torch.cuda_allocator_reserved_rate = 0.5)` (0.75 on 6GB,
+   0.6 on 8GB). `chatterbox_gc_options()` prints the right snippet.
+   Collect once per utterance in batch loops; `tts_chunked()` does this.
+2. **The jit backend is the fastest native path.** Long-form, tuned GC:
 
-All backends use float32 precision, including the container.
+| backend | ms/token | notes |
+|---------|----------|-------|
+| container (Python) | ~8 | reference |
+| `backend = "jit"` | 11 | TorchScript step via jit_compile; auto-sized cache, no warmup |
+| `traced = TRUE` | 34-39 | ~50s trace per session; 350-position cache cap |
+| pure R | 87-88 | no caps, fully debuggable |
+| lean eager R (ATen builtins, no nn_module) | 71 | proves the per-op R call is the cost, not wrapper style |
 
-| Backend | Cold Start | Warm Start | Audio | Real-time Factor |
-|---------|-----------|------------|-------|------------------|
-| Container (Python) | 1.1s | 1.3s | 3.1s | **2.5x** |
-| Native R (traced) | 83.8s | 12.6s | 4.0s | **0.32x** |
-| Native R (C++ T3) | 26.6s | 26.7s | 4.2s | **0.16x** |
-| Native R (pure R) | 50.5s | 53.2s | 5.3s | **0.10x** |
+End-to-end long-form (~20s audio): jit ~6s wall vs container ~6s -
+container parity. On 6GB hardware (GTX 1660 Ti, rate 0.75): traced
+88-94, pure R 300-360; jit not yet validated there.
 
-Speedups (warm start, vs pure R): C++ T3 2.0x, traced 4.2x, container 42x.
+### Architecture note: pure R package since June 2026
 
-The container is ~10x faster than traced native due to:
-1. **Python C++ bindings** - Lower per-operation overhead
-2. **Fused kernels** - Python has optimized attention/matmul fusions
+The C++ decode backend (`src/t3_decode.cpp` + configure/cleanup) was
+deleted in PR #7. It linked against the torch package's private libtorch:
+install-order dependent, permanently stub in CRAN-built binaries,
+stale-able on torch upgrades. `backend = "jit"` (R/t3_jit.R) replaces it
+within ~20% of its speed: the full 30-layer per-token forward runs as one
+TorchScript function compiled per session by `torch::jit_compile()`.
+There is no `useDynLib` and no compiled code; tinyrox's document() can no
+longer break the package (see tinyrox#17, #18 for the NAMESPACE quirks
+that used to bite).
 
-### JIT Trace Optimization
+### Backend internals map
 
-The `traced = TRUE` parameter compiles both T3 and S3Gen components to C++ graphs
-using `torch::jit_trace()`, eliminating R-to-C++ boundary overhead.
+- `R/t3.R` - pure-R loop + shared sampler (`.sample_speech_token`)
+- `R/t3_jit.R` - TorchScript decode step (script source, session cache,
+  `.get_layer_weights`)
+- `R/llama_traced.R` + `get_traced_layers` - jit_trace path
+- `R/gc_options.R` - GC tuning helper
+- TorchScript gotchas in this lantern: no `torch.nn.functional`
+  namespace, no dtype constants (`torch.float32`) - use ATen builtins
+  (`torch.matmul`, `torch.silu`, `torch.scaled_dot_product_attention`,
+  `.float()`); R ints need `torch::jit_scalar()`; in-place writes to
+  passed tensors DO persist across the boundary.
 
-**What gets traced:**
-1. T3 transformer layers (30 layers) + KV projectors
-2. CFM estimator (56 transformer blocks) with fixed max length padding
+### When to Use What
 
-**Cold start:** ~84s (one-time JIT compilation per session)
-**Warm start:** ~13s (~130ms/token)
-
-**Limitations:**
-- T3 cache limited to 350 tokens (including conditioning ~50-100 tokens)
-- CFM max sequence length 1024 (longer sequences fall back to non-traced)
-- Uses ~1.1GB more VRAM than non-traced (4.2GB vs 3.1GB)
-
-### Main Bottleneck
-
-T3 autoregressive token generation. Per-token cost by backend:
-- Pure R: ~500ms/token
-- C++ T3: ~225ms/token
-- Traced: ~130ms/token
-
-### When to Use Native R
-
-- No Docker available or desired
-- Long-running R sessions (model stays cached)
-- Custom fine-tuning or LoRA experimentation
-- Full control over inference parameters
-
-### When to Use Container
-
-- Speed is critical (~10x faster than best native)
-- Production deployments
-- GPU resource management via gpu.ctl
-
+- jit + tuned GC: default on any GPU.
+- Container: production deployments via tts.api/gpu.ctl.
+- Traced: long-running sessions, short utterances.
+- Pure R: debugging, CPU-only.
 ## Related
 
 - Alternative to tts.api container backend for local TTS (no Docker required)
