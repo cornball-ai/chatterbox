@@ -15,3 +15,12 @@ if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
     expect_identical(dim(total), 3L)
     expect_identical(as.integer(total), c(310L, 330L, 275L))
 }
+
+# generate_batch rejects unknown arguments instead of swallowing them
+if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
+    fake <- structure(list(loaded = TRUE, turbo = FALSE),
+        class = "chatterbox")
+    expect_error(
+        chatterbox::generate_batch(fake, "hi", "v.wav", skip_vocoder = TRUE),
+        "Unsupported arguments: skip_vocoder")
+}

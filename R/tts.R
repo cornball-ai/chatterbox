@@ -638,6 +638,15 @@ generate_batch <- function(model, texts, voice, ...) {
     }
 
     args <- list(...)
+    known <- c("exaggeration", "cfg_weight", "temperature", "top_p",
+               "min_p", "traced", "backend", "top_k", "repetition_penalty",
+               "normalize_text", "max_new_tokens", "max_cache_len",
+               "autocast")
+    unknown <- setdiff(names(args), known)
+    if (length(unknown) > 0) {
+        stop("Unsupported arguments: ", paste(unknown, collapse = ", "),
+             ". generate_batch() accepts: ", paste(known, collapse = ", "))
+    }
     arg_or <- function(name, default) args[[name]] %||% default
     normalize_text <- isTRUE(arg_or("normalize_text", TRUE))
     use_autocast <- isTRUE(arg_or("autocast", FALSE)) &&
