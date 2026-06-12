@@ -7,8 +7,7 @@ cat("Loading Python reference...\n")
 ref <- chatterbox:::read_safetensors("outputs/euler_step_trace.safetensors")
 
 # Load weights
-cache_dir <- chatterbox:::get_cache_dir()
-weights_path <- file.path(cache_dir, "ResembleAI--chatterbox", "s3gen.safetensors")
+weights_path <- chatterbox::get_model_paths()$s3gen
 state_dict <- chatterbox:::read_safetensors(weights_path)
 
 decoder <- chatterbox:::causal_cfm()
