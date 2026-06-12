@@ -318,7 +318,15 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   inference. Default FALSE: the Python reference runs float32, and
 #'   float16 output diverges slightly. Opt in for speed on tight VRAM.
 #' @param traced Logical. Use JIT-traced inference. Default FALSE.
-#' @param backend Character. Inference backend, either "r" or "cpp". Default "r".
+#' @param backend Character. Inference backend, either "r" or "jit".
+#'   Default "r". The jit backend runs each token's full 30-layer
+#'   forward as one TorchScript call (compiled once per session, in
+#'   milliseconds, via \code{torch::jit_compile}): with tuned GC
+#'   settings (see \code{\link{chatterbox_gc_options}}) it is the
+#'   fastest native path (~11 ms/token long-form), auto-sizes its KV
+#'   cache so generation always completes, and ships no compiled code.
+#'   It replaced an equivalent C++ backend (within ~20\% of its speed)
+#'   that required linking against torch's private libraries.
 #' @param top_k Integer. Top-k sampling parameter (turbo model only).
 #'   Default 1000.
 #' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.
@@ -331,6 +339,13 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   Punctuation normalization (whitespace collapse, first-letter
 #'   capitalization, trailing period) always runs, matching the Python
 #'   reference implementation.
+#' @param max_new_tokens Maximum speech tokens to generate (default 1000,
+#'   = 40 s of audio; the model's own ceiling is 4096).
+#' @param max_cache_len KV cache positions for the jit and traced
+#'   backends. Default NULL: jit auto-sizes so generation always fits
+#'   (~1 MB VRAM per position); traced keeps its 350-position trace (a
+#'   new size triggers a fresh ~50 s trace). Ignored by the pure-R
+#'   backend, which has no pre-allocated cache.
 #' @return List with elements:
 #'   \describe{
 #'     \item{audio}{Numeric vector of audio samples}
@@ -345,8 +360,9 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 generate <- function(model, text, voice, exaggeration = 0.5,
                      cfg_weight = 0.5, temperature = 0.8, top_p = 1.0,
                      min_p = 0.05, autocast = NULL, traced = FALSE,
-                     backend = c("r", "cpp"), top_k = 1000L,
-                     repetition_penalty = 1.2, normalize_text = TRUE) {
+                     backend = c("r", "jit"), top_k = 1000L,
+                     repetition_penalty = 1.2, normalize_text = TRUE,
+                     max_new_tokens = 1000L, max_cache_len = NULL) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -429,41 +445,41 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     } else {
         # Standard inference with CFG
         backend <- match.arg(backend)
-        if (backend == "cpp") {
-            inference_fn <- t3_inference_cpp
+        if (backend == "jit") {
+            inference_fn <- t3_inference_jit
         } else if (traced) {
             inference_fn <- t3_inference_traced
         } else {
             inference_fn <- t3_inference
         }
 
+        inf_args <- list(
+            model = model$t3,
+            cond = cond,
+            text_tokens = text_tokens,
+            cfg_weight = cfg_weight,
+            temperature = temperature,
+            top_p = top_p,
+            min_p = min_p,
+            repetition_penalty = repetition_penalty,
+            max_new_tokens = max_new_tokens
+        )
+        # Cache sizing only applies to the pre-allocated-cache backends;
+        # cpp auto-sizes when NULL, traced keeps its 350 default (a new
+        # size means a fresh ~50s JIT trace)
+        if (!is.null(max_cache_len) && (backend == "jit" || traced)) {
+            inf_args$max_cache_len <- max_cache_len
+        }
+
         if (use_autocast) {
             torch::with_autocast(device_type = "cuda", {
                 torch::with_no_grad({
-                    speech_tokens <- inference_fn(
-                        model = model$t3,
-                        cond = cond,
-                        text_tokens = text_tokens,
-                        cfg_weight = cfg_weight,
-                        temperature = temperature,
-                        top_p = top_p,
-                        min_p = min_p,
-                        repetition_penalty = repetition_penalty
-                    )
+                    speech_tokens <- do.call(inference_fn, inf_args)
                 })
             })
         } else {
             torch::with_no_grad({
-                speech_tokens <- inference_fn(
-                    model = model$t3,
-                    cond = cond,
-                    text_tokens = text_tokens,
-                    cfg_weight = cfg_weight,
-                    temperature = temperature,
-                    top_p = top_p,
-                    min_p = min_p,
-                    repetition_penalty = repetition_penalty
-                )
+                speech_tokens <- do.call(inference_fn, inf_args)
             })
         }
     }
@@ -583,13 +599,46 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param ... Additional arguments passed to generate()
 #' @return List with audio and sample_rate
 #' @export
+# Split text into TTS-sized chunks: sentences first; sentences longer
+# than chunk_size chars are further split at comma boundaries, packed
+# greedily. A clause with no commas stays whole (splitting mid-clause
+# hurts prosody more than a long generation does).
+# (Plain comments, not roxygen: tinyrox exports any function with a
+# roxygen block, @noRd and dot-prefix notwithstanding.)
+.split_text_chunks <- function (text, chunk_size = 200L) {
+    sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
+    chunks <- character(0)
+    for (s in sentences) {
+        if (nchar(s) <= chunk_size) {
+            chunks <- c(chunks, s)
+            next
+        }
+        parts <- strsplit(s, "(?<=,)\\s+", perl = TRUE)[[1]]
+        cur <- ""
+        for (p in parts) {
+            if (nzchar(cur) && nchar(cur) + 1L + nchar(p) > chunk_size) {
+                chunks <- c(chunks, cur)
+                cur <- p
+            } else {
+                cur <- if (nzchar(cur)) paste(cur, p) else p
+            }
+        }
+        if (nzchar(cur)) {
+            chunks <- c(chunks, cur)
+        }
+    }
+    chunks[nzchar(trimws(chunks))]
+}
+
 tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
 
-    # Split text into sentences
-    sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
+    # Sentences, with oversized sentences subdivided at commas
+    # (chunk_size was previously accepted but never used: run-on
+    # sentences passed through whole and hit backend token caps)
+    sentences <- .split_text_chunks(text, chunk_size)
 
     all_audio <- numeric(0)
 
@@ -600,6 +649,12 @@ tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
 
         result <- generate(model, sentence, voice, ...)
         all_audio <- c(all_audio, result$audio)
+
+        # Collect once per utterance: frees the chunk's dead tensor
+        # handles (and their GPU memory) in one pass instead of letting
+        # torch's allocator conscript thousands of mid-loop collections.
+        # See ?chatterbox_gc_options.
+        gc(verbose = FALSE)
     }
 
     list(audio = all_audio, sample_rate = S3GEN_SR)

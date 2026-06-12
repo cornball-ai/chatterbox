@@ -271,16 +271,15 @@ cfm_attention <- torch::nn_module(
     v <- v$view(c(batch_size, seq_len, self$heads, self$head_dim))$transpose(2L,
         3L)
 
-    # Attention scores
-    scores <- torch::torch_matmul(q, k$transpose(-2L, -1L)) * self$scale
-
-    # Apply mask if provided
-    if (!is.null(attention_mask)) {
-        scores <- scores + attention_mask
-    }
-
-    attn <- torch::nnf_softmax(scores, dim = -1L)
-    out <- torch::torch_matmul(attn, v)
+    # Fused scaled-dot-product attention: never materializes the
+    # (B, heads, T, T) score matrix - at long sequences that tensor is
+    # hundreds of MB and was both the slowest op and the main GC trigger
+    # in the mel stage (an additive mask rides in unchanged; the
+    # inference path passes none)
+    out <- torch::torch_scaled_dot_product_attention(
+        q, k, v,
+        attn_mask = if (!is.null(attention_mask)) attention_mask else list()
+    )
 
     # Reshape back to (B, T, inner_dim)
     out <- out$transpose(2L, 3L)$contiguous()$view(c(batch_size, seq_len, -1L))

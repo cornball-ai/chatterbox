@@ -1,13 +1,17 @@
 # GC-knob tuning for the generation loop. One config per process
-# (allocator state is sticky). Usage:
-#   r scripts/tune_gc.R <reserved_rate> <cpu_threshold_mb> <gc_per_gen 0|1>
+# (allocator settings are read once at torch startup). Usage:
+#   r scripts/tune_gc.R <reserved_rate> <cpu_threshold_mb> <allocated_rate> <allocated_reserved_rate> [gens]
 
 rate <- as.numeric(argv[1])
 cpu_mb <- as.numeric(argv[2])
-gc_per_gen <- identical(argv[3], "1")
+alloc_rate <- as.numeric(argv[3])
+alloc_res_rate <- as.numeric(argv[4])
+gens <- if (length(argv) >= 5) as.integer(argv[5]) else 3L
 
 options(torch.cuda_allocator_reserved_rate = rate,
-        torch.threshold_call_gc = cpu_mb)
+        torch.threshold_call_gc = cpu_mb,
+        torch.cuda_allocator_allocated_rate = alloc_rate,
+        torch.cuda_allocator_allocated_reserved_rate = alloc_res_rate)
 
 library(chatterbox)
 
@@ -23,20 +27,11 @@ vram_mb <- function () {
         stdout = TRUE)[1])
 }
 
-run <- function (label, ...) {
+for (i in seq_len(gens)) {
     t0 <- Sys.time()
-    res <- generate(model, text, voice, ...)
+    res <- generate(model, text, voice)
     secs <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
-    if (gc_per_gen) gc(full = TRUE)
-    cat(sprintf("cfg[rate=%.2f cpu=%dMB gcgen=%d] %-11s %5.0f ms/tok  eos=%s  vram=%dMB\n",
-        rate, as.integer(cpu_mb), as.integer(gc_per_gen), label,
+    cat(sprintf("cfg[res=%.2f cpu=%d alloc=%.2f allocres=%.2f] gen%d %5.0f ms/tok eos=%s vram=%dMB\n",
+        rate, as.integer(cpu_mb), alloc_rate, alloc_res_rate, i,
         1000 * secs / max(res$n_tokens, 1), res$eos_found, vram_mb()))
 }
-
-run("pure-R-1")
-run("pure-R-2")
-invisible(generate(model, text, voice, traced = TRUE))
-if (gc_per_gen) gc(full = TRUE)
-run("traced-1", traced = TRUE)
-run("traced-2", traced = TRUE)
-run("traced-3", traced = TRUE)
