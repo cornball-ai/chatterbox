@@ -590,12 +590,17 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 # Streaming TTS (for longer texts)
 # ============================================================================
 
-# Split text into TTS-sized chunks: sentences first; sentences longer
-# than chunk_size chars are further split at comma boundaries, packed
-# greedily. A clause with no commas stays whole (splitting mid-clause
-# hurts prosody more than a long generation does).
-# (Plain comments, not roxygen: tinyrox exports any function with a
-# roxygen block, @noRd and dot-prefix notwithstanding.)
+#' Split text into TTS-sized chunks
+#'
+#' Sentences first; sentences longer than chunk_size chars are further
+#' split at comma boundaries, packed greedily. A clause with no commas
+#' stays whole (splitting mid-clause hurts prosody more than a long
+#' generation does).
+#'
+#' @param text Input text
+#' @param chunk_size Target maximum chunk length in characters
+#' @return Character vector of chunks
+#' @noRd
 .split_text_chunks <- function (text, chunk_size = 200L) {
     sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
     chunks <- character(0)
