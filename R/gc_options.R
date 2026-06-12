@@ -24,9 +24,11 @@
 #'
 #' This helper does not (and cannot) change the settings for the current
 #' session: torch reads them at initialization, so they belong in your
-#' .Rprofile or at the very top of a script, before torch loads. It
-#' prints the exact snippet for this machine and warns when torch is
-#' already initialized.
+#' .Rprofile or at the very top of a script, before torch loads. Printing
+#' the returned object shows the exact snippet for this machine; the
+#' helper warns when torch is already initialized. Scripts can apply the
+#' values directly with \code{do.call(options, chatterbox_gc_options())}
+#' (again: before torch loads).
 #'
 #' Rule of thumb for loops: collect once per utterance, not thousands of
 #' times inside it. \code{\link{tts_chunked}} does this automatically;
@@ -35,18 +37,21 @@
 #'
 #' @param vram_gb Total GPU memory in GB. Default: detected via
 #'   nvidia-smi, falling back to 16.
-#' @return Invisibly, a named list of the recommended options.
+#' @return A named list of the recommended \code{options()} values,
+#'   classed \code{"chatterbox_gc_options"} so it prints as the full
+#'   tuning advice for this machine.
 #' @examples
 #' chatterbox_gc_options(vram_gb = 16)
 #' @export
-chatterbox_gc_options <- function (vram_gb = NULL) {
+chatterbox_gc_options <- function(vram_gb = NULL) {
     if (is.null(vram_gb)) {
         smi <- suppressWarnings(tryCatch(
-            system2("nvidia-smi",
-                c("--query-gpu=memory.total", "--format=csv,noheader,nounits"),
-                stdout = TRUE, stderr = FALSE),
-            error = function (e) character(0)
-        ))
+                system2("nvidia-smi",
+                        c("--query-gpu=memory.total",
+                          "--format=csv,noheader,nounits"),
+                        stdout = TRUE, stderr = FALSE),
+                error = function(e) character(0)
+            ))
         vram_gb <- if (length(smi) >= 1 && nzchar(smi[1]) &&
             !is.na(suppressWarnings(as.numeric(smi[1])))) {
             round(as.numeric(smi[1]) / 1024, 1)
@@ -63,10 +68,30 @@ chatterbox_gc_options <- function (vram_gb = NULL) {
 
     opts <- list(torch.cuda_allocator_reserved_rate = rate)
 
-    cat("Recommended for a ", vram_gb, " GB GPU - put this in .Rprofile or\n",
+    if (isNamespaceLoaded("torch")) {
+        warning("torch is already initialized in this session; these ",
+                "options take effect only in a fresh R session that sets ",
+                "them before torch loads.", call. = FALSE)
+    }
+
+    structure(opts, vram_gb = vram_gb, class = "chatterbox_gc_options")
+}
+
+#' Print method for chatterbox_gc_options
+#'
+#' @param x Object from \code{\link{chatterbox_gc_options}}
+#' @param ... Ignored
+#' @return \code{x}, invisibly
+#' @export
+print.chatterbox_gc_options <- function(x, ...) {
+    vram_gb <- attr(x, "vram_gb")
+    rate <- x$torch.cuda_allocator_reserved_rate
+
+    cat("Recommended for a ", vram_gb,
+        " GB GPU - put this in .Rprofile or\n",
         "at the top of your script, BEFORE torch loads:\n\n", sep = "")
     cat(sprintf("    options(torch.cuda_allocator_reserved_rate = %.2f)\n\n",
-        rate))
+                rate))
     if (vram_gb >= 8) {
         cat("Optional, to hold the VRAM plateau lower (e.g. shared GPUs),\n",
             "at no speed cost:\n\n", sep = "")
@@ -85,11 +110,6 @@ chatterbox_gc_options <- function (vram_gb = NULL) {
             " recreates the constant-collection regime.\n", sep = "")
     }
 
-    if (isNamespaceLoaded("torch")) {
-        warning("torch is already initialized in this session; these ",
-            "options take effect only in a fresh R session that sets ",
-            "them before torch loads.", call. = FALSE)
-    }
-
-    invisible(opts)
+    invisible(x)
 }
+

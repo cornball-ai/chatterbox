@@ -40,4 +40,5 @@ export(turbo_models_available)
 export(write_audio)
 
 S3method(print,chatterbox)
+S3method(print,chatterbox_gc_options)
 S3method(print,voice_embedding)

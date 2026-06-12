@@ -10,7 +10,9 @@ chatterbox_gc_options(vram_gb = NULL)
 nvidia-smi, falling back to 16.}
 }
 \value{
-Invisibly, a named list of the recommended options.
+A named list of the recommended \code{options()} values,
+  classed \code{"chatterbox_gc_options"} so it prints as the full
+  tuning advice for this machine.
 }
 \description{
 torch's allocators invoke a full R garbage collection based on
@@ -36,9 +38,11 @@ worth touching.
 
 This helper does not (and cannot) change the settings for the current
 session: torch reads them at initialization, so they belong in your
-.Rprofile or at the very top of a script, before torch loads. It
-prints the exact snippet for this machine and warns when torch is
-already initialized.
+.Rprofile or at the very top of a script, before torch loads. Printing
+the returned object shows the exact snippet for this machine; the
+helper warns when torch is already initialized. Scripts can apply the
+values directly with \code{do.call(options, chatterbox_gc_options())}
+(again: before torch loads).
 
 Rule of thumb for loops: collect once per utterance, not thousands of
 times inside it. \code{\link{tts_chunked}} does this automatically;
