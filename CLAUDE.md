@@ -4,18 +4,23 @@ Pure R port of [Chatterbox TTS](https://github.com/resemble-ai/chatterbox) using
 
 ## Python Reference
 
-**Target version**: chatterbox-tts 0.1.4 (PyPI)
-**Reference container**: `chatterbox-tts:blackwell` (cornball-ai/chatterbox-tts-api)
-- Built: Dec 5, 2025
-- CUDA: 12.8.1 (Blackwell-compatible)
-- Python: 3.11 with venv at `/app/.venv`
+**Target version**: chatterbox-tts 0.1.7 (PyPI)
+**Reference container**: `chatterbox-tts:0.1.7-blackwell` (minimal, built
+June 12 2026 from PyPI 0.1.7 + transformers 5.2.0 + torch 2.7.0 cu128;
+no API server). The older `chatterbox-tts:blackwell` (Dec 2025,
+travisvn/chatterbox-multilingual@exp, ~0.1.4) remains for history.
+0.1.4 -> 0.1.7 changed nothing numerically in the fp32 standard English
+path (verified June 2026: mu/spks/cond byte-identical on same inputs;
+the only behavior change is embed_ref dtype casting, a no-op in fp32).
 
-Use this container for validation/comparison:
+Use this container for validation/comparison (mount the host HF cache
+so weights aren't re-downloaded):
 ```bash
 docker run --rm --gpus all \
   -v ~/chatterbox/scripts:/scripts \
   -v ~/chatterbox/outputs:/outputs \
-  chatterbox-tts:blackwell \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  chatterbox-tts:0.1.7-blackwell \
   python /scripts/your_script.py
 ```
 

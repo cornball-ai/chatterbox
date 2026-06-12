@@ -31,7 +31,7 @@ quick_tts("Hello world!", "ref.wav", "out.wav")
 ```
 ## Differences from the Python implementation
 
-This package targets behavioral parity with chatterbox-tts 0.1.4, with a
+This package targets behavioral parity with chatterbox-tts 0.1.7, with a
 few deliberate differences:
 
 - **No audio watermark.** Python chatterbox embeds Resemble's Perth

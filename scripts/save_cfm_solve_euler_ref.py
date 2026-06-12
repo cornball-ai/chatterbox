@@ -19,13 +19,13 @@ captured = {}
 orig = decoder.solve_euler
 
 
-def hook(x, t_span, mu, mask, spks, cond):
+def hook(x, t_span, mu, mask, spks, cond, **kw):  # 0.1.7 adds meanflow=
     if not captured:  # first call only
         captured.update(dict(
             z_initial=x, t_span=t_span, mu=mu, mask=mask,
             spks=spks, cond=cond,
         ))
-    out = orig(x, t_span, mu=mu, mask=mask, spks=spks, cond=cond)
+    out = orig(x, t_span, mu=mu, mask=mask, spks=spks, cond=cond, **kw)
     if "full_result" not in captured:
         captured["full_result"] = out[0] if isinstance(out, tuple) else out
     return out
