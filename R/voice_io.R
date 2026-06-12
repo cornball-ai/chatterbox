@@ -3,7 +3,7 @@
 # voice once, reuse it across sessions without the reference audio.
 
 # Apply f to every tensor in a nested list structure
-.map_tensors <- function (x, f) {
+.map_tensors <- function(x, f) {
     if (inherits(x, "torch_tensor")) {
         return(f(x))
     }
@@ -26,11 +26,11 @@
 #'   e.g. "narrator.voice")
 #' @return \code{path}, invisibly
 #' @export
-save_voice_embedding <- function (voice, path) {
+save_voice_embedding <- function(voice, path) {
     if (!inherits(voice, "voice_embedding")) {
         stop("voice must be a voice_embedding object")
     }
-    obj <- .map_tensors(unclass(voice), function (t) t$cpu())
+    obj <- .map_tensors(unclass(voice), function(t) t$cpu())
     torch::torch_save(obj, path)
     invisible(path)
 }
@@ -42,8 +42,8 @@ save_voice_embedding <- function (voice, path) {
 #'   model's device, e.g. "cuda", for generation)
 #' @return A voice_embedding object
 #' @export
-load_voice_embedding <- function (path, device = "cpu") {
+load_voice_embedding <- function(path, device = "cpu") {
     obj <- torch::torch_load(path)
-    obj <- .map_tensors(obj, function (t) t$to(device = device))
+    obj <- .map_tensors(obj, function(t) t$to(device = device))
     structure(obj, class = "voice_embedding")
 }

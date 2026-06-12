@@ -574,14 +574,14 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         # audio here is the mel (batch, 80, frames); 50 frames/s
         audio_sec <- audio$size(3) / 50
         message("Done! Generated mel for ", round(audio_sec, 2),
-            " seconds of audio (vocoder skipped).")
+                " seconds of audio (vocoder skipped).")
         return(list(
-            mel = audio,
-            sample_rate = S3GEN_SR,
-            eos_found = eos_found,
-            n_tokens = n_tokens,
-            audio_sec = audio_sec
-        ))
+                    mel = audio,
+                    sample_rate = S3GEN_SR,
+                    eos_found = eos_found,
+                    n_tokens = n_tokens,
+                    audio_sec = audio_sec
+            ))
     }
 
     # Convert to numeric
