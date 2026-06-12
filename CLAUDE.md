@@ -700,9 +700,7 @@ install-order dependent, permanently stub in CRAN-built binaries,
 stale-able on torch upgrades. `backend = "jit"` (R/t3_jit.R) replaces it
 within ~20% of its speed: the full 30-layer per-token forward runs as one
 TorchScript function compiled per session by `torch::jit_compile()`.
-There is no `useDynLib` and no compiled code; tinyrox's document() can no
-longer break the package (see tinyrox#17, #18 for the NAMESPACE quirks
-that used to bite).
+There is no `useDynLib` and no compiled code.
 
 ### Backend internals map
 
