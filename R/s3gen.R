@@ -1003,7 +1003,8 @@ s3gen <- torch::nn_module(
     )
 },
 
-                          #' Run inference (tokens -> mel -> audio)
+                          #' Run inference (tokens -> mel -> audio;
+                          #' skip_vocoder = TRUE stops at the mel)
                           inference = function(
         speech_tokens,
         ref_wav = NULL,
@@ -1011,7 +1012,8 @@ s3gen <- torch::nn_module(
         ref_dict = NULL,
         finalize = TRUE,
         traced = FALSE,
-        n_cfm_timesteps = NULL
+        n_cfm_timesteps = NULL,
+        skip_vocoder = FALSE
     ) {
     # Get reference dict
     if (is.null(ref_dict)) {
@@ -1060,7 +1062,7 @@ s3gen <- torch::nn_module(
     output_mels <- result[[1]]
 
     # Vocoder (mel -> audio)
-    if (!is.null(self$mel2wav)) {
+    if (!skip_vocoder && !is.null(self$mel2wav)) {
         vocoder_result <- self$mel2wav$inference(output_mels)
         output_wavs <- vocoder_result$audio
 

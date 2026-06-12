@@ -7,7 +7,7 @@ generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
          temperature = 0.8, top_p = 1, min_p = 0.05, autocast = NULL,
          traced = FALSE, backend = c("r", "jit"), top_k = 1000L,
          repetition_penalty = 1.2, normalize_text = TRUE,
-         max_new_tokens = 1000L, max_cache_len = NULL)
+         max_new_tokens = 1000L, max_cache_len = NULL, skip_vocoder = FALSE)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -67,11 +67,17 @@ backends. Default NULL: jit auto-sizes so generation always fits
 (~1 MB VRAM per position); traced keeps its 350-position trace (a
 new size triggers a fresh ~50 s trace). Ignored by the pure-R
 backend, which has no pre-allocated cache.}
+
+\item{skip_vocoder}{Logical. If TRUE, stop after flow matching and
+return the mel spectrogram instead of audio (Python 0.1.7's
+\code{skip_vocoder}). The result has a \code{mel} element (tensor,
+batch x 80 x frames; 50 frames/s) and no \code{audio}.}
 }
 \value{
 List with elements:
   \describe{
-    \item{audio}{Numeric vector of audio samples}
+    \item{audio}{Numeric vector of audio samples (omitted when
+      \code{skip_vocoder = TRUE}, which returns \code{mel} instead)}
     \item{sample_rate}{Sample rate in Hz}
     \item{eos_found}{Logical. Whether the model emitted an end-of-speech
       token (TRUE) or hit the token cap (FALSE). FALSE often indicates
