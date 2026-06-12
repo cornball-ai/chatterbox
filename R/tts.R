@@ -620,7 +620,9 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #' @param ... Arguments passed through to the T3 stage, as in
 #'   \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 #'   top_p, min_p, backend, repetition_penalty, normalize_text,
-#'   max_new_tokens, max_cache_len)
+#'   max_new_tokens, max_cache_len). \code{traced} and \code{autocast}
+#'   affect the T3 stage only: the batched S3Gen synthesis always runs
+#'   eager float32 (traced CFM is fixed at batch 1).
 #' @return List with one \code{\link{generate}}-style result per text
 #'   (audio, sample_rate, eos_found, n_tokens, audio_sec)
 #' @export

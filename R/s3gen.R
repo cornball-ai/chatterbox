@@ -1113,6 +1113,20 @@ s3gen <- torch::nn_module(
     )
     output_mels <- result[[1]]
 
+    # Ragged batch: zero each row's padded mel tail. At padded
+    # positions the masked estimator leaves dphi = 0, so the "mel"
+    # there is the untouched initial Gaussian noise - the vocoder's
+    # convolutional context would smear it into the end of shorter
+    # utterances. Zeros match what a single run's convs see (zero
+    # padding past the sequence end).
+    if (!is.null(speech_token_lens)) {
+        gen_mel_lens <- (speech_token_len * 2L)$to(dtype = torch::torch_long())
+        gen_mask <- (!make_pad_mask(gen_mel_lens,
+            max_len = output_mels$size(3)))$unsqueeze(2)$to(
+            dtype = output_mels$dtype, device = output_mels$device)
+        output_mels <- output_mels * gen_mask
+    }
+
     # Vocoder (mel -> audio)
     if (!skip_vocoder && !is.null(self$mel2wav)) {
         vocoder_result <- self$mel2wav$inference(output_mels)

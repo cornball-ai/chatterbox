@@ -15,7 +15,9 @@ generate_batch(model, texts, voice, ...)
 \item{...}{Arguments passed through to the T3 stage, as in
 \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 top_p, min_p, backend, repetition_penalty, normalize_text,
-max_new_tokens, max_cache_len)}
+max_new_tokens, max_cache_len). \code{traced} and \code{autocast}
+affect the T3 stage only: the batched S3Gen synthesis always runs
+eager float32 (traced CFM is fixed at batch 1).}
 }
 \value{
 List with one \code{\link{generate}}-style result per text
