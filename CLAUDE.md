@@ -696,7 +696,8 @@ See `vignettes/performance.md` for the full story. Two facts dominate:
 
 End-to-end long-form (~20s audio): jit ~6s wall vs container ~6s -
 container parity. On 6GB hardware (GTX 1660 Ti, rate 0.75, June 2026):
-jit 35-38 ms/token (4.7GB peak) vs container 30 - jit wins there too;
+jit 35-38 ms/token (4.7GB peak) vs container 30 - the fastest native
+path there too;
 traced 88-94 but its 350-position cache truncates long-form at ~120
 tokens; pure R 254-287. `chatterbox_defaults()` returns the per-card
 setup (GC tier + backend + chunking).
@@ -726,7 +727,8 @@ There is no `useDynLib` and no compiled code.
 
 ### When to Use What
 
-- jit + tuned GC: default on any GPU (fastest on both measured cards).
+- jit + tuned GC: default on any GPU (fastest native path on both
+  measured cards).
 - Container: production deployments via tts.api/gpu.ctl.
 - Traced: niche - short utterances only (350-position cache cap).
 - Pure R: debugging, CPU-only.

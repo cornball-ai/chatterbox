@@ -202,7 +202,8 @@ install order, was permanently dead in any CRAN-built binary, and
 could go stale on torch upgrades. The TorchScript route shares traced
 mode's deprecation caveat but none of those failure modes. The 6 GB
 rows below labelled cpp are historical measurements of the retired
-backend; jit has not yet been re-validated on that hardware.
+backend; jit was validated on that hardware in June 2026 (35-38
+ms/token - see the 6 GB section).
 
 ### Where the speed actually comes from
 

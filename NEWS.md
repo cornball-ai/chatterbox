@@ -4,7 +4,8 @@
   recommended setup (GC options, backend, token budget, chunking
   threshold) as a pasteable snippet.
 - 6GB hardware validation: jit measures 35-38 ms/token vs container 30;
-  per-card guidance updated (jit is fastest on every measured card).
+  per-card guidance updated (jit is the fastest native backend on every
+  measured card).
 
 # chatterbox 0.1.0.8 (development)
 

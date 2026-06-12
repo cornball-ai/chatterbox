@@ -18,7 +18,8 @@
 #' model) and marked as such when printed.
 #'
 #' @param vram_gb Total GPU memory in GB. Default: detected via
-#'   nvidia-smi; 0 (or detection failure) means CPU-only.
+#'   nvidia-smi; 0 (or detection failure) means CPU-only. Cards under
+#'   5 GB are treated as CPU: the loaded model alone needs ~4.6 GB.
 #' @return An object of class \code{"chatterbox_defaults"}: a list with
 #'   \code{device}, \code{vram_gb}, \code{options} (for
 #'   \code{do.call(options, ...)} before torch loads), \code{backend},
@@ -44,10 +45,12 @@ chatterbox_defaults <- function(vram_gb = NULL) {
         }
     }
 
-    if (vram_gb < 4) {
-        # CPU (or a card too small for the ~4.6 GB loaded model).
-        # The CUDA allocator knobs are irrelevant; only the CPU
-        # allocation odometer exists, and it measured as minor.
+    if (vram_gb < 5) {
+        # CPU, or a card too small to be supported: the loaded model
+        # floor is ~4.6 GB and the measured 6 GB peak was 4.7 GB, so
+        # anything under 5 GB cannot run the CUDA path. The CUDA
+        # allocator knobs are irrelevant; only the CPU allocation
+        # odometer exists, and it measured as minor.
         out <- list(
                     device = "cpu",
                     vram_gb = vram_gb,
@@ -66,7 +69,11 @@ chatterbox_defaults <- function(vram_gb = NULL) {
                     backend = "jit",
                     max_new_tokens = 1000L,
                     chunk_chars = 200L,
-                    measured = vram_gb <= 6.5 || vram_gb > 12
+                    # Measured tiers: a 6 GB card (GTX 1660 Ti) and a
+                    # 16 GB card (RTX 5060 Ti); near-miss sizes (5-5.5,
+                    # 7-13) are projections of those measurements
+                    measured = (vram_gb > 5.5 && vram_gb <= 6.5) ||
+                        vram_gb >= 14
         )
     }
 

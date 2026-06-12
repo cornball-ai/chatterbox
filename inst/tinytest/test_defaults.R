@@ -24,8 +24,18 @@ expect_identical(dcpu$device, "cpu")
 expect_identical(dcpu$backend, "r")
 expect_identical(dcpu$options, list())
 
-# a 2 GB card cannot hold the model: treated as CPU
+# cards under 5 GB cannot hold the ~4.6 GB model: treated as CPU
 expect_identical(chatterbox::chatterbox_defaults(vram_gb = 2)$device, "cpu")
+expect_identical(chatterbox::chatterbox_defaults(vram_gb = 4)$device, "cpu")
+expect_identical(chatterbox::chatterbox_defaults(vram_gb = 4.9)$device, "cpu")
+
+# 5-5.5 GB runs CUDA but is a projection, not the measured 6 GB tier
+d5 <- chatterbox::chatterbox_defaults(vram_gb = 5)
+expect_identical(d5$device, "cuda")
+expect_false(d5$measured)
+
+# 13 GB sits between measured tiers: projected
+expect_false(chatterbox::chatterbox_defaults(vram_gb = 13)$measured)
 
 # print methods run and return invisibly
 expect_stdout(print(d6), "jit")

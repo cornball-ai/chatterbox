@@ -7,7 +7,8 @@ chatterbox_defaults(vram_gb = NULL)
 }
 \arguments{
 \item{vram_gb}{Total GPU memory in GB. Default: detected via
-nvidia-smi; 0 (or detection failure) means CPU-only.}
+nvidia-smi; 0 (or detection failure) means CPU-only. Cards under
+5 GB are treated as CPU: the loaded model alone needs ~4.6 GB.}
 }
 \value{
 An object of class \code{"chatterbox_defaults"}: a list with
