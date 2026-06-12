@@ -590,15 +590,6 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 # Streaming TTS (for longer texts)
 # ============================================================================
 
-#' Generate speech in chunks (for long texts)
-#'
-#' @param model Chatterbox model
-#' @param text Text to synthesize
-#' @param voice Voice embedding
-#' @param chunk_size Maximum tokens per chunk
-#' @param ... Additional arguments passed to generate()
-#' @return List with audio and sample_rate
-#' @export
 # Split text into TTS-sized chunks: sentences first; sentences longer
 # than chunk_size chars are further split at comma boundaries, packed
 # greedily. A clause with no commas stays whole (splitting mid-clause
@@ -630,6 +621,19 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
     chunks[nzchar(trimws(chunks))]
 }
 
+#' Generate speech in chunks (for long texts)
+#'
+#' Splits at sentence boundaries; sentences longer than chunk_size
+#' characters are further split at commas. Collects garbage once per
+#' chunk (see \code{\link{chatterbox_gc_options}}).
+#'
+#' @param model Chatterbox model
+#' @param text Text to synthesize
+#' @param voice Voice embedding
+#' @param chunk_size Maximum characters per chunk (default 200)
+#' @param ... Additional arguments passed to generate()
+#' @return List with audio and sample_rate
+#' @export
 tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")

@@ -7,10 +7,10 @@
 #' trigger (collections begin once torch reserves 20 percent of the
 #' card) sits below chatterbox's ~4.6 GB loaded footprint on most GPUs,
 #' which makes autoregressive inference collection-bound: ~91 percent
-#' of pure-R generation wall time is GC, and even the compiled cpp
-#' backend is throttled by it (its allocations flow through the same
+#' of pure-R generation wall time is GC, and even compiled-loop backends
+#' are throttled by it (their allocations flow through the same
 #' allocator). With the trigger line above the model floor, pure R runs
-#' ~10x faster and the cpp backend ~15x.
+#' ~10x faster and the jit backend ~15x.
 #'
 #' Only one option matters for speed:
 #' \code{torch.cuda_allocator_reserved_rate}. Sweeps over 0.3-0.8 all

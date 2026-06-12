@@ -20,9 +20,11 @@
 - The CFM estimator's attention uses the fused SDPA kernel: the mel
   stage runs 2.5x faster and stops triggering GC storms at long
   sequence lengths.
-- `backend = "cpp"` auto-sizes its KV cache, so generations of any
+- The fast backend auto-sizes its KV cache, so generations of any
   length complete; with tuned GC settings, long-form native generation
   runs at container speed (0.30 vs 0.29 wall-seconds per audio-second).
+  (Measured on the C++ backend, since replaced by `backend = "jit"`,
+  which inherits the auto-sized cache.)
 - `generate()` gains `max_new_tokens` and `max_cache_len`.
 - `tts_chunked()` actually enforces `chunk_size` now (it was dead
   code): run-on sentences split at comma boundaries.
@@ -33,11 +35,12 @@
   garbage-collection-bound: ~91% of pure-R generation wall time is R GC.
   One option fixes it: `torch.cuda_allocator_reserved_rate` set above
   the model's reserved fraction of the card (~10x pure-R speedup, ~15x
-  for the cpp backend). New `chatterbox_gc_options()` prints the snippet
+  for the compiled-loop backend). New `chatterbox_gc_options()` prints the snippet
   for your GPU; the performance vignette has the full attribution table.
-- `backend = "cpp"` is the fastest native path under tuned GC settings
-  (19-28 ms/token on the test GPU, no JIT cold start). Still marked
-  experimental. Its repetition penalty is now vectorized on-device.
+- The compiled-loop backend measured fastest native under tuned GC
+  (19-28 ms/token short-form; that C++ backend has since been replaced
+  by `backend = "jit"` at ~11 ms/token long-form). Repetition penalty
+  vectorized on-device.
 - `tts_chunked()` collects garbage once per chunk, bounding dead tensor
   handles (and VRAM creep) at one utterance's worth.
 - Performance vignette rewritten around these findings, with a
