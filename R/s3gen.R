@@ -908,7 +908,7 @@ causal_masked_diff_xvec <- torch::nn_module(
     # Create mask for decoder: per-row valid mel length (ragged batches
     # have padded tails). Single-row stays all-ones as before.
     mel_lens <- mel_len1 +
-        (token_len - prompt_token_len$view(-1)) * self$token_mel_ratio
+    (token_len - prompt_token_len$view(-1)) * self$token_mel_ratio
     dec_mask <- (!make_pad_mask(mel_lens, max_len = mel_len1 + mel_len2))$unsqueeze(2)$to(dtype = h$dtype, device = device)
 
     # Run decoder
@@ -1079,7 +1079,7 @@ s3gen <- torch::nn_module(
     speech_tokens <- speech_tokens$to(device = device)
     speech_token_len <- if (is.null(speech_token_lens)) {
         torch::torch_tensor(rep(speech_tokens$size(2), speech_tokens$size(1)),
-            device = device)
+                            device = device)
     } else {
         torch::torch_tensor(as.integer(speech_token_lens), device = device)
     }

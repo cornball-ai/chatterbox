@@ -412,12 +412,12 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     }
 
     speech_tokens <- .t3_text_to_tokens(model, text, voice,
-        exaggeration = exaggeration, cfg_weight = cfg_weight,
-        temperature = temperature, top_p = top_p, min_p = min_p,
-        traced = traced, backend = backend, top_k = top_k,
-        repetition_penalty = repetition_penalty,
-        max_new_tokens = max_new_tokens, max_cache_len = max_cache_len,
-        use_autocast = use_autocast)
+                                        exaggeration = exaggeration, cfg_weight = cfg_weight,
+                                        temperature = temperature, top_p = top_p, min_p = min_p,
+                                        traced = traced, backend = backend, top_k = top_k,
+                                        repetition_penalty = repetition_penalty,
+                                        max_new_tokens = max_new_tokens, max_cache_len = max_cache_len,
+                                        use_autocast = use_autocast)
 
     # Capture EOS status before drop_invalid_tokens strips the attribute
     eos_found <- isTRUE(attr(speech_tokens, "eos_found"))
@@ -522,11 +522,10 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #' eos_found attribute intact.
 #'
 #' @noRd
-.t3_text_to_tokens <- function (model, text, voice, exaggeration,
-                                cfg_weight, temperature, top_p, min_p,
-                                traced, backend, top_k,
-                                repetition_penalty, max_new_tokens,
-                                max_cache_len, use_autocast) {
+.t3_text_to_tokens <- function(model, text, voice, exaggeration, cfg_weight,
+                               temperature, top_p, min_p, traced, backend,
+                               top_k, repetition_penalty, max_new_tokens,
+                               max_cache_len, use_autocast) {
     device <- model$device
     is_turbo <- isTRUE(model$turbo)
 
@@ -543,9 +542,9 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 
     # Create T3 conditioning
     cond <- t3_cond(
-        speaker_emb = voice$ve_embedding,
-        cond_prompt_speech_tokens = voice$cond_prompt_speech_tokens,
-        emotion_adv = if (is_turbo) NULL else exaggeration
+                    speaker_emb = voice$ve_embedding,
+                    cond_prompt_speech_tokens = voice$cond_prompt_speech_tokens,
+                    emotion_adv = if (is_turbo) NULL else exaggeration
     )
 
     message("Generating speech tokens...")
@@ -553,13 +552,13 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     if (is_turbo) {
         # Turbo inference: no CFG, no min_p, uses top_k
         inf_args <- list(
-            model = model$t3,
-            cond = cond,
-            text_tokens = text_tokens,
-            temperature = temperature,
-            top_k = top_k,
-            top_p = top_p,
-            repetition_penalty = repetition_penalty
+                         model = model$t3,
+                         cond = cond,
+                         text_tokens = text_tokens,
+                         temperature = temperature,
+                         top_k = top_k,
+                         top_p = top_p,
+                         repetition_penalty = repetition_penalty
         )
         inference_fn <- t3_inference_turbo
     } else {
@@ -574,15 +573,15 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         }
 
         inf_args <- list(
-            model = model$t3,
-            cond = cond,
-            text_tokens = text_tokens,
-            cfg_weight = cfg_weight,
-            temperature = temperature,
-            top_p = top_p,
-            min_p = min_p,
-            repetition_penalty = repetition_penalty,
-            max_new_tokens = max_new_tokens
+                         model = model$t3,
+                         cond = cond,
+                         text_tokens = text_tokens,
+                         cfg_weight = cfg_weight,
+                         temperature = temperature,
+                         top_p = top_p,
+                         min_p = min_p,
+                         repetition_penalty = repetition_penalty,
+                         max_new_tokens = max_new_tokens
         )
         # Cache sizing only applies to the pre-allocated-cache backends;
         # jit auto-sizes when NULL, traced keeps its 350 default (a new
@@ -625,7 +624,7 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #' @return List with one \code{\link{generate}}-style result per text
 #'   (audio, sample_rate, eos_found, n_tokens, audio_sec)
 #' @export
-generate_batch <- function (model, texts, voice, ...) {
+generate_batch <- function(model, texts, voice, ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -637,16 +636,16 @@ generate_batch <- function (model, texts, voice, ...) {
     }
 
     args <- list(...)
-    arg_or <- function (name, default) args[[name]] %||% default
+    arg_or <- function(name, default) args[[name]] %||% default
     normalize_text <- isTRUE(arg_or("normalize_text", TRUE))
     use_autocast <- isTRUE(arg_or("autocast", FALSE)) &&
-        grepl("^cuda", model$device)
+    grepl("^cuda", model$device)
 
     if (is.character(voice)) {
         voice <- create_voice_embedding(model, voice)
     } else if (!inherits(voice, "voice_embedding")) {
         stop("voice must be a voice_embedding object or path to ",
-            "reference audio")
+             "reference audio")
     }
 
     # T3 per text (autoregressive generation does not batch; lengths
@@ -660,24 +659,24 @@ generate_batch <- function (model, texts, voice, ...) {
         }
         txt <- punc_norm(txt)
         tokens <- .t3_text_to_tokens(model, txt, voice,
-            exaggeration = arg_or("exaggeration", 0.5),
-            cfg_weight = arg_or("cfg_weight", 0.5),
-            temperature = arg_or("temperature", 0.8),
-            top_p = arg_or("top_p", 1.0),
-            min_p = arg_or("min_p", 0.05),
-            traced = isTRUE(arg_or("traced", FALSE)),
-            backend = arg_or("backend", "r"),
-            top_k = arg_or("top_k", 1000L),
-            repetition_penalty = arg_or("repetition_penalty", 1.2),
-            max_new_tokens = arg_or("max_new_tokens", 1000L),
-            max_cache_len = arg_or("max_cache_len", NULL),
-            use_autocast = use_autocast)
+                                     exaggeration = arg_or("exaggeration", 0.5),
+                                     cfg_weight = arg_or("cfg_weight", 0.5),
+                                     temperature = arg_or("temperature", 0.8),
+                                     top_p = arg_or("top_p", 1.0),
+                                     min_p = arg_or("min_p", 0.05),
+                                     traced = isTRUE(arg_or("traced", FALSE)),
+                                     backend = arg_or("backend", "r"),
+                                     top_k = arg_or("top_k", 1000L),
+                                     repetition_penalty = arg_or("repetition_penalty", 1.2),
+                                     max_new_tokens = arg_or("max_new_tokens", 1000L),
+                                     max_cache_len = arg_or("max_cache_len", NULL),
+                                     use_autocast = use_autocast)
         eos[i] <- isTRUE(attr(tokens, "eos_found"))
         token_vecs[[i]] <- as.integer(drop_invalid_tokens(tokens))
         if (!eos[i]) {
             warning("Text ", i, " hit the token cap without end-of-speech (",
-                length(token_vecs[[i]]), " tokens). Output may be garbage.",
-                call. = FALSE)
+                    length(token_vecs[[i]]), " tokens). Output may be garbage.",
+                    call. = FALSE)
         }
     }
 
@@ -687,7 +686,7 @@ generate_batch <- function (model, texts, voice, ...) {
     for (i in which(empty)) {
         warning("No valid speech tokens for text ", i, call. = FALSE)
         results[[i]] <- list(audio = numeric(0), sample_rate = S3GEN_SR,
-            eos_found = eos[i], n_tokens = 0L, audio_sec = 0)
+                             eos_found = eos[i], n_tokens = 0L, audio_sec = 0)
     }
     live <- which(!empty)
     if (length(live) == 0) {
@@ -699,17 +698,17 @@ generate_batch <- function (model, texts, voice, ...) {
     # vocoder
     t_max <- max(lens[live])
     mat <- t(vapply(token_vecs[live],
-        function (v) c(v, rep(0L, t_max - length(v))), integer(t_max)))
+                    function(v) c(v, rep(0L, t_max - length(v))), integer(t_max)))
     speech_tokens <- torch::torch_tensor(mat,
         dtype = torch::torch_long())$to(device = model$device)
 
     message("Synthesizing ", length(live), " waveforms in one batch...")
     torch::with_no_grad({
         out <- model$s3gen$inference(
-            speech_tokens = speech_tokens,
-            ref_dict = voice$ref_dict,
-            finalize = TRUE,
-            speech_token_lens = lens[live]
+                                     speech_tokens = speech_tokens,
+                                     ref_dict = voice$ref_dict,
+                                     finalize = TRUE,
+                                     speech_token_lens = lens[live]
         )
     })
     wavs <- out[[1]]$cpu()
@@ -720,11 +719,11 @@ generate_batch <- function (model, texts, voice, ...) {
         n_samples <- lens[i] * 2L * 480L
         audio <- as.numeric(wavs[k, 1:min(n_samples, wavs$size(2))])
         results[[i]] <- list(
-            audio = audio,
-            sample_rate = S3GEN_SR,
-            eos_found = eos[i],
-            n_tokens = lens[i],
-            audio_sec = length(audio) / S3GEN_SR
+                             audio = audio,
+                             sample_rate = S3GEN_SR,
+                             eos_found = eos[i],
+                             n_tokens = lens[i],
+                             audio_sec = length(audio) / S3GEN_SR
         )
     }
     results
