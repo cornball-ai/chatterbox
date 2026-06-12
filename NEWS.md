@@ -1,3 +1,9 @@
+# chatterbox 0.1.0.7 (development)
+
+- New `voice_convert()`: speech-to-speech voice conversion (port of
+  Python ChatterboxVC); re-renders source speech in a target voice,
+  preserving the source timing.
+
 # chatterbox 0.1.0.6 (development)
 
 - `generate(skip_vocoder = TRUE)` returns the mel spectrogram instead of

@@ -41,6 +41,7 @@ export(text_to_tokens)
 export(tts_chunked)
 export(tts_to_file)
 export(turbo_models_available)
+export(voice_convert)
 export(write_audio)
 
 S3method(print,chatterbox)

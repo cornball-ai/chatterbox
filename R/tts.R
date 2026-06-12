@@ -615,7 +615,7 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 tts_to_file <- function(model, text, voice, output_path, ...) {
     if (isTRUE(list(...)$skip_vocoder)) {
         stop("skip_vocoder makes no sense here: there is no audio to ",
-            "write. Use generate() to get the mel.")
+             "write. Use generate() to get the mel.")
     }
     result <- generate(model, text, voice, ...)
     write_audio(result$audio, result$sample_rate, output_path)
