@@ -28,8 +28,10 @@ is ratio arithmetic - collections strangle inference whenever the
 model's reserved fraction of the card exceeds `reserved_rate`. So
 severity scales with card size: a 24 GB card's ~19% floor sits under
 the default 0.2 line and may never hit this at all, while small cards
-live deep past it. Absolute ms/token figures and the cpp-vs-traced
-ranking have not been verified on other hardware.
+live deep past it. Absolute ms/token figures do not travel, and the
+cpp-vs-traced ranking is measured to FLIP between machines (cpp wins
+on the 16 GB desktop, traced wins on a 6 GB laptop) - benchmark on
+your own hardware before choosing.
 
 ## Headline Numbers
 
@@ -110,17 +112,27 @@ the constant-collection regime.
 
 ### Measured on 6 GB hardware (GTX 1660 Ti)
 
-| config | pure-R ms/tok | VRAM |
-|--------|--------------|------|
+| config (pure R unless noted) | ms/tok | VRAM |
+|--------|--------|------|
 | default | 1032-1811 | 3.6 GB flat |
 | reserved_rate 0.75 | **300-360** | 4.4-5.4 GB oscillating |
 | 0.75 + allocated_rate 0.6 | 423-441 (worse) | 4.7-4.9 GB |
+| 0.75, traced (warm) | **88-94** | 5.0 GB - tight, no OOM |
+| 0.75, cpp | 150-163 | 4.4 GB stable |
 
 The same mechanism on a different GPU generation: the untuned storm
-reproduces, and one knob buys ~4x (not 10x - the card is tight enough
-that the 0.8 backstop line still fires collections, visible as the
-oscillating VRAM). The allocated_rate=0.6 row is the floor rule above
-demonstrated: 60% of this card sits below the model floor.
+reproduces, and one knob buys ~4x for pure R (not 10x - the card is
+tight enough that the 0.8 backstop line still fires collections,
+visible as the oscillating VRAM). The allocated_rate=0.6 row is the
+floor rule above demonstrated: 60% of this card sits below the model
+floor.
+
+Note the backend ranking **flips** on this card: traced beats cpp here,
+the reverse of the 16 GB machine. cpp's per-token cost is hundreds of
+small host-side dispatches (a laptop CPU pays full price); traced's few
+fused launches hold up on weak hosts. Both compiled paths beat pure R
+everywhere measured - which one wins is machine-dependent, so benchmark
+on your hardware (`scripts/bench_backends.R`).
 
 **Rule of thumb: collect once per utterance, not thousands of times
 inside it.** `tts_chunked()` calls `gc()` after each chunk; do the same

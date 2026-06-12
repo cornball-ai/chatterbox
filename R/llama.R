@@ -1,14 +1,11 @@
 # Llama model implementation for chatterbox
 # A minimal Llama implementation compatible with HuggingFace weights
 
-# Cache SDPA function (not exported from torch but 2.7x faster than manual attention)
-.sdpa_cache <- new.env(parent = emptyenv())
+# Fused scaled-dot-product attention (2.7x faster than manual attention).
+# torch >= 0.17 exports this publicly; the old get()-from-namespace
+# workaround is gone.
 get_sdpa <- function() {
-    if (is.null(.sdpa_cache$fn)) {
-        .sdpa_cache$fn <- get("torch_scaled_dot_product_attention",
-                              envir = asNamespace("torch"))
-    }
-    .sdpa_cache$fn
+    torch::torch_scaled_dot_product_attention
 }
 
 # ============================================================================

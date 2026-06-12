@@ -76,11 +76,12 @@ chatterbox_gc_options <- function (vram_gb = NULL) {
     if (vram_gb <= 6.5) {
         cat("\nNote: on a ", vram_gb, " GB card the model floor leaves",
             " little headroom, so the\n0.8 backstop still fires some",
-            " collections: expect ~3-5x from tuning,\nnot the ~10x",
-            " larger cards see (measured on a 6 GB GTX 1660 Ti).\n",
-            "Do NOT lower allocated_rate here - 60% of a small card",
-            " sits below\nthe model floor and recreates the constant-",
-            "collection regime.\n", sep = "")
+            " collections: expect ~3-5x from tuning for\npure R, not",
+            " the ~10x larger cards see. traced = TRUE measured",
+            " fastest\non 6 GB hardware (88-94 ms/token, ~5 GB peak -",
+            " tight but it fits).\nDo NOT lower allocated_rate here -",
+            " 60% of a small card sits below\nthe model floor and",
+            " recreates the constant-collection regime.\n", sep = "")
     }
 
     if (isNamespaceLoaded("torch")) {
