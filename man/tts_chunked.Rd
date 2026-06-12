@@ -12,7 +12,7 @@ tts_chunked(model, text, voice, chunk_size = 200, ...)
 
 \item{voice}{Voice embedding}
 
-\item{chunk_size}{Maximum tokens per chunk}
+\item{chunk_size}{Maximum characters per chunk (default 200)}
 
 \item{...}{Additional arguments passed to generate()}
 }
@@ -20,5 +20,7 @@ tts_chunked(model, text, voice, chunk_size = 200, ...)
 List with audio and sample_rate
 }
 \description{
-Generate speech in chunks (for long texts)
+Splits at sentence boundaries; sentences longer than chunk_size
+characters are further split at commas. Collects garbage once per
+chunk (see \code{\link{chatterbox_gc_options}}).
 }
