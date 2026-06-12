@@ -533,6 +533,12 @@ upsample_conformer_encoder_full <- torch::nn_module(
     pos_emb <- embed_result[[2]]
     masks <- embed_result[[3]]
 
+    # Zero the padded tail first: embed's LayerNorm makes pad frames
+    # nonzero, and the pre-lookahead conv reads rightward, so a padded
+    # row would otherwise differ from the same row run alone (where the
+    # conv right-pads true zeros)
+    xs <- xs$masked_fill(!masks$transpose(2L, 3L), 0.0)
+
     # Pre-lookahead layer
     xs <- self$pre_lookahead_layer$forward(xs)
 
