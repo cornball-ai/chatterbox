@@ -1,3 +1,9 @@
+# chatterbox 0.1.0.8 (development)
+
+- New `generate_batch()`: several texts, one batched S3Gen synthesis
+  pass; padded rows validated to match single runs (mel diff <= 0.005).
+- `s3gen$inference()` accepts ragged batches via `speech_token_lens`.
+
 # chatterbox 0.1.0.7 (development)
 
 - New `voice_convert()`: speech-to-speech voice conversion (port of
