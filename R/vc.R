@@ -21,13 +21,13 @@
 #' @return List with \code{audio} (numeric vector), \code{sample_rate}
 #'   (24000), and \code{audio_sec}, like \code{\link{generate}}
 #' @export
-voice_convert <- function (model, audio, voice, sample_rate = NULL) {
+voice_convert <- function(model, audio, voice, sample_rate = NULL) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
     if (isTRUE(model$turbo)) {
         stop("Voice conversion uses the standard S3Gen decoder; ",
-            "load a standard (non-turbo) model.")
+             "load a standard (non-turbo) model.")
     }
 
     # Target voice conditioning (only ref_dict is used; Python VC's
@@ -38,7 +38,7 @@ voice_convert <- function (model, audio, voice, sample_rate = NULL) {
     }
     if (!inherits(voice, "voice_embedding")) {
         stop("voice must be a voice_embedding object or path to ",
-            "reference audio")
+             "reference audio")
     }
 
     # Source speech at 16 kHz for the S3 tokenizer
@@ -65,22 +65,22 @@ voice_convert <- function (model, audio, voice, sample_rate = NULL) {
 
     device <- model$device
     audio_16k <- torch::torch_tensor(samples,
-        dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
+                                     dtype = torch::torch_float32())$unsqueeze(1)$to(device = device)
 
     torch::with_no_grad({
         # Full-length tokenization: VC keeps the source's timing
         tok <- model$s3gen$tokenizer$forward(audio_16k)
         result <- model$s3gen$inference(
-            speech_tokens = tok$tokens$to(device = device),
-            ref_dict = voice$ref_dict,
-            finalize = TRUE
+                                        speech_tokens = tok$tokens$to(device = device),
+                                        ref_dict = voice$ref_dict,
+                                        finalize = TRUE
         )
     })
 
     audio_samples <- as.numeric(result[[1]]$squeeze()$cpu())
     list(
-        audio = audio_samples,
-        sample_rate = S3GEN_SR,
-        audio_sec = length(audio_samples) / S3GEN_SR
+         audio = audio_samples,
+         sample_rate = S3GEN_SR,
+         audio_sec = length(audio_samples) / S3GEN_SR
     )
 }
