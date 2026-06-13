@@ -4,7 +4,7 @@
 \title{Serve chatterbox over HTTP}
 \usage{
 serve(port = 7810L, device = "cuda", voices_dir = NULL, turbo = FALSE,
-      timeout = 300L, max_body = 10L * 1024L^2)
+      timeout = 300L, max_body = 10L * 1024L^2, warmup = TRUE)
 }
 \arguments{
 \item{port}{Integer. TCP port to listen on. Default 7810.}
@@ -20,6 +20,9 @@ the \code{TTS_VOICES_DIR} env var, then \code{~/.cornball/voices}.}
 stalled clients). Default 300.}
 
 \item{max_body}{Integer. Maximum request body size in bytes. Default 10 MB.}
+
+\item{warmup}{Logical. Run one short synthesis at startup to trigger the
+one-time JIT tracing, so the first client request isn't slow. Default TRUE.}
 }
 \value{
 Does not return normally; runs until interrupted.
@@ -42,6 +45,8 @@ against \code{voices_dir}) or a path to a reference audio file.
 }
 
 The server is single-threaded and runs until interrupted. Run it under a
-process supervisor (systemd, a container CMD, tmux) for persistence.
+process supervisor (systemd, a container CMD, tmux) for persistence. An
+example systemd unit ships with the package:
+\code{system.file("chatterbox.service", package = "chatterbox")}.
 
 }

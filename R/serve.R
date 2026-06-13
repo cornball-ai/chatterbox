@@ -24,7 +24,9 @@
 #' }
 #'
 #' The server is single-threaded and runs until interrupted. Run it under a
-#' process supervisor (systemd, a container CMD, tmux) for persistence.
+#' process supervisor (systemd, a container CMD, tmux) for persistence. An
+#' example systemd unit ships with the package:
+#' \code{system.file("chatterbox.service", package = "chatterbox")}.
 #'
 #' @param port Integer. TCP port to listen on. Default 7810.
 #' @param device Character. Torch device for the model ("cuda", "cpu", "mps").
