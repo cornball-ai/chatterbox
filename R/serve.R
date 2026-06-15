@@ -62,7 +62,7 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
                              full.names = TRUE, ignore.case = TRUE)
         if (length(vfiles) > 0L) {
             bk <- if (isTRUE(model$turbo)) "r" else "jit"
-            for (bucket in c(256L, 512L, 1024L)) {
+            for (bucket in c(250L, 500L, 1000L)) {
                 message("Warming up CFM bucket ", bucket, " ...")
                 options(chatterbox.cfm_len = 640L + 2L * bucket)
                 tryCatch(
@@ -72,7 +72,7 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
                                                 conditionMessage(e))
                 )
             }
-            message("Warmup done (CFM buckets 256/512/1024 traced).")
+            message("Warmup done (CFM buckets 250/500/1000 traced).")
         }
     }
 
@@ -220,7 +220,7 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     # bucket, so only a few CFM sizes get traced and they coexist (the CFM cache
     # is size-keyed). KV cache auto-sizes to cond+tokens+1.
     est_tok <- ceiling(nchar(body$input) * 2)
-    bucket <- if (est_tok <= 256L) 256L else if (est_tok <= 512L) 512L else 1024L
+    bucket <- if (est_tok <= 250L) 250L else if (est_tok <= 500L) 500L else 1000L
     options(chatterbox.cfm_len = 640L + 2L * bucket)
 
     gen_args <- list(model = model, text = body$input, voice = voice_path,
