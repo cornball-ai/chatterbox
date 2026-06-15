@@ -175,18 +175,6 @@ t3_inference_jit <- function(model, cond, text_tokens, max_new_tokens = 1000,
     if (is.null(max_cache_len)) {
         max_cache_len <- cond_len + max_new_tokens + 1L
     }
-    # Guard: the pre-allocated KV cache holds max_cache_len positions; clamp
-    # generation to fit instead of indexing past the buffer (a hard crash).
-    max_gen <- min(max_new_tokens, max_cache_len - cond_len - 1L)
-    if (max_gen < 1L) {
-        stop("Conditioning (", cond_len, " tokens) fills the KV cache (",
-             max_cache_len, "); increase max_cache_len.", call. = FALSE)
-    }
-    if (max_gen < max_new_tokens) {
-        warning("Capping generation at ", max_gen, " tokens (cache ",
-                max_cache_len, ", conditioning ", cond_len,
-                "): max_cache_len too small for max_new_tokens.", call. = FALSE)
-    }
     rope <- compute_rope_frequencies(head_dim, max_cache_len + 100L,
                                      theta = lcfg$rope_theta, scaling = lcfg$rope_scaling, device = device)
 
@@ -209,7 +197,7 @@ t3_inference_jit <- function(model, cond, text_tokens, max_new_tokens = 1000,
         last_token_id <- -1L
         repeat_run <- 0L
 
-        for (i in seq_len(max_gen)) {
+        for (i in seq_len(max_new_tokens)) {
             logits <- model$speech_head$forward(h_last)$squeeze(2)
             if (use_cfg) {
                 cond_logits <- logits[1,]$unsqueeze(1)

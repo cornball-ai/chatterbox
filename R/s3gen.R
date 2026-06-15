@@ -534,13 +534,8 @@ cfm_estimator <- torch::nn_module(
 # Cache for traced CFM estimators
 .cfm_traced_cache <- new.env(parent = emptyenv())
 
-# Max sequence length the CFM estimator is traced at. Read at call time (not a
-# top-level constant) so it isn't frozen into the lazy-load DB at install time;
-# configurable via options(chatterbox.cfm_len=) or env CHATTERBOX_CFM_LEN.
-cfm_max_seq_len <- function() {
-    as.integer(getOption("chatterbox.cfm_len",
-                         Sys.getenv("CHATTERBOX_CFM_LEN", "1024")))
-}
+# Fixed max sequence length for CFM tracing (avoids retracing per length)
+CFM_MAX_SEQ_LEN <- 1024L
 
 #' Causal Conditional Flow Matching
 #'
@@ -580,20 +575,18 @@ causal_cfm <- torch::nn_module(
 
                                #' Get or create traced estimator (fixed max length)
                                get_traced_estimator = function(device) {
-    # Key by length so different CFM sizes coexist (a trace ladder) instead of
-    # evicting/retracing when the paired length changes.
-    cache_key <- paste0("cfm_traced_", cfm_max_seq_len())
+    cache_key <- "cfm_traced"
 
     if (!exists(cache_key, envir = .cfm_traced_cache)) {
-        message("Tracing CFM estimator (one-time, max_len=", cfm_max_seq_len(), ")...")
+        message("Tracing CFM estimator (one-time, max_len=", CFM_MAX_SEQ_LEN, ")...")
 
         # Create example inputs at fixed max length
-        x_in <- torch::torch_randn(c(2L, 80L, cfm_max_seq_len()), device = device)
-        mask_in <- torch::torch_ones(c(2L, 1L, cfm_max_seq_len()), device = device)
-        mu_in <- torch::torch_randn(c(2L, 80L, cfm_max_seq_len()), device = device)
+        x_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
+        mask_in <- torch::torch_ones(c(2L, 1L, CFM_MAX_SEQ_LEN), device = device)
+        mu_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
         t_in <- torch::torch_tensor(c(0.5, 0.5), device = device)
         spks_in <- torch::torch_randn(c(2L, 80L), device = device)
-        cond_in <- torch::torch_randn(c(2L, 80L, cfm_max_seq_len()), device = device)
+        cond_in <- torch::torch_randn(c(2L, 80L, CFM_MAX_SEQ_LEN), device = device)
 
         self$estimator$eval()
         traced <- torch::jit_trace(self$estimator, x_in, mask_in, mu_in, t_in, spks_in, cond_in)
@@ -688,9 +681,9 @@ causal_cfm <- torch::nn_module(
     }
 
     # For traced mode, pad to fixed max length
-    if (traced && seq_len <= cfm_max_seq_len()) {
+    if (traced && seq_len <= CFM_MAX_SEQ_LEN) {
         traced_est <- self$get_traced_estimator(device)
-        pad_len <- cfm_max_seq_len() - seq_len
+        pad_len <- CFM_MAX_SEQ_LEN - seq_len
 
         # Pad inputs to max length
         x_padded <- torch::nnf_pad(x, c(0L, pad_len), value = 0)
@@ -705,8 +698,8 @@ causal_cfm <- torch::nn_module(
         }
     } else {
         # Normal mode or sequence too long
-        if (traced && seq_len > cfm_max_seq_len()) {
-            warning("Sequence length ", seq_len, " exceeds cfm_max_seq_len() ", cfm_max_seq_len(),
+        if (traced && seq_len > CFM_MAX_SEQ_LEN) {
+            warning("Sequence length ", seq_len, " exceeds CFM_MAX_SEQ_LEN ", CFM_MAX_SEQ_LEN,
                     ", falling back to non-traced")
         }
         x_padded <- x
@@ -721,7 +714,7 @@ causal_cfm <- torch::nn_module(
 
     # Determine working length (padded for traced mode)
     work_len <- if (traced &&
-                               seq_len <= cfm_max_seq_len()) cfm_max_seq_len() else seq_len
+                               seq_len <= CFM_MAX_SEQ_LEN) CFM_MAX_SEQ_LEN else seq_len
 
     # Pre-allocate tensors for CFG: rows 1:B conditional, (B+1):2B
     # unconditional (zero mu/spks/cond)
@@ -736,7 +729,7 @@ causal_cfm <- torch::nn_module(
     for (step in 2:length(t_span)) {
         # Classifier-Free Guidance: conditional and unconditional paths
         # Use padded tensors in traced mode
-        if (traced && seq_len <= cfm_max_seq_len()) {
+        if (traced && seq_len <= CFM_MAX_SEQ_LEN) {
             x_in[1:B,,] <- x_padded
             x_in[(B + 1):(2 * B),,] <- x_padded
             mask_in[1:B,,] <- mask_padded
@@ -769,7 +762,7 @@ causal_cfm <- torch::nn_module(
         t <- t + dt
 
         # Update padded x for next iteration
-        if (traced && seq_len <= cfm_max_seq_len()) {
+        if (traced && seq_len <= CFM_MAX_SEQ_LEN) {
             x_padded[,, 1:seq_len] <- x
         }
 
