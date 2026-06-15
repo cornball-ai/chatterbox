@@ -61,14 +61,18 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
         vfiles <- list.files(voices_dir, pattern = "\\.(wav|mp3|m4a|flac)$",
                              full.names = TRUE, ignore.case = TRUE)
         if (length(vfiles) > 0L) {
-            message("Warming up (one-time tracing) ...")
-            tryCatch(
-                generate(model, "Warming up.", vfiles[1],
-                         traced = !isTRUE(model$turbo)),
-                error = function(e) message("warmup skipped: ",
-                                            conditionMessage(e))
-            )
-            message("Warmup done.")
+            bk <- if (isTRUE(model$turbo)) "r" else "jit"
+            for (bucket in c(256L, 512L, 1024L)) {
+                message("Warming up CFM bucket ", bucket, " ...")
+                options(chatterbox.cfm_len = 640L + 2L * bucket)
+                tryCatch(
+                    generate(model, "Warming up.", vfiles[1], backend = bk,
+                             traced = !isTRUE(model$turbo), max_new_tokens = 16L),
+                    error = function(e) message("warmup skipped: ",
+                                                conditionMessage(e))
+                )
+            }
+            message("Warmup done (CFM buckets 256/512/1024 traced).")
         }
     }
 
@@ -99,7 +103,7 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
             }
         },
         error = function(e) message("request error: ", conditionMessage(e)),
-        finally = try(close(con), silent = TRUE))
+        finally = { try(close(con), silent = TRUE); gc() })  # gc per request; no empty_cache (warm pool)
     }
 }
 
@@ -211,7 +215,16 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
         return(.serve_err(400L, paste0("voice not found: ", body$voice)))
     }
 
+    # Pair the CFM trace to the expected utterance length (the per-token speed
+    # lever): estimate speech tokens from the text (~2/char) and round up to a
+    # bucket, so only a few CFM sizes get traced and they coexist (the CFM cache
+    # is size-keyed). KV cache auto-sizes to cond+tokens+1.
+    est_tok <- ceiling(nchar(body$input) * 2)
+    bucket <- if (est_tok <= 256L) 256L else if (est_tok <= 512L) 512L else 1024L
+    options(chatterbox.cfm_len = 640L + 2L * bucket)
+
     gen_args <- list(model = model, text = body$input, voice = voice_path,
+                     backend = if (isTRUE(model$turbo)) "r" else "jit",
                      traced = !isTRUE(model$turbo))
     if (!is.null(body$exaggeration)) gen_args$exaggeration <- body$exaggeration
     if (!is.null(body$cfg_weight)) gen_args$cfg_weight <- body$cfg_weight
