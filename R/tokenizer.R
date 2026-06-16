@@ -318,12 +318,22 @@ load_gpt2_tokenizer <- function(vocab_path, merges_path,
     # Load vocabulary (token string -> id)
     vocab <- jsonlite::fromJSON(vocab_path, simplifyVector = TRUE)
 
-    # Load added tokens if provided
+    # Load added tokens if provided. As well as putting them in the vocab
+    # (id lookup / decoding), keep a content->id map sorted longest-first
+    # so tokenize_text_gpt2() can split them out before BPE - otherwise the
+    # GPT-2 pre-tokenizer shatters "[sigh]" into "[", "sigh", "]" and the
+    # paralinguistic tag id is never emitted.
+    added_tokens <- integer(0)
     if (!is.null(added_tokens_path) && file.exists(added_tokens_path)) {
         added <- jsonlite::fromJSON(added_tokens_path, simplifyVector = TRUE)
         for (tok in names(added)) {
             vocab[[tok]] <- added[[tok]]
         }
+        contents <- names(added)
+        ids <- as.integer(added)
+        ord <- order(nchar(contents), decreasing = TRUE)
+        added_tokens <- ids[ord]
+        names(added_tokens) <- contents[ord]
     }
 
     # Build byte-to-unicode mapping (GPT-2 specific)
@@ -357,6 +367,7 @@ load_gpt2_tokenizer <- function(vocab_path, merges_path,
 
     list(vocab = vocab, bpe_ranks = bpe_ranks, byte_encoder = byte_encoder,
          byte_decoder = byte_decoder, id_to_token = id_to_token,
+         added_tokens = added_tokens,
          vocab_size = length(vocab), type = "gpt2")
 }
 
@@ -395,6 +406,30 @@ load_gpt2_tokenizer <- function(vocab_path, merges_path,
 #' @return Integer vector of token IDs
 #' @keywords internal
 tokenize_text_gpt2 <- function(tokenizer, text) {
+    # Split out added tokens (paralinguistic/emotion tags like [sigh],
+    # [laugh], [whispering]) first so each maps to its single id; BPE only
+    # runs on the text in between.
+    added_tokens <- tokenizer$added_tokens
+    if (is.null(added_tokens)) {
+        added_tokens <- integer(0)
+    }
+    all_ids <- integer(0)
+    for (seg in split_added_tokens(text, added_tokens)) {
+        if (!is.na(seg$id)) {
+            all_ids <- c(all_ids, seg$id)
+        } else {
+            all_ids <- c(all_ids, .gpt2_bpe_encode(tokenizer, seg$text))
+        }
+    }
+    all_ids
+}
+
+#' GPT-2 byte-level BPE for a plain text segment (no added-token handling)
+#' @param tokenizer GPT-2 tokenizer
+#' @param text Plain text segment
+#' @return Integer vector of token IDs
+#' @keywords internal
+.gpt2_bpe_encode <- function(tokenizer, text) {
     byte_encoder <- tokenizer$byte_encoder
     bpe_ranks <- tokenizer$bpe_ranks
     vocab <- tokenizer$vocab

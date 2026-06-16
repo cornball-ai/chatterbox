@@ -1,3 +1,11 @@
+# chatterbox 0.1.0.11 (development)
+
+- Turbo's GPT-2 tokenizer now emits the paralinguistic/emotion tags
+  (`[sigh]`, `[laugh]`, `[whispering]`, `[cough]`, ...) as single special
+  tokens. `load_gpt2_tokenizer()` builds an added-token split-list and
+  `tokenize_text_gpt2()` splits on it before BPE; previously the tags were
+  byte-BPE'd into `[`, `sigh`, `]` and never rendered.
+
 # chatterbox 0.1.0.10 (development)
 
 - New `t3_inference_turbo_jit()`: a TorchScript decode step for turbo's
