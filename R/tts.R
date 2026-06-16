@@ -138,7 +138,7 @@ chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
 # which dominated inference (53% of wall time was gc, the GPU work ~13%). The
 # floor is the model's footprint as a fraction of VRAM: gc stays off until
 # reserved memory exceeds the model itself. Footprints (fp32) are 4.1GB
-# regular and 3.6GB turbo, so e.g. a 16GB card gives 0.26 / 0.22 and a 6GB
+# regular and 3.6GB turbo, so e.g. a 16GB card gives 0.26 / 0.23 and a 6GB
 # card gives 0.68 / 0.60. threshold_call_gc (host MB per forced gc) is raised
 # off its 4GB default too. Both respect an explicit user override. See torch's
 # memory-management vignette (torch.cuda_allocator_reserved_rate).
