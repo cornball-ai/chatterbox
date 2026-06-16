@@ -1,3 +1,11 @@
+# chatterbox 0.1.0.14 (development)
+
+- `read_audio()` now detects the audio container from the file's magic
+  bytes (RIFF/WAVE, ID3, MP3 frame sync) instead of trusting the
+  extension. A reference saved as PCM/WAV but named `.mp3` (or vice
+  versa) previously ran the wrong decoder and produced NaN garbage,
+  silently corrupting voice cloning; it now decodes correctly.
+
 # chatterbox 0.1.0.13 (development)
 
 - `serve()` now caches each voice embedding (by reference path + mtime)
