@@ -60,7 +60,11 @@ write_audio <- function(samples, sr, path) {
 
     wav <- tuneR::Wave(left = samples_int, samp.rate = as.integer(sr), bit = 16)
 
-    tuneR::writeWave(wav, path)
+    # extensible = FALSE writes plain WAVE_FORMAT_PCM. The default
+    # (extensible = TRUE) writes WAVE_FORMAT_EXTENSIBLE and stamps a mono
+    # file with channel mask SPEAKER_FRONT_LEFT, so players route it to the
+    # left speaker only; plain PCM mono plays on both.
+    tuneR::writeWave(wav, path, extensible = FALSE)
 }
 
 #' Resample audio
