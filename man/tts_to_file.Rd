@@ -23,5 +23,7 @@ Invisibly returns a list with elements: \code{path},
   inputs failed (\code{eos_found = FALSE}) and need reprocessing.
 }
 \description{
-Generate speech and save to file
+Thin convenience wrapper over \code{\link{generate}} with
+\code{output_path} set, kept for the file-summary return shape. New
+code can call \code{generate(..., output_path = path)} directly.
 }

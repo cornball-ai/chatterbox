@@ -14,4 +14,7 @@ Chatterbox model with loaded weights
 \description{
 Load pretrained weights for all model components.
 Requires prior download via \code{\link{download_chatterbox_models}}.
+Idempotent: an already-loaded model is returned unchanged, so
+\code{chatterbox(load = TRUE)} followed by a stray
+\code{load_chatterbox()} does not reload.
 }

@@ -1,3 +1,27 @@
+# chatterbox 0.1.0.9 (development)
+
+- `chatterbox()` now constructs *and* loads the model by default (one
+  call, like Python `from_pretrained`). Pass `load = FALSE` for the bare
+  object. **Mildly breaking**: code that used `chatterbox()` as a cheap
+  constructor before a separate `load_chatterbox()` now needs
+  `load = FALSE` (or relies on `load_chatterbox()` being idempotent).
+- `load_chatterbox()` / `load_chatterbox_turbo()` are idempotent: an
+  already-loaded model is returned unchanged.
+- `generate(output_path = )` also writes the audio to a WAV and adds a
+  `path` element; `tts_to_file()` is now a thin wrapper over it.
+- `generate()` defaults `normalize_text = FALSE`. The internal-caps
+  mitigation patched a since-fixed (column-major/STFT) bug and was
+  flattening intended emphasis; punctuation normalization still always
+  runs. `normalize_tts_text(caps =, punctuation =)` is the single entry.
+- `generate()` now errors clearly when the input exceeds the T3
+  text-token limit instead of crashing, and sizes the traced CFM from the
+  actual generated token count (no text-length guessing).
+- `tts_chunked()` is the long-form layer: word-safe splitting, voice
+  resolved once, and T3 run first so batching and the per-card memory cap
+  use actual speech-token lengths.
+- `serve()` routes synthesis through `tts_chunked()` (long-text splitting
+  + per-card batching) and forwards more request knobs.
+
 # chatterbox 0.1.0.8 (development)
 
 - New `generate_batch()`: several texts, one batched S3Gen synthesis

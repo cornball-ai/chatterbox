@@ -22,9 +22,14 @@ expect_true(all(nchar(out) <= 110L | !grepl(",", out)))
 expect_equal(gsub("[ ]+", " ", paste(out, collapse = " ")),
              gsub("[ ]+", " ", runon))
 
-# A comma-less giant clause stays whole (no mid-clause splitting)
+# A comma-less giant clause is word-split as a last resort, so no clause
+# longer than chunk_size reaches the model (and trips the T3 text-token
+# guard). Words are preserved and rejoin losslessly.
 giant <- paste(rep("word", 80), collapse = " ")
-expect_equal(sc(giant, 100L), giant)
+g_out <- sc(giant, 100L)
+expect_true(length(g_out) > 1L)
+expect_true(all(nchar(g_out) <= 100L))
+expect_equal(paste(g_out, collapse = " "), giant)
 
 # Empty-ish input produces no chunks
 expect_equal(length(sc("   ", 200L)), 0L)

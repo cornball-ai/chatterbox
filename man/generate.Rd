@@ -6,8 +6,9 @@
 generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
          temperature = 0.8, top_p = 1, min_p = 0.05, autocast = NULL,
          traced = FALSE, backend = c("r", "jit"), top_k = 1000L,
-         repetition_penalty = 1.2, normalize_text = TRUE,
-         max_new_tokens = 1000L, max_cache_len = NULL, skip_vocoder = FALSE)
+         repetition_penalty = 1.2, normalize_text = FALSE,
+         max_new_tokens = 1000L, max_cache_len = NULL, cfm_len = NULL,
+         skip_vocoder = FALSE, output_path = NULL)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -51,10 +52,12 @@ Default 1000.}
 Applied sign-dependently like HF transformers: positive logits are
 divided, negative ones multiplied.}
 
-\item{normalize_text}{Logical. If TRUE (default), pre-process text to
-reduce model failure modes: lowercase words with internal capitals
-(which the model interprets as emphasis cues and often produces
-silent audio for). Set to FALSE to skip case normalization.
+\item{normalize_text}{Logical. Apply the R-specific internal-caps
+mitigation (lowercase words with internal capitals). Default FALSE:
+it addressed a "first word then silence" failure that was actually
+the column-major/STFT bug, now fixed - with the model corrected,
+leaving caps intact also preserves intended emphasis (ALL CAPS reads
+as emphasis) and acronyms. Set TRUE only if specific text misbehaves.
 Punctuation normalization (whitespace collapse, first-letter
 capitalization, trailing period) always runs, matching the Python
 reference implementation.}
@@ -68,10 +71,22 @@ backends. Default NULL: jit auto-sizes so generation always fits
 new size triggers a fresh ~50 s trace). Ignored by the pure-R
 backend, which has no pre-allocated cache.}
 
+\item{cfm_len}{Optional explicit traced-CFM length (the padded mel
+sequence, = 640 + 2 * tokens). Default NULL: the standard traced path
+sizes it from the tokens actually generated, rounded up to the
+250/500/1000 bucket ladder, so a slow speaker is covered without
+guessing from text length. Pass a value to pin it (e.g. to pre-trace
+a bucket). Ignored when not traced or for turbo.}
+
 \item{skip_vocoder}{Logical. If TRUE, stop after flow matching and
 return the mel spectrogram instead of audio (Python 0.1.7's
 \code{skip_vocoder}). The result has a \code{mel} element (tensor,
 batch x 80 x frames; 50 frames/s) and no \code{audio}.}
+
+\item{output_path}{Optional WAV path. When set, the audio is also
+written there (as a side effect) and the returned list gains a
+\code{path} element; the audio is still returned in full. Incompatible
+with \code{skip_vocoder} (no audio to write). Default NULL.}
 }
 \value{
 List with elements:
@@ -84,6 +99,7 @@ List with elements:
       garbage output and a need to retry or split the input.}
     \item{n_tokens}{Number of speech tokens generated}
     \item{audio_sec}{Audio duration in seconds}
+    \item{path}{Output file path (only when \code{output_path} is set)}
   }
 }
 \description{
