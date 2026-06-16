@@ -104,6 +104,9 @@ normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
 #' @return Chatterbox TTS model object, loaded unless \code{load = FALSE}
 #' @export
 chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
+    # Must run before the first CUDA op (cuda_is_available below): torch reads
+    # its allocator GC rates once, at lazy CUDA init.
+    .set_cuda_gc_options(device)
     # Fall back to CPU when the requested accelerator is absent
     # (Python from_pretrained does the same for MPS)
     if (grepl("^cuda", device) && !torch::cuda_is_available()) {
@@ -125,6 +128,47 @@ chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
         model <- load_chatterbox(model)
     }
     model
+}
+
+# Tune torch's CUDA garbage collection so it doesn't collect on nearly every
+# allocation. torch reads these rates ONCE, at lazy CUDA init (the first CUDA
+# op), so they must be set before then - this runs at the top of chatterbox(),
+# ahead of cuda_is_available(). The default reserved-rate floor (0.2) makes
+# torch gc on each allocation once a model occupies more than 20% of VRAM,
+# which dominated inference (53% of wall time was gc, the GPU work ~13%). The
+# floor scales with VRAM (smaller card, bigger footprint fraction, higher
+# floor): calibrated to two measured points for the ~4.1GB model, 16GB -> 0.26
+# and 6GB -> 0.75, linear in 1/VRAM. threshold_call_gc (host MB per forced gc)
+# is raised off its 4GB default too. Both respect an explicit user override.
+# See torch's memory-management vignette (torch.cuda_allocator_reserved_rate).
+.set_cuda_gc_options <- function(device) {
+    if (is.null(device) || !grepl("^cuda", device)) {
+        return(invisible(NULL))
+    }
+    if (is.null(getOption("torch.threshold_call_gc"))) {
+        options(torch.threshold_call_gc = 16000)
+    }
+    if (!is.null(getOption("torch.cuda_allocator_reserved_rate"))) {
+        return(invisible(NULL))
+    }
+    idx <- suppressWarnings(as.integer(sub("^cuda:?", "", device)))
+    if (length(idx) != 1L || is.na(idx)) {
+        idx <- 0L
+    }
+    total_gb <- tryCatch(
+        as.numeric(system2("nvidia-smi",
+            c("--query-gpu=memory.total", "--format=csv,noheader,nounits",
+              paste0("--id=", idx)), stdout = TRUE)[1]) / 1024,
+        error = function(e) NA_real_)
+    if (is.na(total_gb) || total_gb <= 0) {
+        return(invisible(NULL))
+    }
+    rate <- min(0.92, max(0.20, 4.704 / total_gb - 0.034))
+    options(torch.cuda_allocator_reserved_rate = rate)
+    message(sprintf(
+        "chatterbox: torch.cuda_allocator_reserved_rate = %.2f, threshold_call_gc = %d MB (%.0f GB VRAM)",
+        rate, getOption("torch.threshold_call_gc"), total_gb))
+    invisible(rate)
 }
 
 #' Load Chatterbox model weights
