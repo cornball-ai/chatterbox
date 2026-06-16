@@ -1,3 +1,36 @@
+# chatterbox 0.1.0.15 (development)
+
+- `chatterbox()` now tunes torch's CUDA garbage-collection rates before the
+  first CUDA op. torch reads `torch.cuda_allocator_reserved_rate` (and
+  `torch.threshold_call_gc`) once at lazy CUDA init; the 0.2 default floor
+  meant gc ran on nearly every allocation once a model occupied more than
+  20% of VRAM, which was 53% of inference wall time. The floor is now the
+  model's footprint as a fraction of VRAM (4.1GB regular, 3.6GB turbo): e.g. a
+  16GB card gets 0.26 / 0.23, a 6GB card 0.68 / 0.60. `threshold_call_gc` is
+  raised to 16000 MB. All set ahead of `cuda_is_available()`. Turbo is ~2x
+  faster on a 16GB card (10.7s -> 5.3s for a 16s utterance). An explicit
+  user-set option still wins. See torch's memory-management vignette.
+
+# chatterbox 0.1.0.14 (development)
+
+- `read_audio()` now detects the audio container from the file's magic
+  bytes (RIFF/WAVE, ID3, MP3 frame sync) instead of trusting the
+  extension. A reference saved as PCM/WAV but named `.mp3` (or vice
+  versa) previously ran the wrong decoder and produced NaN garbage,
+  silently corrupting voice cloning; it now decodes correctly.
+
+# chatterbox 0.1.0.13 (development)
+
+- `serve()` now caches each voice embedding (by reference path + mtime)
+  and reuses it across requests, instead of re-encoding the reference on
+  every `/v1/audio/speech` call. Per-request re-encoding churned voice
+  GPU tensors and raced the CUDA caching allocator, intermittently
+  producing NaN speaker conditioning - seen as a "missing value where
+  TRUE/FALSE needed" 500 and as degraded voice cloning (~33-50% of
+  requests on both an RTX 5060 Ti and a GTX 1660 Ti; 0 with the cache).
+  `trim_silence()` now raises a clear error instead of the cryptic one if
+  NaN audio ever reaches it.
+
 # chatterbox 0.1.0.12 (development)
 
 - `serve()` now uses the `jit` backend for turbo as well as standard (was

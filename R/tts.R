@@ -104,6 +104,9 @@ normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
 #' @return Chatterbox TTS model object, loaded unless \code{load = FALSE}
 #' @export
 chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
+    # Must run before the first CUDA op (cuda_is_available below): torch reads
+    # its allocator GC rates once, at lazy CUDA init.
+    .set_cuda_gc_options(device, turbo)
     # Fall back to CPU when the requested accelerator is absent
     # (Python from_pretrained does the same for MPS)
     if (grepl("^cuda", device) && !torch::cuda_is_available()) {
@@ -116,15 +119,62 @@ chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
     }
 
     model <- structure(
-                       list(device = device, turbo = turbo, t3 = NULL,
-                            s3gen = NULL, voice_encoder = NULL,
-                            tokenizer = NULL, loaded = FALSE),
+                       list(device = device, turbo = turbo, t3 = NULL, s3gen = NULL,
+                            voice_encoder = NULL, tokenizer = NULL, loaded = FALSE),
                        class = "chatterbox"
     )
     if (isTRUE(load)) {
         model <- load_chatterbox(model)
     }
     model
+}
+
+# Tune torch's CUDA garbage collection so it doesn't collect on nearly every
+# allocation. torch reads these rates ONCE, at lazy CUDA init (the first CUDA
+# op), so they must be set before then - this runs at the top of chatterbox(),
+# ahead of cuda_is_available(). The default reserved-rate floor (0.2) makes
+# torch gc on each allocation once a model occupies more than 20% of VRAM,
+# which dominated inference (53% of wall time was gc, the GPU work ~13%). The
+# floor is the model's footprint as a fraction of VRAM: gc stays off until
+# reserved memory exceeds the model itself. Footprints (fp32) are 4.1GB
+# regular and 3.6GB turbo, so e.g. a 16GB card gives 0.26 / 0.23 and a 6GB
+# card gives 0.68 / 0.60. threshold_call_gc (host MB per forced gc) is raised
+# off its 4GB default too. Both respect an explicit user override. See torch's
+# memory-management vignette (torch.cuda_allocator_reserved_rate).
+.set_cuda_gc_options <- function(device, turbo = FALSE) {
+    if (is.null(device) || !grepl("^cuda", device)) {
+        return(invisible(NULL))
+    }
+    if (is.null(getOption("torch.threshold_call_gc"))) {
+        options(torch.threshold_call_gc = 16000)
+    }
+    if (!is.null(getOption("torch.cuda_allocator_reserved_rate"))) {
+        return(invisible(NULL))
+    }
+    idx <- suppressWarnings(as.integer(sub("^cuda:?", "", device)))
+    if (length(idx) != 1L || is.na(idx)) {
+        idx <- 0L
+    }
+    total_gb <- tryCatch(
+                         as.numeric(system2("nvidia-smi",
+                c("--query-gpu=memory.total", "--format=csv,noheader,nounits",
+                    paste0("--id=", idx)), stdout = TRUE)[1]) / 1024,
+                         error = function(e) NA_real_)
+    if (is.na(total_gb) || total_gb <= 0) {
+        return(invisible(NULL))
+    }
+    if (isTRUE(turbo)) {
+        footprint_gb <- 3.6
+    } else {
+        footprint_gb <- 4.1
+    }
+    rate <- min(0.92, max(0.20, footprint_gb / total_gb))
+    options(torch.cuda_allocator_reserved_rate = rate)
+    message(sprintf(
+                    "chatterbox: torch.cuda_allocator_reserved_rate = %.2f, threshold_call_gc = %d MB (%s model, %.0f GB VRAM)",
+                    rate, getOption("torch.threshold_call_gc"),
+            if (isTRUE(turbo)) "turbo 3.6GB" else "regular 4.1GB", total_gb))
+    invisible(rate)
 }
 
 #' Load Chatterbox model weights
@@ -443,8 +493,7 @@ generate <- function(model, text, voice, exaggeration = 0.5,
                      backend = c("r", "jit"), top_k = 1000L,
                      repetition_penalty = 1.2, normalize_text = FALSE,
                      max_new_tokens = 1000L, max_cache_len = NULL,
-                     cfm_len = NULL, skip_vocoder = FALSE,
-                     output_path = NULL) {
+                     cfm_len = NULL, skip_vocoder = FALSE, output_path = NULL) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -530,10 +579,10 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     # bucket that way). Standard traced path only; turbo uses MeanFlow.
     if (!is_turbo && isTRUE(traced)) {
         options(chatterbox.cfm_len = if (!is.null(cfm_len)) {
-            as.integer(cfm_len)
-        } else {
-            640L + 2L * .token_bucket(n_tokens)
-        })
+                as.integer(cfm_len)
+            } else {
+                640L + 2L * .token_bucket(n_tokens)
+            })
     }
 
     if (use_autocast) {
@@ -632,7 +681,7 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     }
 
     text_tokens <- torch::torch_tensor(text_ids,
-        dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
+                                       dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
 
     # Create T3 conditioning
     cond <- t3_cond(
@@ -719,9 +768,9 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #' @noRd
 .texts_to_speech_tokens <- function(model, texts, voice, normalize_text,
                                     use_autocast, exaggeration, cfg_weight,
-                                    temperature, top_p, min_p, traced, backend,
-                                    top_k, repetition_penalty, max_new_tokens,
-                                    max_cache_len) {
+                                    temperature, top_p, min_p, traced,
+                                    backend, top_k, repetition_penalty,
+                                    max_new_tokens, max_cache_len) {
     token_vecs <- vector("list", length(texts))
     eos <- logical(length(texts))
     for (i in seq_along(texts)) {
@@ -779,11 +828,11 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         i <- live
         options(chatterbox.cfm_len = 640L + 2L * .token_bucket(lens[i]))
         st <- torch::torch_tensor(matrix(token_vecs[[i]], nrow = 1L),
-            dtype = torch::torch_long())$to(device = model$device)
+                                  dtype = torch::torch_long())$to(device = model$device)
         torch::with_no_grad({
             out <- model$s3gen$inference(speech_tokens = st,
-                                         ref_dict = voice$ref_dict,
-                                         finalize = TRUE, traced = TRUE)
+                ref_dict = voice$ref_dict,
+                finalize = TRUE, traced = TRUE)
         })
         results[[i]] <- mk_result(i, as.numeric(out[[1]]$squeeze()$cpu()))
         return(results)
@@ -809,7 +858,7 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         i <- live[k]
         n_samples <- lens[i] * 2L * 480L
         results[[i]] <- mk_result(i,
-            as.numeric(wavs[k, 1:min(n_samples, wavs$size(2))]))
+                                  as.numeric(wavs[k, 1:min(n_samples, wavs$size(2))]))
     }
     results
 }
@@ -870,17 +919,17 @@ generate_batch <- function(model, texts, voice, ...) {
     }
 
     tk <- .texts_to_speech_tokens(model, texts, voice,
-        normalize_text = isTRUE(arg_or("normalize_text", FALSE)),
-        use_autocast = use_autocast,
-        exaggeration = arg_or("exaggeration", 0.5),
-        cfg_weight = arg_or("cfg_weight", 0.5),
-        temperature = arg_or("temperature", 0.8),
-        top_p = arg_or("top_p", 1.0), min_p = arg_or("min_p", 0.05),
-        traced = isTRUE(arg_or("traced", FALSE)),
-        backend = arg_or("backend", "r"), top_k = arg_or("top_k", 1000L),
-        repetition_penalty = arg_or("repetition_penalty", 1.2),
-        max_new_tokens = arg_or("max_new_tokens", 1000L),
-        max_cache_len = arg_or("max_cache_len", NULL))
+                                  normalize_text = isTRUE(arg_or("normalize_text", FALSE)),
+                                  use_autocast = use_autocast,
+                                  exaggeration = arg_or("exaggeration", 0.5),
+                                  cfg_weight = arg_or("cfg_weight", 0.5),
+                                  temperature = arg_or("temperature", 0.8),
+                                  top_p = arg_or("top_p", 1.0), min_p = arg_or("min_p", 0.05),
+                                  traced = isTRUE(arg_or("traced", FALSE)),
+                                  backend = arg_or("backend", "r"), top_k = arg_or("top_k", 1000L),
+                                  repetition_penalty = arg_or("repetition_penalty", 1.2),
+                                  max_new_tokens = arg_or("max_new_tokens", 1000L),
+                                  max_cache_len = arg_or("max_cache_len", NULL))
 
     # generate_batch is the throughput path: one eager batched S3Gen solve
     # (no traced single-utterance special case).
@@ -950,13 +999,16 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
         return(.gpu_gb_cache[[device]])
     }
     idx <- sub("^cuda:?", "", device)
-    idx <- if (nzchar(idx)) suppressWarnings(as.integer(idx)) else 0L
+    if (nzchar(idx)) {
+        idx <- suppressWarnings(as.integer(idx))
+    } else {
+        idx <- 0L
+    }
     if (is.na(idx)) {
         idx <- 0L
     }
     out <- tryCatch(system2("nvidia-smi",
-                            c("--query-gpu=memory.total",
-                              "--format=csv,noheader,nounits",
+                            c("--query-gpu=memory.total", "--format=csv,noheader,nounits",
                               paste0("--id=", idx)),
                             stdout = TRUE, stderr = FALSE),
                     error = function(e) character(0))
@@ -1021,7 +1073,11 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
                 out <- c(out, cur)
                 cur <- u
             } else {
-                cur <- if (nzchar(cur)) paste(cur, u) else u
+                if (nzchar(cur)) {
+                    cur <- paste(cur, u)
+                } else {
+                    cur <- u
+                }
             }
         }
         if (nzchar(cur)) {
@@ -1110,18 +1166,18 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     # Run T3 on every chunk first, so batching and the memory cap use
     # ACTUAL speech-token lengths, not a char estimate (corteza review #2).
     tk <- .texts_to_speech_tokens(model, chunks, voice,
-        normalize_text = isTRUE(arg_or("normalize_text", FALSE)),
-        use_autocast = isTRUE(arg_or("autocast", FALSE)) &&
-            grepl("^cuda", model$device),
-        exaggeration = arg_or("exaggeration", 0.5),
-        cfg_weight = arg_or("cfg_weight", 0.5),
-        temperature = arg_or("temperature", 0.8),
-        top_p = arg_or("top_p", 1.0), min_p = arg_or("min_p", 0.05),
-        traced = traced, backend = arg_or("backend", "r"),
-        top_k = arg_or("top_k", 1000L),
-        repetition_penalty = arg_or("repetition_penalty", 1.2),
-        max_new_tokens = arg_or("max_new_tokens", 1000L),
-        max_cache_len = arg_or("max_cache_len", NULL))
+                                  normalize_text = isTRUE(arg_or("normalize_text", FALSE)),
+                                  use_autocast = isTRUE(arg_or("autocast", FALSE)) &&
+                                  grepl("^cuda", model$device),
+                                  exaggeration = arg_or("exaggeration", 0.5),
+                                  cfg_weight = arg_or("cfg_weight", 0.5),
+                                  temperature = arg_or("temperature", 0.8),
+                                  top_p = arg_or("top_p", 1.0), min_p = arg_or("min_p", 0.05),
+                                  traced = traced, backend = arg_or("backend", "r"),
+                                  top_k = arg_or("top_k", 1000L),
+                                  repetition_penalty = arg_or("repetition_penalty", 1.2),
+                                  max_new_tokens = arg_or("max_new_tokens", 1000L),
+                                  max_cache_len = arg_or("max_cache_len", NULL))
 
     # Bucket by actual token length, then synthesize within the per-card
     # cap, preserving original order. A group of one takes the traced
@@ -1134,7 +1190,7 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
         cap <- max(1L, max_batch %||% .cfm_max_batch(b, model$device))
         for (grp in split(idx, ceiling(seq_along(idx) / cap))) {
             res <- .s3gen_batch_from_tokens(model, tk$token_vecs[grp],
-                                            tk$eos[grp], voice, traced = traced)
+                tk$eos[grp], voice, traced = traced)
             for (j in seq_along(grp)) {
                 audio_chunks[[grp[j]]] <- res[[j]]$audio
             }
@@ -1220,5 +1276,9 @@ quick_tts <- function(text, reference_audio, output_path = NULL,
 
     res <- generate(model, text, reference_audio, autocast = autocast,
                     output_path = output_path)
-    if (is.null(output_path)) res else invisible(res)
+    if (is.null(output_path)) {
+        res
+    } else {
+        invisible(res)
+    }
 }
