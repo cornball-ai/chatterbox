@@ -10,10 +10,9 @@
 #   - one combined QKV projection (c_attn) with bias, not separate q/k/v
 #   - GELU (tanh approximation), not SwiGLU
 #   - biases on every projection
-#   - NO rotary embeddings: this turbo port adds no position embeddings
-#     at all (gpt2_model$forward never applies wpe, and the generation
-#     loop embeds tokens with speech_emb only), so the step takes no
-#     cos/sin and the loop passes no positions beyond the cache index.
+#   - absolute position embeddings (wpe), not rotary: gpt2_model$forward
+#     adds them for the prefill, and this loop adds wpe(pos) to each decode
+#     token's embedding before the step (the step itself takes no cos/sin).
 # Correctness is checked against the eager gpt2_block forward in
 # inst/tinytest (max logit diff ~1e-5).
 
@@ -218,8 +217,13 @@ t3_inference_turbo_jit <- function(model, cond, text_tokens,
                 repeat_run <- 1L
             }
 
-            emb <- model$speech_emb$forward(next_token) # no position embedding
             pos0 <- cond_len + i - 1L                   # 0-based absolute slot
+            # wpe at this absolute position (the step_fn bypasses the
+            # forward that would otherwise add it, as HF GPT2Model does)
+            pos_emb <- model$tfmr$wpe$forward(
+                torch::torch_tensor(matrix(pos0, nrow = 1L), device = device,
+                                    dtype = torch::torch_long())$add(1L))
+            emb <- model$speech_emb$forward(next_token) + pos_emb
             h <- step_fn(emb, wflat, k_cache, v_cache,
                          torch::jit_scalar(pos0), torch::jit_scalar(pos0 + 1L))
             h_last <- model$tfmr$ln_f$forward(h)

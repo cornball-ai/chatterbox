@@ -45,7 +45,13 @@ if (at_home() &&
             kc[l,,, 1:L,] <- kv[[1]]
             vc[l,,, 1:L,] <- kv[[2]]
         }
-        hj <- step(h, wf, kc, vc, torch::jit_scalar(L), torch::jit_scalar(L + 1L))
+        # The eager forward adds wpe(position) internally; the step does
+        # not, so add it to the decode token's embedding here too (as
+        # t3_inference_turbo_jit does). Position = prefill length L.
+        wp <- t3$tfmr$wpe$forward(torch::torch_tensor(matrix(L, nrow = 1L),
+            device = device, dtype = torch::torch_long())$add(1L))
+        hj <- step(h + wp, wf, kc, vc, torch::jit_scalar(L),
+                   torch::jit_scalar(L + 1L))
         h_jit <- t3$tfmr$ln_f$forward(hj)
 
         diff <- as.numeric((h_eager - h_jit)$abs()$max()$cpu())

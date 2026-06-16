@@ -1261,7 +1261,21 @@ gpt2_model <- torch::nn_module(
                                forward = function(inputs_embeds = NULL, past_key_values = NULL,
         use_cache = FALSE, output_hidden_states = FALSE)
                                {
-    hidden_states <- inputs_embeds
+    # GPT-2 absolute position embeddings (wpe), as HF GPT2Model does. The
+    # offset is the cached sequence length: prefill sees positions
+    # 0..seq_len-1, and each cached decode step sees its single absolute
+    # position. Omitting this was a bug - the backbone had no position info.
+    seq_len <- inputs_embeds$size(2)
+    past_len <- if (!is.null(past_key_values) && !is.null(past_key_values[[1]])) {
+        past_key_values[[1]][[1]]$size(3)
+    } else {
+        0L
+    }
+    positions <- torch::torch_arange(start = past_len,
+                                     end = past_len + seq_len - 1L,
+                                     dtype = torch::torch_long(),
+                                     device = inputs_embeds$device)
+    hidden_states <- inputs_embeds + self$wpe$forward(positions$add(1L))$unsqueeze(1L)
 
     new_past_key_values <- list()
 
@@ -1362,10 +1376,19 @@ t3_model_turbo <- torch::nn_module(
 #' @return Model with loaded weights
 load_t3_turbo_weights <- function(model, state_dict) {
     torch::with_no_grad({
-        copy_if_exists <- function(r_param, key) {
+        # transpose = TRUE for the GPT-2 Conv1D projections: HF stores them
+        # as (in, out) and runs x @ w, but we reimplement them as nn_linear
+        # which stores (out, in) and runs x @ w^T. Without the transpose the
+        # non-square ones fail to copy (shape mismatch -> random weights) and
+        # the square one loads transposed - i.e. garbage output.
+        copy_if_exists <- function(r_param, key, transpose = FALSE) {
             if (key %in% names(state_dict)) {
                 tryCatch({
-                    r_param$copy_(state_dict[[key]])
+                    src <- state_dict[[key]]
+                    if (transpose) {
+                        src <- src$t()
+                    }
+                    r_param$copy_(src)
                     TRUE
                 }, error = function(e) {
                     warning("Failed to copy ", key, ": ", e$message)
@@ -1390,7 +1413,7 @@ load_t3_turbo_weights <- function(model, state_dict) {
         copy_if_exists(model$cond_enc$spkr_enc$bias, "cond_enc.spkr_enc.bias")
 
         # GPT-2 backbone
-        # wpe (position embeddings - part of GPT-2 internal, we load but don't use externally)
+        # wpe (absolute position embeddings, added in gpt2_model$forward)
         copy_if_exists(model$tfmr$wpe$weight, "tfmr.wpe.weight")
 
         # Final layer norm
@@ -1409,16 +1432,20 @@ load_t3_turbo_weights <- function(model, state_dict) {
             copy_if_exists(layer$ln_2$weight, paste0(prefix, "ln_2.weight"))
             copy_if_exists(layer$ln_2$bias, paste0(prefix, "ln_2.bias"))
 
-            # Attention (combined c_attn)
-            copy_if_exists(layer$attn$c_attn$weight, paste0(prefix, "attn.c_attn.weight"))
+            # Attention (combined c_attn). Conv1D weights -> transpose.
+            copy_if_exists(layer$attn$c_attn$weight,
+                           paste0(prefix, "attn.c_attn.weight"), transpose = TRUE)
             copy_if_exists(layer$attn$c_attn$bias, paste0(prefix, "attn.c_attn.bias"))
-            copy_if_exists(layer$attn$c_proj$weight, paste0(prefix, "attn.c_proj.weight"))
+            copy_if_exists(layer$attn$c_proj$weight,
+                           paste0(prefix, "attn.c_proj.weight"), transpose = TRUE)
             copy_if_exists(layer$attn$c_proj$bias, paste0(prefix, "attn.c_proj.bias"))
 
-            # MLP
-            copy_if_exists(layer$mlp$c_fc$weight, paste0(prefix, "mlp.c_fc.weight"))
+            # MLP. Conv1D weights -> transpose.
+            copy_if_exists(layer$mlp$c_fc$weight,
+                           paste0(prefix, "mlp.c_fc.weight"), transpose = TRUE)
             copy_if_exists(layer$mlp$c_fc$bias, paste0(prefix, "mlp.c_fc.bias"))
-            copy_if_exists(layer$mlp$c_proj$weight, paste0(prefix, "mlp.c_proj.weight"))
+            copy_if_exists(layer$mlp$c_proj$weight,
+                           paste0(prefix, "mlp.c_proj.weight"), transpose = TRUE)
             copy_if_exists(layer$mlp$c_proj$bias, paste0(prefix, "mlp.c_proj.bias"))
         }
     })
