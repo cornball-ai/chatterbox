@@ -1,7 +1,7 @@
 # voice_convert error paths (no weights needed)
 
 if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
-    unloaded <- chatterbox::chatterbox("cpu")
+    unloaded <- chatterbox::chatterbox("cpu", load = FALSE)
     expect_error(chatterbox::voice_convert(unloaded, "x.wav", "y.wav"),
         "not loaded")
 

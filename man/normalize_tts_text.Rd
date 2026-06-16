@@ -3,17 +3,23 @@
 \alias{normalize_tts_text}
 \title{Normalize text for TTS}
 \usage{
-normalize_tts_text(text)
+normalize_tts_text(text, caps = TRUE, punctuation = TRUE)
 }
 \arguments{
 \item{text}{Character scalar.}
+
+\item{caps}{Apply the internal-caps mitigation. Default TRUE.}
+
+\item{punctuation}{Apply punctuation normalization. Default TRUE.}
 }
 \value{
 Normalized text.
 }
 \description{
-Lowercases words that contain internal capital letters (e.g.
-"ALERT", "Rarely"). The Chatterbox model interprets internal capitals
-as emphasis cues, which often causes it to produce only the first word
-followed by silence. Sentence-initial capitals are left alone.
+The single normalization entry point. Applies, in order: the
+R-specific internal-caps mitigation (\code{normalize_internal_caps}),
+then punctuation normalization (\code{punc_norm}: whitespace collapse,
+first-letter capitalization, uncommon-punctuation rewrite, trailing
+period). \code{punc_norm} is the Python-parity piece; the caps step is
+R-only and can be turned off.
 }

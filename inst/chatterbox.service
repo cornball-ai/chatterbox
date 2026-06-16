@@ -1,0 +1,38 @@
+# Example systemd unit for chatterbox::serve().
+#
+# Serves the chatterbox TTS model over HTTP as a persistent service (model
+# loaded once, auto-restart on failure, starts on boot). Copy this file from
+#   system.file("chatterbox.service", package = "chatterbox")
+# edit the CHANGEME placeholders, then install:
+#
+#   sudo cp chatterbox.service /etc/systemd/system/chatterbox.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now chatterbox.service
+#   journalctl -u chatterbox.service -f      # watch it load (~30-60s)
+#
+# Restart after a package update:  sudo systemctl restart chatterbox
+
+[Unit]
+Description=Chatterbox TTS server (R package, base-socket HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The user that owns the R library, voices dir, and model cache:
+User=CHANGEME
+Group=CHANGEME
+WorkingDirectory=/home/CHANGEME
+# littler (/usr/bin/r) does not read ~/.Renviron/.Rprofile, so set what the
+# server needs explicitly:
+Environment=HOME=/home/CHANGEME
+Environment=TTS_VOICES_DIR=/home/CHANGEME/.cornball/voices
+# Adjust the port (and add device=/turbo args) as needed:
+ExecStart=/usr/bin/r -e "chatterbox::serve(port = 7810L)"
+Restart=on-failure
+RestartSec=5
+# Model load + JIT warmup take ~30-60s; don't let a watchdog kill startup.
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

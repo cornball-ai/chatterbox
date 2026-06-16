@@ -20,8 +20,10 @@ quick_tts(text, reference_audio, output_path = NULL, device = "cpu",
 \item{turbo}{Logical. Use turbo architecture. Default FALSE.}
 }
 \value{
-If output_path is NULL, returns list with audio and sample_rate.
-        Otherwise writes to file and returns path invisibly.
+The \code{\link{generate}} result list (audio, sample_rate,
+  ...). When \code{output_path} is set the audio is also written there
+  (the list gains a \code{path} element) and the list is returned
+  invisibly so the audio vector does not print.
 }
 \description{
 Loads model if needed and generates speech. Convenient for quick tests.

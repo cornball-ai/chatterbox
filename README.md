@@ -17,9 +17,8 @@ options(timeout = 600)
 
 library(chatterbox)
 
-# Load model
+# Load model (constructs and loads in one call)
 model <- chatterbox("cuda")
-model <- load_chatterbox(model)
 
 # Generate speech
 jfk <- system.file("audio", "jfk.mp3", package = "chatterbox")
@@ -41,9 +40,14 @@ few deliberate differences:
   default voice (`conds.pt`); the R API asks for reference audio
   explicitly and skips that ~105 MB download.
 - **Reliability extras.** `generate()` reports `eos_found`, `n_tokens`,
-  and `audio_sec`, normalizes problem text by default
-  (`normalize_text = TRUE`), and stops degenerate token loops early.
-  Python 0.1.4 (English) generates until the token cap in those cases.
+  and `audio_sec`, always applies Python-parity punctuation
+  normalization, and stops degenerate token loops early (Python 0.1.4
+  English generates until the token cap in those cases). The R-only
+  internal-caps mitigation is opt-in via `normalize_text = TRUE`
+  (default `FALSE`; the failure it patched was a since-fixed bug).
+- **One-call model load.** `chatterbox("cuda")` constructs *and* loads by
+  default; pass `load = FALSE` for the bare object. `load_chatterbox()`
+  is idempotent, so older two-step code still works.
 - **Backend token caps.** The pure-R and `backend = "jit"` paths
   generate up to `max_new_tokens` (default 1000, ~40 s; jit auto-sizes
   its KV cache so generation always completes). `traced = TRUE` is

@@ -17,7 +17,9 @@ generate_batch(model, texts, voice, ...)
 top_p, min_p, backend, repetition_penalty, normalize_text,
 max_new_tokens, max_cache_len). \code{traced} and \code{autocast}
 affect the T3 stage only: the batched S3Gen synthesis always runs
-eager float32 (traced CFM is fixed at batch 1).}
+eager float32 (traced CFM is fixed at batch 1). The CFM trace-bucket
+sizing used by \code{\link{generate}} therefore does not apply here -
+batched S3Gen pads dynamically to the batch's longest utterance.}
 }
 \value{
 List with one \code{\link{generate}}-style result per text

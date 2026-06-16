@@ -5,17 +5,19 @@
 # Text Normalization
 # ============================================================================
 
-#' Normalize text for TTS
+#' Lowercase internal-capital words (R-specific mitigation)
 #'
 #' Lowercases words that contain internal capital letters (e.g.
 #' "ALERT", "Rarely"). The Chatterbox model interprets internal capitals
 #' as emphasis cues, which often causes it to produce only the first word
-#' followed by silence. Sentence-initial capitals are left alone.
+#' followed by silence. Sentence-initial capitals are left alone. Not part
+#' of the Python reference (which has only punc_norm); whether it is still
+#' needed after the column-major/STFT fixes is an empirical question.
 #'
 #' @param text Character scalar.
-#' @return Normalized text.
-#' @export
-normalize_tts_text <- function(text) {
+#' @return Text with internal-capital words lowercased.
+#' @noRd
+normalize_internal_caps <- function(text) {
     if (!is.character(text) || length(text) != 1L || is.na(text)) {
         return(text)
     }
@@ -58,17 +60,50 @@ normalize_tts_text <- function(text) {
     paste(out, collapse = " ")
 }
 
+#' Normalize text for TTS
+#'
+#' The single normalization entry point. Applies, in order: the
+#' R-specific internal-caps mitigation (\code{normalize_internal_caps}),
+#' then punctuation normalization (\code{punc_norm}: whitespace collapse,
+#' first-letter capitalization, uncommon-punctuation rewrite, trailing
+#' period). \code{punc_norm} is the Python-parity piece; the caps step is
+#' R-only and can be turned off.
+#'
+#' @param text Character scalar.
+#' @param caps Apply the internal-caps mitigation. Default TRUE.
+#' @param punctuation Apply punctuation normalization. Default TRUE.
+#' @return Normalized text.
+#' @export
+normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
+    if (isTRUE(caps)) {
+        text <- normalize_internal_caps(text)
+    }
+    if (isTRUE(punctuation)) {
+        text <- punc_norm(text)
+    }
+    text
+}
+
 # ============================================================================
 # Chatterbox TTS Model
 # ============================================================================
 
-#' Create Chatterbox TTS model
+#' Create (and load) a Chatterbox TTS model
+#'
+#' Constructs the model object and, by default, loads the pretrained
+#' weights in the same call - the Python reference's
+#' \code{from_pretrained}/\code{from_local} do both at once. Pass
+#' \code{load = FALSE} for the bare object (e.g. to inspect it or test
+#' the not-loaded error paths), then load later with
+#' \code{\link{load_chatterbox}}.
 #'
 #' @param device Device to use ("cpu", "cuda", "mps", etc.)
 #' @param turbo Use turbo model (GPT-2 backbone, MeanFlow decoder). Default FALSE.
-#' @return Chatterbox TTS model object
+#' @param load Load pretrained weights before returning. Default TRUE.
+#'   Requires a prior download (\code{\link{download_chatterbox_models}}).
+#' @return Chatterbox TTS model object, loaded unless \code{load = FALSE}
 #' @export
-chatterbox <- function(device = "cpu", turbo = FALSE) {
+chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
     # Fall back to CPU when the requested accelerator is absent
     # (Python from_pretrained does the same for MPS)
     if (grepl("^cuda", device) && !torch::cuda_is_available()) {
@@ -80,17 +115,25 @@ chatterbox <- function(device = "cpu", turbo = FALSE) {
         device <- "cpu"
     }
 
-    structure(
-              list(device = device, turbo = turbo, t3 = NULL, s3gen = NULL,
-                   voice_encoder = NULL, tokenizer = NULL, loaded = FALSE),
-              class = "chatterbox"
+    model <- structure(
+                       list(device = device, turbo = turbo, t3 = NULL,
+                            s3gen = NULL, voice_encoder = NULL,
+                            tokenizer = NULL, loaded = FALSE),
+                       class = "chatterbox"
     )
+    if (isTRUE(load)) {
+        model <- load_chatterbox(model)
+    }
+    model
 }
 
 #' Load Chatterbox model weights
 #'
 #' Load pretrained weights for all model components.
 #' Requires prior download via \code{\link{download_chatterbox_models}}.
+#' Idempotent: an already-loaded model is returned unchanged, so
+#' \code{chatterbox(load = TRUE)} followed by a stray
+#' \code{load_chatterbox()} does not reload.
 #'
 #' @param model Chatterbox model object
 #' @return Chatterbox model with loaded weights
@@ -98,6 +141,9 @@ chatterbox <- function(device = "cpu", turbo = FALSE) {
 load_chatterbox <- function(model) {
     if (!inherits(model, "chatterbox")) {
         stop("model must be a chatterbox object")
+    }
+    if (isTRUE(model$loaded)) {
+        return(model)
     }
 
     # Dispatch to turbo loader if turbo mode
@@ -157,6 +203,9 @@ load_chatterbox <- function(model) {
 #' @return Chatterbox model with loaded weights
 #' @export
 load_chatterbox_turbo <- function(model) {
+    if (isTRUE(model$loaded)) {
+        return(model)
+    }
     device <- model$device
     message("Loading Chatterbox Turbo model to ", device, "...")
 
@@ -345,10 +394,12 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #' @param repetition_penalty Numeric. Repetition penalty. Default 1.2.
 #'   Applied sign-dependently like HF transformers: positive logits are
 #'   divided, negative ones multiplied.
-#' @param normalize_text Logical. If TRUE (default), pre-process text to
-#'   reduce model failure modes: lowercase words with internal capitals
-#'   (which the model interprets as emphasis cues and often produces
-#'   silent audio for). Set to FALSE to skip case normalization.
+#' @param normalize_text Logical. Apply the R-specific internal-caps
+#'   mitigation (lowercase words with internal capitals). Default FALSE:
+#'   it addressed a "first word then silence" failure that was actually
+#'   the column-major/STFT bug, now fixed - with the model corrected,
+#'   leaving caps intact also preserves intended emphasis (ALL CAPS reads
+#'   as emphasis) and acronyms. Set TRUE only if specific text misbehaves.
 #'   Punctuation normalization (whitespace collapse, first-letter
 #'   capitalization, trailing period) always runs, matching the Python
 #'   reference implementation.
@@ -359,10 +410,20 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'   (~1 MB VRAM per position); traced keeps its 350-position trace (a
 #'   new size triggers a fresh ~50 s trace). Ignored by the pure-R
 #'   backend, which has no pre-allocated cache.
+#' @param cfm_len Optional explicit traced-CFM length (the padded mel
+#'   sequence, = 640 + 2 * tokens). Default NULL: the standard traced path
+#'   sizes it from the tokens actually generated, rounded up to the
+#'   250/500/1000 bucket ladder, so a slow speaker is covered without
+#'   guessing from text length. Pass a value to pin it (e.g. to pre-trace
+#'   a bucket). Ignored when not traced or for turbo.
 #' @param skip_vocoder Logical. If TRUE, stop after flow matching and
 #'   return the mel spectrogram instead of audio (Python 0.1.7's
 #'   \code{skip_vocoder}). The result has a \code{mel} element (tensor,
 #'   batch x 80 x frames; 50 frames/s) and no \code{audio}.
+#' @param output_path Optional WAV path. When set, the audio is also
+#'   written there (as a side effect) and the returned list gains a
+#'   \code{path} element; the audio is still returned in full. Incompatible
+#'   with \code{skip_vocoder} (no audio to write). Default NULL.
 #' @return List with elements:
 #'   \describe{
 #'     \item{audio}{Numeric vector of audio samples (omitted when
@@ -373,29 +434,31 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'       garbage output and a need to retry or split the input.}
 #'     \item{n_tokens}{Number of speech tokens generated}
 #'     \item{audio_sec}{Audio duration in seconds}
+#'     \item{path}{Output file path (only when \code{output_path} is set)}
 #'   }
 #' @export
 generate <- function(model, text, voice, exaggeration = 0.5,
                      cfg_weight = 0.5, temperature = 0.8, top_p = 1.0,
                      min_p = 0.05, autocast = NULL, traced = FALSE,
                      backend = c("r", "jit"), top_k = 1000L,
-                     repetition_penalty = 1.2, normalize_text = TRUE,
+                     repetition_penalty = 1.2, normalize_text = FALSE,
                      max_new_tokens = 1000L, max_cache_len = NULL,
-                     skip_vocoder = FALSE) {
+                     cfm_len = NULL, skip_vocoder = FALSE,
+                     output_path = NULL) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
-
-    if (isTRUE(normalize_text)) {
-        text <- normalize_tts_text(text)
+    if (!is.null(output_path) && isTRUE(skip_vocoder)) {
+        stop("output_path and skip_vocoder are incompatible: there is no ",
+             "audio to write. Drop output_path to get the mel.", call. = FALSE)
     }
 
-    # Punctuation normalization, applied unconditionally to match the
-    # Python reference (tts.py generate): collapses whitespace runs,
-    # capitalizes the first letter, rewrites uncommon punctuation, and
-    # appends a final period when the text ends without one. The missing
-    # trailing period was a major cause of EOS-not-found failures.
-    text <- punc_norm(text)
+    # Single normalization pass. punctuation (punc_norm) always runs to
+    # match the Python reference - whitespace collapse, first-letter
+    # capitalization, uncommon-punctuation rewrite, trailing period (a
+    # missing one was a major EOS-not-found cause). caps is the R-only
+    # internal-caps mitigation, gated by normalize_text.
+    text <- normalize_tts_text(text, caps = normalize_text, punctuation = TRUE)
 
     device <- model$device
     is_turbo <- isTRUE(model$turbo)
@@ -459,6 +522,20 @@ generate <- function(model, text, voice, exaggeration = 0.5,
         n_cfm_steps <- NULL
     }
 
+    # Size the traced CFM to the tokens we actually produced, rounded up
+    # to the bucket ladder (250/500/1000) so only a few CFM sizes are ever
+    # traced. Exact post-T3 sizing replaces guessing from text length: a
+    # slow speaker emits more tokens and is covered automatically. An
+    # explicit cfm_len pins it instead (the serve warmup pre-traces each
+    # bucket that way). Standard traced path only; turbo uses MeanFlow.
+    if (!is_turbo && isTRUE(traced)) {
+        options(chatterbox.cfm_len = if (!is.null(cfm_len)) {
+            as.integer(cfm_len)
+        } else {
+            640L + 2L * .token_bucket(n_tokens)
+        })
+    }
+
     if (use_autocast) {
         torch::with_autocast(device_type = "cuda", {
             torch::with_no_grad({
@@ -507,13 +584,19 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 
     message("Done! Generated ", round(audio_sec, 2), " seconds of audio.")
 
-    list(
-         audio = audio_samples,
-         sample_rate = S3GEN_SR,
-         eos_found = eos_found,
-         n_tokens = n_tokens,
-         audio_sec = audio_sec
+    out <- list(
+                audio = audio_samples,
+                sample_rate = S3GEN_SR,
+                eos_found = eos_found,
+                n_tokens = n_tokens,
+                audio_sec = audio_sec
     )
+    if (!is.null(output_path)) {
+        write_audio(audio_samples, S3GEN_SR, output_path)
+        message("Wrote ", output_path)
+        out$path <- output_path
+    }
+    out
 }
 
 #' T3 stage shared by generate() and generate_batch(): tokenize one
@@ -532,13 +615,24 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     # Tokenize text
     if (is_turbo) {
         text_ids <- tokenize_text_gpt2(model$tokenizer, text)
-        text_tokens <- torch::torch_tensor(text_ids,
-            dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
     } else {
-        text_tokens <- tokenize_text(model$tokenizer, text)
-        text_tokens <- torch::torch_tensor(text_tokens,
-            dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
+        text_ids <- tokenize_text(model$tokenizer, text)
     }
+
+    # Guard the input text-token limit. T3 uses a learned positional
+    # embedding table sized max_text_tokens + 2; longer input indexes
+    # past it (a cryptic crash) rather than truncating, and neither R nor
+    # the Python reference warns. Fail loudly so the caller splits the
+    # text (see tts_chunked) instead of getting a stack trace.
+    max_text <- model$t3$config$max_text_tokens
+    if (!is.null(max_text) && length(text_ids) > max_text) {
+        stop("Input text is too long: ", length(text_ids), " text tokens ",
+             "exceed the T3 limit of ", max_text, ". Split the text before ",
+             "generate() (e.g. tts_chunked).", call. = FALSE)
+    }
+
+    text_tokens <- torch::torch_tensor(text_ids,
+        dtype = torch::torch_long())$unsqueeze(1L)$to(device = device)
 
     # Create T3 conditioning
     cond <- t3_cond(
@@ -605,6 +699,110 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     speech_tokens
 }
 
+#' T3 stage for several texts: normalize, tokenize and run T3 per text
+#'
+#' Autoregressive generation does not batch (lengths and EOS differ per
+#' utterance), so this loops. \code{voice} must already be a
+#' voice_embedding. Returns 0-indexed integer token vectors (invalid
+#' tokens dropped) and per-text eos flags.
+#' @noRd
+.texts_to_speech_tokens <- function(model, texts, voice, normalize_text,
+                                    use_autocast, exaggeration, cfg_weight,
+                                    temperature, top_p, min_p, traced, backend,
+                                    top_k, repetition_penalty, max_new_tokens,
+                                    max_cache_len) {
+    token_vecs <- vector("list", length(texts))
+    eos <- logical(length(texts))
+    for (i in seq_along(texts)) {
+        txt <- normalize_tts_text(texts[i], caps = normalize_text,
+                                  punctuation = TRUE)
+        tokens <- .t3_text_to_tokens(model, txt, voice,
+                                     exaggeration = exaggeration,
+                                     cfg_weight = cfg_weight,
+                                     temperature = temperature, top_p = top_p,
+                                     min_p = min_p, traced = traced,
+                                     backend = backend, top_k = top_k,
+                                     repetition_penalty = repetition_penalty,
+                                     max_new_tokens = max_new_tokens,
+                                     max_cache_len = max_cache_len,
+                                     use_autocast = use_autocast)
+        eos[i] <- isTRUE(attr(tokens, "eos_found"))
+        token_vecs[[i]] <- as.integer(drop_invalid_tokens(tokens))
+        if (!eos[i]) {
+            warning("Text ", i, " hit the token cap without end-of-speech (",
+                    length(token_vecs[[i]]), " tokens). Output may be garbage.",
+                    call. = FALSE)
+        }
+    }
+    list(token_vecs = token_vecs, eos = eos)
+}
+
+#' S3Gen stage: synthesize already-generated speech tokens
+#'
+#' One utterance with \code{traced = TRUE} takes the fast traced-CFM path
+#' sized from its actual token count; two or more run as a single eager
+#' batched solve (traced CFM is fixed at batch 1). \code{token_vecs} are
+#' 0-indexed integer vectors; empty ones yield empty results. Returns one
+#' \code{\link{generate}}-style result list per input.
+#' @noRd
+.s3gen_batch_from_tokens <- function(model, token_vecs, eos, voice,
+                                     traced = FALSE) {
+    lens <- vapply(token_vecs, length, integer(1))
+    results <- vector("list", length(token_vecs))
+    for (i in which(lens == 0L)) {
+        warning("No valid speech tokens for text ", i, call. = FALSE)
+        results[[i]] <- list(audio = numeric(0), sample_rate = S3GEN_SR,
+                             eos_found = eos[i], n_tokens = 0L, audio_sec = 0)
+    }
+    live <- which(lens > 0L)
+    if (length(live) == 0L) {
+        return(results)
+    }
+    mk_result <- function(i, audio) {
+        list(audio = audio, sample_rate = S3GEN_SR, eos_found = eos[i],
+             n_tokens = lens[i], audio_sec = length(audio) / S3GEN_SR)
+    }
+
+    if (length(live) == 1L && isTRUE(traced)) {
+        # Single utterance: traced CFM, sized from the actual token count.
+        i <- live
+        options(chatterbox.cfm_len = 640L + 2L * .token_bucket(lens[i]))
+        st <- torch::torch_tensor(matrix(token_vecs[[i]], nrow = 1L),
+            dtype = torch::torch_long())$to(device = model$device)
+        torch::with_no_grad({
+            out <- model$s3gen$inference(speech_tokens = st,
+                                         ref_dict = voice$ref_dict,
+                                         finalize = TRUE, traced = TRUE)
+        })
+        results[[i]] <- mk_result(i, as.numeric(out[[1]]$squeeze()$cpu()))
+        return(results)
+    }
+
+    # Two or more: one eager batched solve. Pad to (B, Tmax); the padded
+    # tail is masked by speech_token_lens through CFM and trimmed after.
+    t_max <- max(lens[live])
+    mat <- t(vapply(token_vecs[live],
+                    function(v) c(v, rep(0L, t_max - length(v))),
+                    integer(t_max)))
+    speech_tokens <- torch::torch_tensor(mat,
+        dtype = torch::torch_long())$to(device = model$device)
+    message("Synthesizing ", length(live), " waveforms in one batch...")
+    torch::with_no_grad({
+        out <- model$s3gen$inference(speech_tokens = speech_tokens,
+                                     ref_dict = voice$ref_dict,
+                                     finalize = TRUE,
+                                     speech_token_lens = lens[live])
+    })
+    wavs <- out[[1]]$cpu()
+    for (k in seq_along(live)) {
+        i <- live[k]
+        n_samples <- lens[i] * 2L * 480L
+        results[[i]] <- mk_result(i,
+            as.numeric(wavs[k, 1:min(n_samples, wavs$size(2))]))
+    }
+    results
+}
+
 #' Generate speech for several texts with one batched synthesis pass
 #'
 #' Runs T3 token generation per text (autoregressive, sequential), then
@@ -622,7 +820,9 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #'   top_p, min_p, backend, repetition_penalty, normalize_text,
 #'   max_new_tokens, max_cache_len). \code{traced} and \code{autocast}
 #'   affect the T3 stage only: the batched S3Gen synthesis always runs
-#'   eager float32 (traced CFM is fixed at batch 1).
+#'   eager float32 (traced CFM is fixed at batch 1). The CFM trace-bucket
+#'   sizing used by \code{\link{generate}} therefore does not apply here -
+#'   batched S3Gen pads dynamically to the batch's longest utterance.
 #' @return List with one \code{\link{generate}}-style result per text
 #'   (audio, sample_rate, eos_found, n_tokens, audio_sec)
 #' @export
@@ -648,7 +848,6 @@ generate_batch <- function(model, texts, voice, ...) {
              ". generate_batch() accepts: ", paste(known, collapse = ", "))
     }
     arg_or <- function(name, default) args[[name]] %||% default
-    normalize_text <- isTRUE(arg_or("normalize_text", TRUE))
     use_autocast <- isTRUE(arg_or("autocast", FALSE)) &&
     grepl("^cuda", model$device)
 
@@ -659,88 +858,30 @@ generate_batch <- function(model, texts, voice, ...) {
              "reference audio")
     }
 
-    # T3 per text (autoregressive generation does not batch; lengths
-    # and EOS differ per utterance)
-    token_vecs <- vector("list", length(texts))
-    eos <- logical(length(texts))
-    for (i in seq_along(texts)) {
-        txt <- texts[i]
-        if (normalize_text) {
-            txt <- normalize_tts_text(txt)
-        }
-        txt <- punc_norm(txt)
-        tokens <- .t3_text_to_tokens(model, txt, voice,
-                                     exaggeration = arg_or("exaggeration", 0.5),
-                                     cfg_weight = arg_or("cfg_weight", 0.5),
-                                     temperature = arg_or("temperature", 0.8),
-                                     top_p = arg_or("top_p", 1.0),
-                                     min_p = arg_or("min_p", 0.05),
-                                     traced = isTRUE(arg_or("traced", FALSE)),
-                                     backend = arg_or("backend", "r"),
-                                     top_k = arg_or("top_k", 1000L),
-                                     repetition_penalty = arg_or("repetition_penalty", 1.2),
-                                     max_new_tokens = arg_or("max_new_tokens", 1000L),
-                                     max_cache_len = arg_or("max_cache_len", NULL),
-                                     use_autocast = use_autocast)
-        eos[i] <- isTRUE(attr(tokens, "eos_found"))
-        token_vecs[[i]] <- as.integer(drop_invalid_tokens(tokens))
-        if (!eos[i]) {
-            warning("Text ", i, " hit the token cap without end-of-speech (",
-                    length(token_vecs[[i]]), " tokens). Output may be garbage.",
-                    call. = FALSE)
-        }
-    }
+    tk <- .texts_to_speech_tokens(model, texts, voice,
+        normalize_text = isTRUE(arg_or("normalize_text", FALSE)),
+        use_autocast = use_autocast,
+        exaggeration = arg_or("exaggeration", 0.5),
+        cfg_weight = arg_or("cfg_weight", 0.5),
+        temperature = arg_or("temperature", 0.8),
+        top_p = arg_or("top_p", 1.0), min_p = arg_or("min_p", 0.05),
+        traced = isTRUE(arg_or("traced", FALSE)),
+        backend = arg_or("backend", "r"), top_k = arg_or("top_k", 1000L),
+        repetition_penalty = arg_or("repetition_penalty", 1.2),
+        max_new_tokens = arg_or("max_new_tokens", 1000L),
+        max_cache_len = arg_or("max_cache_len", NULL))
 
-    lens <- vapply(token_vecs, length, integer(1))
-    results <- vector("list", length(texts))
-    empty <- lens == 0L
-    for (i in which(empty)) {
-        warning("No valid speech tokens for text ", i, call. = FALSE)
-        results[[i]] <- list(audio = numeric(0), sample_rate = S3GEN_SR,
-                             eos_found = eos[i], n_tokens = 0L, audio_sec = 0)
-    }
-    live <- which(!empty)
-    if (length(live) == 0) {
-        return(results)
-    }
-
-    # Pad to a (B, Tmax) batch; padded tail is masked by
-    # speech_token_lens all the way through CFM and trimmed after the
-    # vocoder
-    t_max <- max(lens[live])
-    mat <- t(vapply(token_vecs[live],
-                    function(v) c(v, rep(0L, t_max - length(v))), integer(t_max)))
-    speech_tokens <- torch::torch_tensor(mat,
-        dtype = torch::torch_long())$to(device = model$device)
-
-    message("Synthesizing ", length(live), " waveforms in one batch...")
-    torch::with_no_grad({
-        out <- model$s3gen$inference(
-                                     speech_tokens = speech_tokens,
-                                     ref_dict = voice$ref_dict,
-                                     finalize = TRUE,
-                                     speech_token_lens = lens[live]
-        )
-    })
-    wavs <- out[[1]]$cpu()
-
-    # 2 mel frames per token, 480 samples per mel frame
-    for (k in seq_along(live)) {
-        i <- live[k]
-        n_samples <- lens[i] * 2L * 480L
-        audio <- as.numeric(wavs[k, 1:min(n_samples, wavs$size(2))])
-        results[[i]] <- list(
-                             audio = audio,
-                             sample_rate = S3GEN_SR,
-                             eos_found = eos[i],
-                             n_tokens = lens[i],
-                             audio_sec = length(audio) / S3GEN_SR
-        )
-    }
-    results
+    # generate_batch is the throughput path: one eager batched S3Gen solve
+    # (no traced single-utterance special case).
+    .s3gen_batch_from_tokens(model, tk$token_vecs, tk$eos, voice,
+                             traced = FALSE)
 }
 
 #' Generate speech and save to file
+#'
+#' Thin convenience wrapper over \code{\link{generate}} with
+#' \code{output_path} set, kept for the file-summary return shape. New
+#' code can call \code{generate(..., output_path = path)} directly.
 #'
 #' @param model Chatterbox model
 #' @param text Text to synthesize
@@ -753,12 +894,7 @@ generate_batch <- function(model, texts, voice, ...) {
 #'   inputs failed (\code{eos_found = FALSE}) and need reprocessing.
 #' @export
 tts_to_file <- function(model, text, voice, output_path, ...) {
-    if (isTRUE(list(...)$skip_vocoder)) {
-        stop("skip_vocoder makes no sense here: there is no audio to ",
-             "write. Use generate() to get the mel.")
-    }
-    result <- generate(model, text, voice, ...)
-    write_audio(result$audio, result$sample_rate, output_path)
+    result <- generate(model, text, voice, ..., output_path = output_path)
     invisible(list(path = output_path, eos_found = isTRUE(result$eos_found),
                    n_tokens = result$n_tokens %||% NA_integer_,
                    audio_sec = result$audio_sec %||% NA_real_))
@@ -770,18 +906,118 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 # Streaming TTS (for longer texts)
 # ============================================================================
 
+#' Round a speech-token count up to the CFM trace ladder
+#'
+#' The traced CFM compiles (and pads to) a fixed sequence length, so we
+#' keep only a few sizes alive: 250, 500, 1000. Counts past 1000 round up
+#' to the next 250 (rare; the default token cap is 1000).
+#'
+#' @param n Speech-token count
+#' @return Bucketed token count (250, 500, 1000, or a 250-multiple)
+#' @noRd
+.token_bucket <- function(n) {
+    if (n <= 250L) {
+        250L
+    } else if (n <= 500L) {
+        500L
+    } else if (n <= 1000L) {
+        1000L
+    } else {
+        as.integer(ceiling(n / 250) * 250)
+    }
+}
+
+# Total VRAM (GB) for a cuda device, via nvidia-smi, memoized (it never
+# changes). NA for cpu/unknown. torch exposes no exported total-memory
+# query in this build, so we shell out.
+.gpu_gb_cache <- new.env(parent = emptyenv())
+.gpu_total_gb <- function(device) {
+    if (!grepl("^cuda", device)) {
+        return(NA_real_)
+    }
+    if (!is.null(.gpu_gb_cache[[device]])) {
+        return(.gpu_gb_cache[[device]])
+    }
+    idx <- sub("^cuda:?", "", device)
+    idx <- if (nzchar(idx)) suppressWarnings(as.integer(idx)) else 0L
+    if (is.na(idx)) {
+        idx <- 0L
+    }
+    out <- tryCatch(system2("nvidia-smi",
+                            c("--query-gpu=memory.total",
+                              "--format=csv,noheader,nounits",
+                              paste0("--id=", idx)),
+                            stdout = TRUE, stderr = FALSE),
+                    error = function(e) character(0))
+    gb <- NA_real_
+    if (length(out) >= 1L) {
+        v <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", out[1])))
+        if (!is.na(v)) {
+            gb <- v / 1024
+        }
+    }
+    .gpu_gb_cache[[device]] <- gb
+    gb
+}
+
+#' Per-card cap on batched-CFM batch size
+#'
+#' The batched (eager) CFM solve uses memory ~ batch_size * cfm_len, where
+#' cfm_len = 640 + 2 * tokens (the padded mel sequence). We turn a card's
+#' measured single-shot ceiling into a budget in cfm_len units and divide.
+#' Known limits: the 6 GB GTX 1660 Ti does one ~1000-token solve
+#' (cfm_len ~2688) before fragmentation-OOM; a 16 GB card has ~6x that
+#' activation headroom. Conservative (no sweep): err toward smaller
+#' batches.
+#'
+#' @param bucket Token bucket (250/500/1000)
+#' @param device Device string ("cuda", "cuda:0", "cpu", ...)
+#' @return Maximum chunks to batch together at this bucket (>= 1)
+#' @noRd
+.cfm_max_batch <- function(bucket, device) {
+    gb <- .gpu_total_gb(device)
+    budget <- if (is.na(gb)) {
+        2688L
+    } else if (gb < 8) {
+        2688L
+    } else if (gb < 24) {
+        15000L
+    } else {
+        30000L
+    }
+    max(1L, budget %/% (640L + 2L * bucket))
+}
+
 #' Split text into TTS-sized chunks
 #'
-#' Sentences first; sentences longer than chunk_size chars are further
-#' split at comma boundaries, packed greedily. A clause with no commas
-#' stays whole (splitting mid-clause hurts prosody more than a long
-#' generation does).
+#' Sentences first; sentences longer than chunk_size chars are packed at
+#' comma boundaries, and any clause still over chunk_size is word-split as
+#' a last resort. Splitting mid-clause hurts prosody, but a long
+#' comma-less run would otherwise trip the T3 text-token guard, so every
+#' chunk is kept at or under chunk_size (bar a single oversize word).
 #'
 #' @param text Input text
 #' @param chunk_size Target maximum chunk length in characters
 #' @return Character vector of chunks
 #' @noRd
 .split_text_chunks <- function(text, chunk_size = 200L) {
+    # Greedily pack space-joined units into pieces of <= chunk_size chars.
+    pack <- function(units) {
+        out <- character(0)
+        cur <- ""
+        for (u in units) {
+            if (nzchar(cur) && nchar(cur) + 1L + nchar(u) > chunk_size) {
+                out <- c(out, cur)
+                cur <- u
+            } else {
+                cur <- if (nzchar(cur)) paste(cur, u) else u
+            }
+        }
+        if (nzchar(cur)) {
+            out <- c(out, cur)
+        }
+        out
+    }
     sentences <- strsplit(text, "(?<=[.!?])\\s+", perl = TRUE)[[1]]
     chunks <- character(0)
     for (s in sentences) {
@@ -789,68 +1025,116 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
             chunks <- c(chunks, s)
             next
         }
-        parts <- strsplit(s, "(?<=,)\\s+", perl = TRUE)[[1]]
-        cur <- ""
-        for (p in parts) {
-            if (nzchar(cur) && nchar(cur) + 1L + nchar(p) > chunk_size) {
-                chunks <- c(chunks, cur)
-                cur <- p
+        # Oversized sentence: pack at comma boundaries, then word-split any
+        # clause still over chunk_size. The word split is a last resort but
+        # it keeps a long comma-less run from tripping the T3 text-token
+        # guard inside generate() for serve traffic.
+        for (p in pack(strsplit(s, "(?<=,)\\s+", perl = TRUE)[[1]])) {
+            if (nchar(p) <= chunk_size) {
+                chunks <- c(chunks, p)
             } else {
-                if (nzchar(cur)) {
-                    cur <- paste(cur, p)
-                } else {
-                    cur <- p
-                }
+                chunks <- c(chunks, pack(strsplit(p, "\\s+", perl = TRUE)[[1]]))
             }
-        }
-        if (nzchar(cur)) {
-            chunks <- c(chunks, cur)
         }
     }
     chunks[nzchar(trimws(chunks))]
 }
 
-#' Generate speech in chunks (for long texts)
+#' Generate speech for long text (the long-form policy layer)
 #'
-#' Splits at sentence boundaries; sentences longer than chunk_size
-#' characters are further split at commas. Collects garbage once per
-#' chunk (see \code{\link{chatterbox_gc_options}}).
+#' Splits at sentence boundaries (oversized sentences subdivided at commas,
+#' then word-split as a last resort), resolves the voice once, and runs T3
+#' on every chunk first so batching uses ACTUAL speech-token lengths rather
+#' than a character estimate. Chunks are then bucketed by their real length
+#' and synthesized within a per-card batch cap (sized from VRAM): a group
+#' of one takes the fast traced-CFM path, a group of several runs as one
+#' eager batched S3Gen solve. Audio is stitched in original order; garbage
+#' is collected at each batch boundary (see
+#' \code{\link{chatterbox_gc_options}}). Turbo has no batched path and is
+#' synthesized serially.
 #'
 #' @param model Chatterbox model
 #' @param text Text to synthesize
-#' @param voice Voice embedding
+#' @param voice Voice embedding or path to reference audio (resolved once)
 #' @param chunk_size Maximum characters per chunk (default 200)
-#' @param ... Additional arguments passed to generate()
+#' @param max_batch Maximum chunks per batched solve. Default NULL: sized
+#'   per card from VRAM. Set an integer to override.
+#' @param ... Synthesis arguments forwarded to the T3 and S3Gen stages, as
+#'   in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
+#'   backend, traced, normalize_text, max_new_tokens, ...)
 #' @return List with audio and sample_rate
 #' @export
-tts_chunked <- function(model, text, voice, chunk_size = 200, ...) {
+tts_chunked <- function(model, text, voice, chunk_size = 200,
+                        max_batch = NULL, ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
 
-    # Sentences, with oversized sentences subdivided at commas
-    # (chunk_size was previously accepted but never used: run-on
-    # sentences passed through whole and hit backend token caps)
-    sentences <- .split_text_chunks(text, chunk_size)
-
-    all_audio <- numeric(0)
-
-    for (i in seq_along(sentences)) {
-        sentence <- sentences[i]
-        message(sprintf("Processing chunk %d/%d: %s...", i,
-                        length(sentences), substr(sentence, 1, 50)))
-
-        result <- generate(model, sentence, voice, ...)
-        all_audio <- c(all_audio, result$audio)
-
-        # Collect once per utterance: frees the chunk's dead tensor
-        # handles (and their GPU memory) in one pass instead of letting
-        # torch's allocator conscript thousands of mid-loop collections.
-        # See ?chatterbox_gc_options.
-        gc(verbose = FALSE)
+    chunks <- .split_text_chunks(text, chunk_size)
+    if (length(chunks) == 0L) {
+        return(list(audio = numeric(0), sample_rate = S3GEN_SR))
     }
 
-    list(audio = all_audio, sample_rate = S3GEN_SR)
+    # Resolve the voice once; re-encoding it per chunk is pure waste
+    if (is.character(voice)) {
+        voice <- create_voice_embedding(model, voice)
+    }
+
+    args <- list(...)
+    arg_or <- function(name, default) args[[name]] %||% default
+    traced <- isTRUE(arg_or("traced", FALSE))
+    audio_chunks <- vector("list", length(chunks))
+
+    # Turbo has no batched synthesis path: synthesize serially
+    if (isTRUE(model$turbo)) {
+        for (i in seq_along(chunks)) {
+            message(sprintf("Processing chunk %d/%d", i, length(chunks)))
+            audio_chunks[[i]] <- generate(model, chunks[i], voice, ...)$audio
+            gc(verbose = FALSE)
+        }
+        return(list(audio = unlist(audio_chunks, use.names = FALSE),
+                    sample_rate = S3GEN_SR))
+    }
+
+    # Run T3 on every chunk first, so batching and the memory cap use
+    # ACTUAL speech-token lengths, not a char estimate (corteza review #2).
+    tk <- .texts_to_speech_tokens(model, chunks, voice,
+        normalize_text = isTRUE(arg_or("normalize_text", FALSE)),
+        use_autocast = isTRUE(arg_or("autocast", FALSE)) &&
+            grepl("^cuda", model$device),
+        exaggeration = arg_or("exaggeration", 0.5),
+        cfg_weight = arg_or("cfg_weight", 0.5),
+        temperature = arg_or("temperature", 0.8),
+        top_p = arg_or("top_p", 1.0), min_p = arg_or("min_p", 0.05),
+        traced = traced, backend = arg_or("backend", "r"),
+        top_k = arg_or("top_k", 1000L),
+        repetition_penalty = arg_or("repetition_penalty", 1.2),
+        max_new_tokens = arg_or("max_new_tokens", 1000L),
+        max_cache_len = arg_or("max_cache_len", NULL))
+
+    # Bucket by actual token length, then synthesize within the per-card
+    # cap, preserving original order. A group of one takes the traced
+    # single path; several run as one eager batched S3Gen solve.
+    lens <- vapply(tk$token_vecs, length, integer(1L))
+    buckets <- vapply(pmax(lens, 1L), .token_bucket, integer(1L))
+    done <- 0L
+    for (b in sort(unique(buckets))) {
+        idx <- which(buckets == b)
+        cap <- max(1L, max_batch %||% .cfm_max_batch(b, model$device))
+        for (grp in split(idx, ceiling(seq_along(idx) / cap))) {
+            res <- .s3gen_batch_from_tokens(model, tk$token_vecs[grp],
+                                            tk$eos[grp], voice, traced = traced)
+            for (j in seq_along(grp)) {
+                audio_chunks[[grp[j]]] <- res[[j]]$audio
+            }
+            done <- done + length(grp)
+            message(sprintf("Synthesized %d/%d chunks", done, length(chunks)))
+            gc(verbose = FALSE)
+        }
+    }
+
+    list(audio = unlist(audio_chunks, use.names = FALSE),
+         sample_rate = S3GEN_SR)
 }
 
 # ============================================================================
@@ -913,20 +1197,17 @@ print.voice_embedding <- function(x, ...) {
 #' @param device Device to use
 #' @param autocast Use mixed precision (float16) on CUDA (default TRUE on CUDA)
 #' @param turbo Logical. Use turbo architecture. Default FALSE.
-#' @return If output_path is NULL, returns list with audio and sample_rate.
-#'         Otherwise writes to file and returns path invisibly.
+#' @return The \code{\link{generate}} result list (audio, sample_rate,
+#'   ...). When \code{output_path} is set the audio is also written there
+#'   (the list gains a \code{path} element) and the list is returned
+#'   invisibly so the audio vector does not print.
 #' @export
 quick_tts <- function(text, reference_audio, output_path = NULL,
                       device = "cpu", autocast = NULL, turbo = FALSE) {
-    # Create and load model (caches after first load)
+    # Create and load model in one call
     model <- chatterbox(device, turbo = turbo)
-    model <- load_chatterbox(model)
 
-    # Generate
-    if (is.null(output_path)) {
-        generate(model, text, reference_audio, autocast = autocast)
-    } else {
-        tts_to_file(model, text, reference_audio, output_path,
-                    autocast = autocast)
-    }
+    res <- generate(model, text, reference_audio, autocast = autocast,
+                    output_path = output_path)
+    if (is.null(output_path)) res else invisible(res)
 }
