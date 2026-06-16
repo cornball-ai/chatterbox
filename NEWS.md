@@ -1,3 +1,10 @@
+# chatterbox 0.1.0.12 (development)
+
+- `serve()` now uses the `jit` backend for turbo as well as standard (was
+  eager `"r"` for turbo, written before the turbo jit decode step
+  existed). A turbo serve now runs the fast GPT-2 jit decode (~8x faster
+  per token).
+
 # chatterbox 0.1.0.11 (development)
 
 - Turbo's GPT-2 tokenizer now emits the paralinguistic/emotion tags
