@@ -3,6 +3,30 @@
 # Tokenizer-only (no model), so it just needs the turbo files downloaded.
 library(chatterbox)
 
+# --- split_added_tokens(): core logic, always runs (no model files) ----------
+sp <- chatterbox:::split_added_tokens
+
+# Tag mid-text -> plain | tag(id) | plain
+segs <- sp("hello [sigh] world", c("[sigh]" = 50268L))
+expect_equal(length(segs), 3L)
+expect_equal(segs[[1]]$text, "hello ")
+expect_true(is.na(segs[[1]]$id))
+expect_equal(segs[[2]]$text, "[sigh]")
+expect_equal(segs[[2]]$id, 50268L)
+expect_equal(segs[[3]]$text, " world")
+expect_true(is.na(segs[[3]]$id))
+
+# Tag only -> single special segment
+only <- sp("[sigh]", c("[sigh]" = 50268L))
+expect_equal(length(only), 1L)
+expect_equal(only[[1]]$id, 50268L)
+
+# No tag present -> single plain segment
+none <- sp("just text", c("[sigh]" = 50268L))
+expect_equal(length(none), 1L)
+expect_true(is.na(none[[1]]$id))
+
+# --- turbo GPT-2 tokenizer end-to-end (needs the turbo files) -----------------
 if (turbo_models_available()) {
     tp <- get_turbo_model_paths()
     tok <- load_gpt2_tokenizer(tp$vocab, tp$merges, tp$added_tokens)
