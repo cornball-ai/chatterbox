@@ -1,15 +1,47 @@
 # Audio utilities for chatterbox
 # Handles audio I/O, resampling, and mel spectrogram computation
 
+# Detect the real container from magic bytes, ignoring the file extension.
+# Voice libraries sometimes carry a .mp3 name on a real WAV (or vice versa);
+# running the wrong decoder yields silent NaN garbage, not an error. Returns
+# "wav", "mp3", or NA when the header is unrecognized.
+.sniff_audio_format <- function(path) {
+    con <- file(path, "rb")
+    on.exit(close(con))
+    magic <- readBin(con, "raw", n = 12L)
+    if (length(magic) < 2L) {
+        return(NA_character_)
+    }
+    if (length(magic) >= 12L &&
+        identical(magic[1:4], charToRaw("RIFF")) &&
+        identical(magic[9:12], charToRaw("WAVE"))) {
+        return("wav")
+    }
+    if (length(magic) >= 3L && identical(magic[1:3], charToRaw("ID3"))) {
+        return("mp3")
+    }
+    # MP3 frame sync: 0xFF followed by 0b111xxxxx
+    if (magic[1] == as.raw(0xFF) &&
+        bitwAnd(as.integer(magic[2]), 0xE0L) == 0xE0L) {
+        return("mp3")
+    }
+    NA_character_
+}
+
 #' Read audio file
 #'
 #' @param path Path to audio file (WAV or MP3 format)
 #' @return List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
 #' @export
 read_audio <- function(path) {
-    ext <- tolower(tools::file_ext(path))
+    # Decode by actual content, not the extension (a mislabeled reference
+    # otherwise runs the wrong decoder and yields NaN garbage).
+    fmt <- .sniff_audio_format(path)
+    if (is.na(fmt)) {
+        fmt <- tolower(tools::file_ext(path))
+    }
 
-    if (ext == "mp3") {
+    if (fmt == "mp3") {
         # MP3 requires mpg123 system library
         wav <- tuneR::readMP3(path)
     } else {
