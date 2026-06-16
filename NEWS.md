@@ -1,3 +1,15 @@
+# chatterbox 0.1.0.13 (development)
+
+- `serve()` now caches each voice embedding (by reference path + mtime)
+  and reuses it across requests, instead of re-encoding the reference on
+  every `/v1/audio/speech` call. Per-request re-encoding churned voice
+  GPU tensors and raced the CUDA caching allocator, intermittently
+  producing NaN speaker conditioning - seen as a "missing value where
+  TRUE/FALSE needed" 500 and as degraded voice cloning (~33-50% of
+  requests on both an RTX 5060 Ti and a GTX 1660 Ti; 0 with the cache).
+  `trim_silence()` now raises a clear error instead of the cryptic one if
+  NaN audio ever reaches it.
+
 # chatterbox 0.1.0.12 (development)
 
 - `serve()` now uses the `jit` backend for turbo as well as standard (was
