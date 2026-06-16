@@ -6,6 +6,26 @@
 # invalidated). Requests are served one at a time, which is the natural fit for a
 # single-GPU TTS box.
 
+# Session cache for per-voice embeddings, keyed by reference path + mtime.
+# create_voice_embedding() re-encodes the reference (voice-encoder LSTM, S3Gen
+# tokenizer, embed_ref) on every call. Doing that per request churns voice GPU
+# tensors and races the CUDA caching allocator, which intermittently produces
+# NaN conditioning - surfacing as a hard-to-trace "missing value where
+# TRUE/FALSE needed" crash and as degraded voice cloning. Encoding each voice
+# once and reusing it removes the churn (and is faster).
+.serve_voice_cache <- new.env(parent = emptyenv())
+
+# Resolve a reference path to a cached voice_embedding, encoding on first use.
+.serve_voice_embedding <- function(model, voice_path) {
+    key <- paste(voice_path, file.info(voice_path)$mtime)
+    ve <- .serve_voice_cache[[key]]
+    if (is.null(ve)) {
+        ve <- create_voice_embedding(model, voice_path)
+        .serve_voice_cache[[key]] <- ve
+    }
+    ve
+}
+
 #' Serve chatterbox over HTTP
 #'
 #' Starts a blocking HTTP server that loads the chatterbox model once and answers
@@ -54,6 +74,8 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     message("Loading chatterbox", if (turbo) " turbo" else "", " model on ",
             device, " ...")
     model <- chatterbox(device, turbo = turbo)
+    # Voice embeddings are model-specific; start each serve with a fresh cache.
+    rm(list = ls(.serve_voice_cache), envir = .serve_voice_cache)
     message("Model loaded. Voices dir: ", voices_dir)
 
     if (isTRUE(warmup)) {
@@ -215,12 +237,16 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     if (is.null(voice_path)) {
         return(.serve_err(400L, paste0("voice not found: ", body$voice)))
     }
+    # Reuse the cached embedding instead of re-encoding the reference each
+    # request (see .serve_voice_cache: per-request encoding races the CUDA
+    # allocator and intermittently yields NaN conditioning).
+    voice <- .serve_voice_embedding(model, voice_path)
 
     # tts_chunked is the synthesis entry: it splits long input, sizes the
     # CFM per chunk from the tokens actually produced (no text-length
     # guessing), and batches within a per-card cap. Short input is one
     # chunk through the traced generate() path.
-    gen_args <- list(model = model, text = body$input, voice = voice_path,
+    gen_args <- list(model = model, text = body$input, voice = voice,
                      backend = "jit",                      # jit for both
                      traced = !isTRUE(model$turbo))        # CFM trace: standard only
     # Forward optional request knobs when present, so clients can drive the

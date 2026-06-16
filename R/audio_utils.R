@@ -113,6 +113,11 @@ trim_silence <- function(samples, top_db = 20, frame_length = 2048L,
     }, numeric(1))
 
     ref <- max(power)
+    if (is.na(ref)) {
+        stop("trim_silence: NaN in reference-audio power - the voice encoding ",
+             "is corrupt (a CUDA allocator race can cause this); retry, or ",
+             "report if it persists", call. = FALSE)
+    }
     if (ref <= 0) {
         return(samples)
     }
