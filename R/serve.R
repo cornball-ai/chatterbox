@@ -60,7 +60,7 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
         vfiles <- list.files(voices_dir, pattern = "\\.(wav|mp3|m4a|flac)$",
                              full.names = TRUE, ignore.case = TRUE)
         if (length(vfiles) > 0L) {
-            bk <- if (isTRUE(model$turbo)) "r" else "jit"
+            bk <- "jit"   # both standard (Llama) and turbo (GPT-2) have jit
             for (bucket in c(250L, 500L, 1000L)) {
                 message("Warming up CFM bucket ", bucket, " ...")
                 # Pin cfm_len so the tiny gen traces this bucket; without
@@ -221,8 +221,8 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     # guessing), and batches within a per-card cap. Short input is one
     # chunk through the traced generate() path.
     gen_args <- list(model = model, text = body$input, voice = voice_path,
-                     backend = if (isTRUE(model$turbo)) "r" else "jit",
-                     traced = !isTRUE(model$turbo))
+                     backend = "jit",                      # jit for both
+                     traced = !isTRUE(model$turbo))        # CFM trace: standard only
     # Forward optional request knobs when present, so clients can drive the
     # new behavior through the server.
     for (k in c("exaggeration", "cfg_weight", "temperature", "top_p",
