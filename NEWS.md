@@ -4,9 +4,10 @@
   first CUDA op. torch reads `torch.cuda_allocator_reserved_rate` (and
   `torch.threshold_call_gc`) once at lazy CUDA init; the 0.2 default floor
   meant gc ran on nearly every allocation once a model occupied more than
-  20% of VRAM, which was 53% of inference wall time. The floor is now scaled
-  to the card (~0.26 on a 16GB card, ~0.75 on 6GB) and `threshold_call_gc`
-  raised to 16000 MB, both set ahead of `cuda_is_available()`. Turbo is ~2x
+  20% of VRAM, which was 53% of inference wall time. The floor is now the
+  model's footprint as a fraction of VRAM (4.1GB regular, 3.6GB turbo): e.g. a
+  16GB card gets 0.26 / 0.22, a 6GB card 0.68 / 0.60. `threshold_call_gc` is
+  raised to 16000 MB. All set ahead of `cuda_is_available()`. Turbo is ~2x
   faster on a 16GB card (10.7s -> 5.3s for a 16s utterance). An explicit
   user-set option still wins. See torch's memory-management vignette.
 

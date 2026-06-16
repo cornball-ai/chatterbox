@@ -106,7 +106,7 @@ normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
 chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
     # Must run before the first CUDA op (cuda_is_available below): torch reads
     # its allocator GC rates once, at lazy CUDA init.
-    .set_cuda_gc_options(device)
+    .set_cuda_gc_options(device, turbo)
     # Fall back to CPU when the requested accelerator is absent
     # (Python from_pretrained does the same for MPS)
     if (grepl("^cuda", device) && !torch::cuda_is_available()) {
@@ -136,12 +136,13 @@ chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
 # ahead of cuda_is_available(). The default reserved-rate floor (0.2) makes
 # torch gc on each allocation once a model occupies more than 20% of VRAM,
 # which dominated inference (53% of wall time was gc, the GPU work ~13%). The
-# floor scales with VRAM (smaller card, bigger footprint fraction, higher
-# floor): calibrated to two measured points for the ~4.1GB model, 16GB -> 0.26
-# and 6GB -> 0.75, linear in 1/VRAM. threshold_call_gc (host MB per forced gc)
-# is raised off its 4GB default too. Both respect an explicit user override.
-# See torch's memory-management vignette (torch.cuda_allocator_reserved_rate).
-.set_cuda_gc_options <- function(device) {
+# floor is the model's footprint as a fraction of VRAM: gc stays off until
+# reserved memory exceeds the model itself. Footprints (fp32) are 4.1GB
+# regular and 3.6GB turbo, so e.g. a 16GB card gives 0.26 / 0.22 and a 6GB
+# card gives 0.68 / 0.60. threshold_call_gc (host MB per forced gc) is raised
+# off its 4GB default too. Both respect an explicit user override. See torch's
+# memory-management vignette (torch.cuda_allocator_reserved_rate).
+.set_cuda_gc_options <- function(device, turbo = FALSE) {
     if (is.null(device) || !grepl("^cuda", device)) {
         return(invisible(NULL))
     }
@@ -163,11 +164,13 @@ chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
     if (is.na(total_gb) || total_gb <= 0) {
         return(invisible(NULL))
     }
-    rate <- min(0.92, max(0.20, 4.704 / total_gb - 0.034))
+    footprint_gb <- if (isTRUE(turbo)) 3.6 else 4.1
+    rate <- min(0.92, max(0.20, footprint_gb / total_gb))
     options(torch.cuda_allocator_reserved_rate = rate)
     message(sprintf(
-        "chatterbox: torch.cuda_allocator_reserved_rate = %.2f, threshold_call_gc = %d MB (%.0f GB VRAM)",
-        rate, getOption("torch.threshold_call_gc"), total_gb))
+        "chatterbox: torch.cuda_allocator_reserved_rate = %.2f, threshold_call_gc = %d MB (%s model, %.0f GB VRAM)",
+        rate, getOption("torch.threshold_call_gc"),
+        if (isTRUE(turbo)) "turbo 3.6GB" else "regular 4.1GB", total_gb))
     invisible(rate)
 }
 
