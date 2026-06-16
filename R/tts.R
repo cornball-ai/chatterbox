@@ -644,7 +644,10 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     message("Generating speech tokens...")
 
     if (is_turbo) {
-        # Turbo inference: no CFG, no min_p, uses top_k
+        # Turbo inference: no CFG, no min_p, uses top_k. backend = "jit"
+        # runs the GPT-2 TorchScript decode step (faster); "r" the eager
+        # path.
+        backend <- match.arg(backend, c("r", "jit"))
         inf_args <- list(
                          model = model$t3,
                          cond = cond,
@@ -652,9 +655,17 @@ generate <- function(model, text, voice, exaggeration = 0.5,
                          temperature = temperature,
                          top_k = top_k,
                          top_p = top_p,
-                         repetition_penalty = repetition_penalty
+                         repetition_penalty = repetition_penalty,
+                         max_new_tokens = max_new_tokens
         )
-        inference_fn <- t3_inference_turbo
+        if (backend == "jit") {
+            inference_fn <- t3_inference_turbo_jit
+            if (!is.null(max_cache_len)) {
+                inf_args$max_cache_len <- max_cache_len
+            }
+        } else {
+            inference_fn <- t3_inference_turbo
+        }
     } else {
         # Standard inference with CFG
         backend <- match.arg(backend, c("r", "jit"))
