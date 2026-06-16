@@ -61,7 +61,7 @@
 #' @return Does not return normally; runs until interrupted.
 #' @export
 serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
-                  turbo = FALSE, timeout = 300L, max_body = 10L * 1024L^2,
+                  turbo = FALSE, timeout = 300L, max_body = 10L * 1024L ^ 2,
                   warmup = TRUE) {
     if (is.null(voices_dir)) {
         voices_dir <- Sys.getenv("TTS_VOICES_DIR", "~/.cornball/voices")
@@ -82,17 +82,17 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
         vfiles <- list.files(voices_dir, pattern = "\\.(wav|mp3|m4a|flac)$",
                              full.names = TRUE, ignore.case = TRUE)
         if (length(vfiles) > 0L) {
-            bk <- "jit"   # both standard (Llama) and turbo (GPT-2) have jit
+            bk <- "jit" # both standard (Llama) and turbo (GPT-2) have jit
             for (bucket in c(250L, 500L, 1000L)) {
                 message("Warming up CFM bucket ", bucket, " ...")
                 # Pin cfm_len so the tiny gen traces this bucket; without
                 # the pin, generate() would self-size every warmup to 250.
                 tryCatch(
-                    generate(model, "Warming up.", vfiles[1], backend = bk,
-                             traced = !isTRUE(model$turbo),
-                             cfm_len = 640L + 2L * bucket, max_new_tokens = 16L),
-                    error = function(e) message("warmup skipped: ",
-                                                conditionMessage(e))
+                         generate(model, "Warming up.", vfiles[1], backend = bk,
+                                  traced = !isTRUE(model$turbo),
+                                  cfm_len = 640L + 2L * bucket, max_new_tokens = 16L),
+                         error = function(e) message("warmup skipped: ",
+                        conditionMessage(e))
                 )
             }
             message("Warmup done (CFM buckets 250/500/1000 traced).")
@@ -106,27 +106,28 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
 
     repeat {
         con <- tryCatch(
-            socketAccept(srv, blocking = TRUE, open = "r+b",
-                         timeout = timeout),
-            error = function(e) {
-                message("accept error: ", conditionMessage(e))
-                Sys.sleep(0.5) # avoid a busy-spin on a bad server socket
-                NULL
-            }
+                        socketAccept(srv, blocking = TRUE, open = "r+b", timeout = timeout),
+                        error = function(e) {
+            message("accept error: ", conditionMessage(e))
+            Sys.sleep(0.5) # avoid a busy-spin on a bad server socket
+            NULL
+        }
         )
-        if (is.null(con)) next
+        if (is.null(con)) {
+            next
+        }
         tryCatch({
             req <- .serve_read_request(con, max_body)
             if (!is.null(req)) {
                 resp <- tryCatch(
-                    .serve_route(req, model, voices_dir),
-                    error = function(e) .serve_err(500L, conditionMessage(e))
+                                 .serve_route(req, model, voices_dir),
+                                 error = function(e) .serve_err(500L, conditionMessage(e))
                 )
                 .serve_send(con, resp$status, resp$content_type, resp$body)
             }
         },
-        error = function(e) message("request error: ", conditionMessage(e)),
-        finally = { try(close(con), silent = TRUE); gc() })  # gc per request; no empty_cache (warm pool)
+                 error = function(e) message("request error: ", conditionMessage(e)),
+                 finally = { try(close(con), silent = TRUE) ; gc() }) # gc per request; no empty_cache (warm pool)
     }
 }
 
@@ -141,39 +142,61 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     max_header <- 65536L
     repeat {
         b <- readBin(con, "raw", n = 1L)
-        if (length(b) == 0L) return(NULL) # closed or timed out mid-header
+        if (length(b) == 0L) {
+            return(NULL) # closed or timed out mid-header
+        }
         buf <- c(buf, b)
         n <- length(buf)
-        if (n >= 4L && identical(buf[(n - 3L):n], term)) break
-        if (n > max_header) return(NULL)
+        if (n >= 4L && identical(buf[(n - 3L):n], term)) {
+            break
+        }
+        if (n > max_header) {
+            return(NULL)
+        }
     }
 
     lines <- strsplit(rawToChar(buf), "\r\n", fixed = TRUE)[[1]]
     req_line <- strsplit(lines[1], " ", fixed = TRUE)[[1]]
-    if (length(req_line) < 2L) return(NULL)
+    if (length(req_line) < 2L) {
+        return(NULL)
+    }
     method <- req_line[1]
     path <- req_line[2]
 
     hdr <- list()
     if (length(lines) > 1L) {
         for (ln in lines[-1L]) {
-            if (!nzchar(ln)) next
+            if (!nzchar(ln)) {
+                next
+            }
             pos <- regexpr(":", ln, fixed = TRUE)
-            if (pos < 1L) next
+            if (pos < 1L) {
+                next
+            }
             key <- tolower(trimws(substr(ln, 1L, pos - 1L)))
             hdr[[key]] <- trimws(substr(ln, pos + 1L, nchar(ln)))
         }
     }
 
     cl <- hdr[["content-length"]]
-    clen <- if (is.null(cl)) 0L else suppressWarnings(as.integer(cl))
-    if (length(clen) != 1L || is.na(clen) || clen < 0L) clen <- 0L
+    if (is.null(cl)) {
+        clen <- 0L
+    } else {
+        clen <- suppressWarnings(as.integer(cl))
+    }
+    if (length(clen) != 1L || is.na(clen) || clen < 0L) {
+        clen <- 0L
+    }
     if (clen > max_body) {
         return(list(method = method, path = path, headers = hdr,
                     body = raw(0), too_large = TRUE))
     }
 
-    body <- if (clen > 0L) .serve_read_n(con, clen) else raw(0)
+    if (clen > 0L) {
+        body <- .serve_read_n(con, clen)
+    } else {
+        body <- raw(0)
+    }
     list(method = method, path = path, headers = hdr, body = body)
 }
 
@@ -182,7 +205,9 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     out <- raw(0)
     while (length(out) < n) {
         chunk <- readBin(con, "raw", n = n - length(out))
-        if (length(chunk) == 0L) break
+        if (length(chunk) == 0L) {
+            break
+        }
         out <- c(out, chunk)
     }
     out
@@ -190,16 +215,19 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
 
 # Write an HTTP/1.1 response and close (Connection: close).
 .serve_send <- function(con, status, content_type, body) {
-    if (is.character(body)) body <- charToRaw(body)
-    reason <- switch(as.character(status),
-        "200" = "OK", "400" = "Bad Request", "404" = "Not Found",
-        "405" = "Method Not Allowed", "413" = "Payload Too Large",
-        "500" = "Internal Server Error", "Unknown")
+    if (is.character(body)) {
+        body <- charToRaw(body)
+    }
+    reason <- switch(as.character(status), "200" = "OK",
+                     "400" = "Bad Request", "404" = "Not Found",
+                     "405" = "Method Not Allowed",
+                     "413" = "Payload Too Large",
+                     "500" = "Internal Server Error", "Unknown")
     head <- paste0(
-        sprintf("HTTP/1.1 %d %s\r\n", status, reason),
-        sprintf("Content-Type: %s\r\n", content_type),
-        sprintf("Content-Length: %d\r\n", length(body)),
-        "Connection: close\r\n\r\n")
+                   sprintf("HTTP/1.1 %d %s\r\n", status, reason),
+                   sprintf("Content-Type: %s\r\n", content_type),
+                   sprintf("Content-Length: %d\r\n", length(body)),
+                   "Connection: close\r\n\r\n")
     writeBin(c(charToRaw(head), body), con)
     flush(con)
 }
@@ -212,7 +240,11 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     path <- sub("\\?.*$", "", req$path)
 
     if (identical(req$method, "GET") && path == "/health") {
-        tag <- if (isTRUE(model$turbo)) "chatterbox-turbo" else "chatterbox"
+        if (isTRUE(model$turbo)) {
+            tag <- "chatterbox-turbo"
+        } else {
+            tag <- "chatterbox"
+        }
         return(.serve_json(list(status = "ok", model = tag)))
     }
     if (identical(req$method, "GET") &&
@@ -247,14 +279,16 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
     # guessing), and batches within a per-card cap. Short input is one
     # chunk through the traced generate() path.
     gen_args <- list(model = model, text = body$input, voice = voice,
-                     backend = "jit",                      # jit for both
-                     traced = !isTRUE(model$turbo))        # CFM trace: standard only
+                     backend = "jit", # jit for both
+                     traced = !isTRUE(model$turbo)) # CFM trace: standard only
     # Forward optional request knobs when present, so clients can drive the
     # new behavior through the server.
     for (k in c("exaggeration", "cfg_weight", "temperature", "top_p",
                 "repetition_penalty", "max_new_tokens", "normalize_text",
                 "chunk_size", "max_batch")) {
-        if (!is.null(body[[k]])) gen_args[[k]] <- body[[k]]
+        if (!is.null(body[[k]])) {
+            gen_args[[k]] <- body[[k]]
+        }
     }
 
     res <- do.call(tts_chunked, gen_args)
@@ -283,13 +317,19 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
 
 # Resolve a voice name (or path) to a reference audio file.
 .serve_resolve_voice <- function(voice, voices_dir) {
-    if (file.exists(voice)) return(voice)
+    if (file.exists(voice)) {
+        return(voice)
+    }
     files <- list.files(voices_dir, pattern = "\\.(wav|mp3|m4a|flac)$",
                         full.names = TRUE, ignore.case = TRUE)
-    if (length(files) == 0L) return(NULL)
+    if (length(files) == 0L) {
+        return(NULL)
+    }
     names_no_ext <- tools::file_path_sans_ext(basename(files))
     idx <- match(tolower(voice), tolower(names_no_ext))
-    if (is.na(idx)) return(NULL)
+    if (is.na(idx)) {
+        return(NULL)
+    }
     files[idx]
 }
 
@@ -302,10 +342,9 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
 
 # Content-Type for an audio format extension.
 .serve_ctype <- function(fmt) {
-    switch(fmt,
-        mp3 = "audio/mpeg", wav = "audio/wav", ogg = "audio/ogg",
-        flac = "audio/flac", opus = "audio/opus", m4a = "audio/mp4",
-        "application/octet-stream")
+    switch(fmt, mp3 = "audio/mpeg", wav = "audio/wav", ogg = "audio/ogg",
+           flac = "audio/flac", opus = "audio/opus", m4a = "audio/mp4",
+           "application/octet-stream")
 }
 
 # JSON 200 response.
