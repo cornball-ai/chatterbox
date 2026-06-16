@@ -1,3 +1,16 @@
+# chatterbox 0.1.0.10 (development)
+
+- New `t3_inference_turbo_jit()`: a TorchScript decode step for turbo's
+  GPT-2 backbone, selected by `generate(turbo, backend = "jit")`. ~8x
+  faster per token than the eager turbo path (the turbo counterpart of
+  `t3_inference_jit`).
+- Fixed turbo correctness (it was producing nonsense): the HF GPT-2
+  Conv1D projection weights are now transposed for the `nn_linear`
+  reimplementation (non-square ones were failing to load -> random
+  weights), and `gpt2_model$forward` now adds the `wpe` absolute position
+  embeddings that HF `GPT2Model` applies. With jit, turbo is ~1.6x faster
+  than the standard model at comparable VRAM.
+
 # chatterbox 0.1.0.9 (development)
 
 - `chatterbox()` now constructs *and* loads the model by default (one
