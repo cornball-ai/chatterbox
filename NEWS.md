@@ -1,3 +1,11 @@
+# chatterbox 0.1.0.16 (development)
+
+- `chatterbox()` gains a `tune_gc` argument (default TRUE) to opt out of
+  the CUDA GC tuning added in 0.1.0.15. The tuning is a deliberate,
+  persistent `options()` side effect (torch reads the allocator rates
+  later, at CUDA init), documented in `?chatterbox`; pass
+  `tune_gc = FALSE` to skip it. No behavior change at the default.
+
 # chatterbox 0.1.0.15 (development)
 
 - `chatterbox()` now tunes torch's CUDA garbage-collection rates before the
