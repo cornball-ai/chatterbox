@@ -28,6 +28,20 @@ write_audio(result$audio, result$sample_rate, "output.wav")
 # Or one-liner:
 quick_tts("Hello world!", "ref.wav", "out.wav")
 ```
+
+## Serving
+
+`serve()` runs an OpenAI-compatible TTS server (`POST /v1/audio/speech`,
+`GET /health`) that loads the model once and stays resident on the GPU:
+
+```r
+chatterbox::serve(port = 7810L, turbo = TRUE)
+```
+
+Point any OpenAI-style client at it (e.g. `tts.api::set_tts_base()`). Built on
+base R sockets; a systemd unit ships in
+`system.file("chatterbox.service", package = "chatterbox")`.
+
 ## Differences from the Python implementation
 
 This package targets behavioral parity with chatterbox-tts 0.1.7, with a
@@ -53,10 +67,12 @@ few deliberate differences:
   its KV cache so generation always completes). `traced = TRUE` is
   limited by its pre-allocated 350-position cache (roughly 10 s of
   audio per call). Long texts: `tts_chunked()`.
-- **Performance depends on torch's GC settings.** With torch's default
-  allocator settings, autoregressive inference spends most of its time
-  in R garbage collection. Run `chatterbox_gc_options()` for the
-  recommended `options()` snippet (set before torch loads), and see the
-  performance vignette for measurements.
+- **GC tuning is automatic and matters a lot.** With torch's default
+  allocator settings, autoregressive inference spends most of its wall time
+  (~85% on a regular-model run) in R garbage collection. `chatterbox("cuda")`
+  tunes torch's CUDA allocator GC by default (`tune_gc = TRUE`), a roughly 6x
+  speedup; pass `tune_gc = FALSE` to opt out. `chatterbox_gc_options()` still
+  prints the snippet if you prefer to set the `options()` yourself, and the
+  performance vignette has the measurements.
 - **Voice conversion (`vc.py`) and the multilingual model are not
   ported.**
