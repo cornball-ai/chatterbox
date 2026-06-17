@@ -35,12 +35,16 @@ quick_tts("Hello world!", "ref.wav", "out.wav")
 `GET /health`) that loads the model once and stays resident on the GPU:
 
 ```r
-chatterbox::serve(port = 7810L, turbo = TRUE)
+chatterbox::serve(port = 7810L)               # regular model
+chatterbox::serve(port = 7810L, turbo = TRUE) # Turbo (fewer FLOPs; fits a tight VRAM budget)
 ```
 
 Point any OpenAI-style client at it (e.g. `tts.api::set_tts_base()`). Built on
 base R sockets; a systemd unit ships in
-`system.file("chatterbox.service", package = "chatterbox")`.
+`system.file("chatterbox.service", package = "chatterbox")`. That unit is a
+template that runs the **regular** model by default — add `turbo = TRUE` to its
+`ExecStart` if you want Turbo (e.g. to co-reside with another model on a small
+card).
 
 ## Differences from the Python implementation
 
