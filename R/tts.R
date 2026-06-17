@@ -97,16 +97,32 @@ normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
 #' the not-loaded error paths), then load later with
 #' \code{\link{load_chatterbox}}.
 #'
+#' @details
+#' When \code{tune_gc = TRUE} (the default) and \code{device} is CUDA, this
+#' raises torch's allocator GC floors before the first CUDA op. torch otherwise
+#' runs \code{gc()} on nearly every allocation once a model occupies more than
+#' 20\% of VRAM, which dominates inference. It sets session-global
+#' \code{torch.cuda_allocator_reserved_rate} (the model footprint over VRAM) and
+#' \code{torch.threshold_call_gc}, only when they are unset, so an explicit
+#' setting always wins. This is a deliberate, persistent side effect (torch
+#' reads the rates later, at CUDA init); pass \code{tune_gc = FALSE} to skip it.
+#'
 #' @param device Device to use ("cpu", "cuda", "mps", etc.)
 #' @param turbo Use turbo model (GPT-2 backbone, MeanFlow decoder). Default FALSE.
 #' @param load Load pretrained weights before returning. Default TRUE.
 #'   Requires a prior download (\code{\link{download_chatterbox_models}}).
+#' @param tune_gc Tune torch's CUDA GC rates for faster inference (CUDA only,
+#'   and only when unset). Persistent session side effect; default TRUE. See
+#'   Details.
 #' @return Chatterbox TTS model object, loaded unless \code{load = FALSE}
 #' @export
-chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE) {
-    # Must run before the first CUDA op (cuda_is_available below): torch reads
-    # its allocator GC rates once, at lazy CUDA init.
-    .set_cuda_gc_options(device, turbo)
+chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE,
+                       tune_gc = TRUE) {
+    # GC tuning must run before the first CUDA op (cuda_is_available below):
+    # torch reads its allocator GC rates once, at lazy CUDA init.
+    if (isTRUE(tune_gc)) {
+        .set_cuda_gc_options(device, turbo)
+    }
     # Fall back to CPU when the requested accelerator is absent
     # (Python from_pretrained does the same for MPS)
     if (grepl("^cuda", device) && !torch::cuda_is_available()) {
