@@ -1228,6 +1228,8 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
 #'
 #' @param x Chatterbox model
 #' @param ... Ignored
+#' @return \code{x}, invisibly. Called for the side effect of printing a
+#'   summary of the model to the console.
 #' @export
 print.chatterbox <- function(x, ...) {
     if (isTRUE(x$turbo)) {
@@ -1257,6 +1259,8 @@ print.chatterbox <- function(x, ...) {
 #'
 #' @param x Voice embedding
 #' @param ... Ignored
+#' @return \code{x}, invisibly. Called for the side effect of printing the
+#'   embedding's shape and sample rate to the console.
 #' @export
 print.voice_embedding <- function(x, ...) {
     cat("Voice Embedding\n")

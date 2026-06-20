@@ -12,6 +12,10 @@ write_audio(samples, sr, path)
 
 \item{path}{Output path (WAV format)}
 }
+\value{
+The output \code{path}, invisibly. Called for the side effect
+  of writing a WAV file.
+}
 \description{
 Write audio file
 }

@@ -16,6 +16,10 @@ update_kv_cache(cache, layer_idx, new_k, new_v, position)
 
 \item{position}{Current position (0-indexed)}
 }
+\value{
+The \code{cache} list, invisibly, with the new K/V written in
+  place at \code{position}.
+}
 \description{
 Update KV cache with new K/V values
 }

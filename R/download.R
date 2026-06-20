@@ -1,7 +1,7 @@
-#' Model Download Utilities
-#'
-#' Download Chatterbox models from HuggingFace using hfhub.
-#' Requires explicit download with user consent (no auto-download).
+# Model Download Utilities
+#
+# Download Chatterbox models from HuggingFace using hfhub.
+# Requires explicit download with user consent (no auto-download).
 
 CHATTERBOX_REPO <- "ResembleAI/chatterbox"
 
@@ -60,7 +60,7 @@ models_available <- function()
 #' }
 download_chatterbox_models <- function(force = FALSE) {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
-        stop("hfhub package required. Install with: install.packages('hfhub')")
+        stop("hfhub package required. Install it from CRAN before downloading models.")
     }
 
     # Check if already downloaded
@@ -120,7 +120,7 @@ download_chatterbox_models <- function(force = FALSE) {
 get_model_paths <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
-        stop("hfhub package required. Install with: install.packages('hfhub')")
+        stop("hfhub package required. Install it from CRAN before downloading models.")
     }
 
     paths <- list()
@@ -174,7 +174,7 @@ turbo_models_available <- function()
 #' }
 download_chatterbox_turbo_models <- function(force = FALSE) {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
-        stop("hfhub package required. Install with: install.packages('hfhub')")
+        stop("hfhub package required. Install it from CRAN before downloading models.")
     }
 
     if (!force && turbo_models_available()) {
@@ -233,7 +233,7 @@ download_chatterbox_turbo_models <- function(force = FALSE) {
 get_turbo_model_paths <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
-        stop("hfhub package required. Install with: install.packages('hfhub')")
+        stop("hfhub package required. Install it from CRAN before downloading models.")
     }
 
     paths <- list()

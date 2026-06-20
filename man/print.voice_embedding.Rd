@@ -10,6 +10,10 @@
 
 \item{...}{Ignored}
 }
+\value{
+\code{x}, invisibly. Called for the side effect of printing the
+  embedding's shape and sample rate to the console.
+}
 \description{
 Print method for voice_embedding
 }

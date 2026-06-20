@@ -76,6 +76,8 @@ read_audio <- function(path) {
 #' @param samples Numeric vector of audio samples (normalized to \[-1, 1\])
 #' @param sr Sample rate
 #' @param path Output path (WAV format)
+#' @return The output \code{path}, invisibly. Called for the side effect
+#'   of writing a WAV file.
 #' @export
 write_audio <- function(samples, sr, path) {
     # Handle torch tensor input
@@ -97,6 +99,7 @@ write_audio <- function(samples, sr, path) {
     # file with channel mask SPEAKER_FRONT_LEFT, so players route it to the
     # left speaker only; plain PCM mono plays on both.
     tuneR::writeWave(wav, path, extensible = FALSE)
+    invisible(path)
 }
 
 #' Resample audio

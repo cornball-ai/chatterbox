@@ -10,6 +10,10 @@
 
 \item{...}{Ignored}
 }
+\value{
+\code{x}, invisibly. Called for the side effect of printing a
+  summary of the model to the console.
+}
 \description{
 Print method for chatterbox
 }

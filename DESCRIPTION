@@ -1,10 +1,11 @@
 Package: chatterbox
-Title: Text-to-Speech Using Chatterbox TTS Engine
+Title: Text-to-Speech Using the 'Chatterbox' Engine
 Version: 0.2.0
 Authors@R:
     c(person("Troy", "Hernandez", role = c("aut", "cre"),
              email = "troy@cornball.ai",
              comment = c(ORCID = "0009-0005-4248-604X")),
+      person("cornball.ai", role = "cph"),
       person("Resemble AI", role = "cph"))
 Description: An R port of the 'Chatterbox' text-to-speech engine
     (see <https://github.com/resemble-ai/chatterbox>) using 'torch'.

@@ -10,6 +10,10 @@ update_valid_mask(cache, position)
 
 \item{position}{Current position (0-indexed)}
 }
+\value{
+The \code{cache} list, invisibly, with \code{position} marked
+  valid in the attention mask.
+}
 \description{
 Update valid mask to include new position
 }
