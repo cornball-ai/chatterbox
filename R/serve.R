@@ -321,21 +321,27 @@ serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
 }
 
 # Resolve a voice name (or path) to a reference audio file.
+#
+# A bare name (no path separator) is a voice-library name and is matched
+# against voices_dir FIRST, so a like-named file or directory in the
+# server's working directory cannot shadow it. Anything else is treated
+# as a path and accepted only if it is a regular file (not a directory).
 .serve_resolve_voice <- function(voice, voices_dir) {
-    if (file.exists(voice)) {
+    if (!grepl("[/\\\\]", voice)) {
+        files <- list.files(voices_dir, pattern = "\\.(wav|mp3|m4a|flac)$",
+                            full.names = TRUE, ignore.case = TRUE)
+        if (length(files) > 0L) {
+            names_no_ext <- tools::file_path_sans_ext(basename(files))
+            idx <- match(tolower(voice), tolower(names_no_ext))
+            if (!is.na(idx)) {
+                return(files[idx])
+            }
+        }
+    }
+    if (utils::file_test("-f", voice)) {
         return(voice)
     }
-    files <- list.files(voices_dir, pattern = "\\.(wav|mp3|m4a|flac)$",
-                        full.names = TRUE, ignore.case = TRUE)
-    if (length(files) == 0L) {
-        return(NULL)
-    }
-    names_no_ext <- tools::file_path_sans_ext(basename(files))
-    idx <- match(tolower(voice), tolower(names_no_ext))
-    if (is.na(idx)) {
-        return(NULL)
-    }
-    files[idx]
+    NULL
 }
 
 # List voice-library names.
