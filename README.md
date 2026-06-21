@@ -4,29 +4,40 @@ chatterbox is an R package that is an R port of [resemble AI's chatterbox librar
 
 ## Installation
 
-You can install the development version of chatterbox from GitHub with:
-```
+```r
+# From CRAN (once accepted)
+install.packages("chatterbox")
+
+# Development version from GitHub
 remotes::install_github("cornball-ai/chatterbox")
 ```
 
 # Usage
 
 ```R
-# Set timeout to 10 minutes to allow model download
-options(timeout = 600)
-
 library(chatterbox)
+
+# First use downloads ~2GB of model weights from HuggingFace into the
+# standard cache. Give it a generous timeout; in an interactive session
+# you'll be asked to confirm the download. chatterbox() expects the
+# weights to already be present, so download them first.
+options(timeout = 600)
+download_chatterbox_models()
 
 # Load model (constructs and loads in one call)
 model <- chatterbox("cuda")
 
-# Generate speech
+# Generate speech from a reference voice
 jfk <- system.file("audio", "jfk.mp3", package = "chatterbox")
 result <- generate(model, "Hello, this is a test!", jfk)
 write_audio(result$audio, result$sample_rate, "output.wav")
 
-# Or one-liner:
-quick_tts("Hello world!", "ref.wav", "out.wav")
+# Re-render the same words in a different voice (voice conversion)
+vc <- voice_convert(model, jfk, "target_voice.wav")
+write_audio(vc$audio, vc$sample_rate, "converted.wav")
+
+# One-liner (also needs the weights downloaded first)
+quick_tts("Hello world!", jfk, "out.wav")
 ```
 
 ## Serving
@@ -78,5 +89,6 @@ few deliberate differences:
   speedup; pass `tune_gc = FALSE` to opt out. `chatterbox_gc_options()` still
   prints the snippet if you prefer to set the `options()` yourself, and the
   performance vignette has the measurements.
-- **Voice conversion (`vc.py`) and the multilingual model are not
-  ported.**
+- **The multilingual model is not ported.** This targets the standard
+  English model and the turbo model. (Voice conversion *is* ported, via
+  `voice_convert()`.)
