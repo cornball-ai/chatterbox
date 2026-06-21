@@ -18,3 +18,4 @@ Speaker embedding (1, 192)
 \description{
 Compute xvector speaker embedding from audio
 }
+\keyword{internal}

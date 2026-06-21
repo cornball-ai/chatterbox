@@ -1278,7 +1278,7 @@ load_cfm_estimator_weights <- function(estimator, state_dict, prefix = "") {
 #' @param model S3Gen model
 #' @param state_dict State dictionary from safetensors
 #' @return Model with loaded weights
-#' @export
+#' @keywords internal
 load_s3gen_weights <- function(model, state_dict) {
     torch::with_no_grad({
         # Helper to copy weight if exists
@@ -1336,7 +1336,7 @@ load_s3gen_weights <- function(model, state_dict) {
 #' @param device Device to load to ("cpu", "cuda", etc.)
 #' @param meanflow Logical. Use mean-flow formulation. Default FALSE.
 #' @return S3Gen model with loaded weights
-#' @export
+#' @keywords internal
 load_s3gen <- function(path, device = "cpu", meanflow = FALSE) {
     # Load weights to CPU first to halve peak VRAM usage
     state_dict <- read_safetensors(path, "cpu")

@@ -10,7 +10,7 @@ SPECIAL_TOKENS <- list(SOT = "[START]", EOT = "[STOP]", UNK = "[UNK]",
 #'
 #' @param vocab_path Path to tokenizer.json
 #' @return Tokenizer object (list)
-#' @export
+#' @keywords internal
 load_bpe_tokenizer <- function(vocab_path) {
     load_tokenizer(vocab_path)
 }
@@ -287,7 +287,7 @@ bpe_encode <- function(tokenizer, text) {
 #' @param normalize Whether to apply punctuation normalization
 #' @param device Target device
 #' @return Token tensor (1, seq_len)
-#' @export
+#' @keywords internal
 text_to_tokens <- function(tokenizer, text, normalize = TRUE, device = "cpu") {
     if (normalize) {
         text <- punc_norm(text)
@@ -312,7 +312,7 @@ text_to_tokens <- function(tokenizer, text, normalize = TRUE, device = "cpu") {
 #' @param merges_path Path to merges.txt
 #' @param added_tokens_path Path to added_tokens.json (optional)
 #' @return Tokenizer object (list)
-#' @export
+#' @keywords internal
 load_gpt2_tokenizer <- function(vocab_path, merges_path,
                                 added_tokens_path = NULL) {
     # Load vocabulary (token string -> id)
@@ -525,7 +525,7 @@ tokenize_text_gpt2 <- function(tokenizer, text) {
 #' @param tokenizer Tokenizer object
 #' @param ids Integer vector or tensor of token IDs
 #' @return Decoded text string
-#' @export
+#' @keywords internal
 decode_tokens <- function(tokenizer, ids) {
     if (inherits(ids, "torch_tensor")) {
         ids <- as.integer(ids$cpu())

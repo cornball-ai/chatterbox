@@ -22,3 +22,7 @@ integrated loudness. Mirrors Python chatterbox turbo's
 \code{norm_loudness()}: when the gain is non-finite or non-positive
 (e.g. silence), the input is returned unchanged.
 }
+\examples{
+samples <- sin(2 * pi * 440 * seq(0, 1, length.out = 48000))
+norm <- normalize_loudness(samples, 48000, target_lufs = -23)
+}

@@ -52,6 +52,9 @@
 #' @param sample_rate Sample rate in Hz.
 #' @return Loudness in LUFS (\code{-Inf} for silence or when no block
 #'   passes the gates).
+#' @examples
+#' samples <- sin(2 * pi * 440 * seq(0, 1, length.out = 48000))
+#' integrated_loudness(samples, 48000)
 #' @export
 integrated_loudness <- function(samples, sample_rate) {
     if (!is.numeric(samples) || length(samples) < 0.4 * sample_rate) {
@@ -101,6 +104,9 @@ integrated_loudness <- function(samples, sample_rate) {
 #' @param target_lufs Target integrated loudness (default -27, the
 #'   Python turbo conditioning default).
 #' @return Gain-adjusted samples.
+#' @examples
+#' samples <- sin(2 * pi * 440 * seq(0, 1, length.out = 48000))
+#' norm <- normalize_loudness(samples, 48000, target_lufs = -23)
 #' @export
 normalize_loudness <- function(samples, sample_rate, target_lufs = -27) {
     loudness <- tryCatch(integrated_loudness(samples, sample_rate),

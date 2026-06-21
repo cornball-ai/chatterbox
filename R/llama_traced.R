@@ -295,6 +295,8 @@ create_kv_cache <- function(batch_size, n_layers, n_heads, head_dim, max_len,
 #' @param new_k New key tensor (batch, heads, 1, head_dim)
 #' @param new_v New value tensor (batch, heads, 1, head_dim)
 #' @param position Current position (0-indexed)
+#' @return The \code{cache} list, invisibly, with the new K/V written in
+#'   place at \code{position}.
 update_kv_cache <- function(cache, layer_idx, new_k, new_v, position) {
     # Write to cache at current position
     # Position is 0-indexed, R tensors are 1-indexed
@@ -316,6 +318,8 @@ update_kv_cache <- function(cache, layer_idx, new_k, new_v, position) {
 #'
 #' @param cache Cache list from create_kv_cache
 #' @param position Current position (0-indexed)
+#' @return The \code{cache} list, invisibly, with \code{position} marked
+#'   valid in the attention mask.
 update_valid_mask <- function(cache, position) {
     pos_r <- position + 1L
     cache$valid_mask[,,, pos_r] <- TRUE

@@ -236,7 +236,7 @@ voice_encoder <- torch::nn_module(
 #' @param sr Sample rate of audio
 #' @param overlap Overlap between partials (default 0.5)
 #' @return Speaker embedding tensor (1, 256)
-#' @export
+#' @keywords internal
 compute_speaker_embedding <- function(model, audio, sr, overlap = 0.5) {
     config <- model$config
     device <- model$proj$weight$device

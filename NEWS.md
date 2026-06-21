@@ -1,3 +1,11 @@
+# chatterbox 0.2.0
+
+First CRAN release. Gathers the 0.1.0.1 - 0.1.0.16 development series:
+a complete pure-R port of Chatterbox TTS (no Python, no compiled code),
+voice cloning, long-form chunked synthesis, an OpenAI-compatible
+`serve()`, a TorchScript (`jit`) decode backend at container speed, and
+automatic CUDA GC tuning. Per-change detail for the series is below.
+
 # chatterbox 0.1.0.16 (development)
 
 - `chatterbox()` gains a `tune_gc` argument (default TRUE) to opt out of

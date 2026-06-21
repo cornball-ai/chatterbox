@@ -21,3 +21,10 @@ without the reference audio or recomputation. Tensors are moved to
 CPU before saving; the format is \code{\link[torch]{torch_save}}
 (not compatible with Python's \code{.pt} conditionals).
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda")
+voice <- create_voice_embedding(model, "reference_voice.wav")
+save_voice_embedding(voice, file.path(tempdir(), "narrator.voice"))
+}
+}

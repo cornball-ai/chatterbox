@@ -28,3 +28,8 @@ The \code{\link{generate}} result list (audio, sample_rate,
 \description{
 Loads model if needed and generates speech. Convenient for quick tests.
 }
+\examples{
+\dontrun{
+quick_tts("Hello!", "reference_voice.wav", "out.wav")
+}
+}

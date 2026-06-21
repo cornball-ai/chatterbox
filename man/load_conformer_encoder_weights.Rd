@@ -12,6 +12,10 @@ load_conformer_encoder_weights(model, state_dict, prefix = "flow.encoder.")
 
 \item{prefix}{Key prefix (e.g., "flow.encoder.")}
 }
+\value{
+The \code{model} module, with weights copied in from
+  \code{state_dict}.
+}
 \description{
 Load Conformer Encoder weights
 }

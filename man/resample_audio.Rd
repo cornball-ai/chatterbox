@@ -18,3 +18,10 @@ Resampled audio samples
 \description{
 Resample audio
 }
+\examples{
+\dontrun{
+# Windowed-sinc resampling runs on torch, so it needs libtorch installed
+tone <- sin(2 * pi * 440 * seq(0, 1, length.out = 24000))
+tone_16k <- resample_audio(tone, 24000, 16000)
+}
+}

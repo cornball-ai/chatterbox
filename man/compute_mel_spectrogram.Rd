@@ -32,3 +32,4 @@ Mel spectrogram tensor (batch, n_mels, time)
 \description{
 Compute mel spectrogram (S3Gen compatible)
 }
+\keyword{internal}

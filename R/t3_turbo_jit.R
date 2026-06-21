@@ -124,7 +124,7 @@ def decode_step(h: Tensor, w: List[Tensor], k_cache: Tensor, v_cache: Tensor,
 #' @param repetition_penalty Repetition penalty
 #' @param max_cache_len KV cache positions; NULL (default) auto-sizes
 #' @return Generated speech tokens (0-indexed), with eos_found attribute
-#' @export
+#' @keywords internal
 t3_inference_turbo_jit <- function(model, cond, text_tokens,
                                    max_new_tokens = 1000, temperature = 0.8,
                                    top_k = 1000L, top_p = 0.95,

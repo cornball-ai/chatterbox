@@ -32,6 +32,11 @@
 #'
 #' @param path Path to audio file (WAV or MP3 format)
 #' @return List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
+#' @examples
+#' tmp <- file.path(tempdir(), "tone.wav")
+#' write_audio(sin(2 * pi * 440 * seq(0, 1, length.out = 24000)), 24000, tmp)
+#' a <- read_audio(tmp)
+#' str(a)  # list(samples = ..., sr = ...)
 #' @export
 read_audio <- function(path) {
     # Decode by actual content, not the extension (a mislabeled reference
@@ -76,6 +81,11 @@ read_audio <- function(path) {
 #' @param samples Numeric vector of audio samples (normalized to \[-1, 1\])
 #' @param sr Sample rate
 #' @param path Output path (WAV format)
+#' @return The output \code{path}, invisibly. Called for the side effect
+#'   of writing a WAV file.
+#' @examples
+#' tmp <- file.path(tempdir(), "tone.wav")
+#' write_audio(sin(2 * pi * 440 * seq(0, 1, length.out = 24000)), 24000, tmp)
 #' @export
 write_audio <- function(samples, sr, path) {
     # Handle torch tensor input
@@ -97,6 +107,7 @@ write_audio <- function(samples, sr, path) {
     # file with channel mask SPEAKER_FRONT_LEFT, so players route it to the
     # left speaker only; plain PCM mono plays on both.
     tuneR::writeWave(wav, path, extensible = FALSE)
+    invisible(path)
 }
 
 #' Resample audio
@@ -105,6 +116,12 @@ write_audio <- function(samples, sr, path) {
 #' @param from_sr Source sample rate
 #' @param to_sr Target sample rate
 #' @return Resampled audio samples
+#' @examples
+#' \dontrun{
+#' # Windowed-sinc resampling runs on torch, so it needs libtorch installed
+#' tone <- sin(2 * pi * 440 * seq(0, 1, length.out = 24000))
+#' tone_16k <- resample_audio(tone, 24000, 16000)
+#' }
 #' @export
 resample_audio <- function(samples, from_sr, to_sr) {
     if (from_sr == to_sr) {
@@ -271,7 +288,7 @@ create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL,
 #' @param fmax Maximum frequency (default 8000)
 #' @param center Whether to center frames (default FALSE)
 #' @return Mel spectrogram tensor (batch, n_mels, time)
-#' @export
+#' @keywords internal
 compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
                                     hop_size = 480, win_size = 1920,
                                     fmin = 0, fmax = 8000, center = FALSE) {
@@ -341,7 +358,7 @@ compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
 #' @param y Audio samples
 #' @param sr Sample rate (should be 16000)
 #' @return Mel spectrogram (batch, time, 40)
-#' @export
+#' @keywords internal
 compute_mel_spectrogram_ve <- function(y, sr = 16000) {
     # Voice encoder uses different params
     spec <- compute_mel_spectrogram(y, n_fft = 400, n_mels = 40, sr = sr,

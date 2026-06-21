@@ -36,3 +36,10 @@ is collected at each batch boundary (see
 \code{\link{chatterbox_gc_options}}). Turbo has no batched path and is
 synthesized serially.
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda")
+res <- tts_chunked(model, long_text, "reference_voice.wav")
+write_audio(res$audio, res$sample_rate, "long.wav")
+}
+}

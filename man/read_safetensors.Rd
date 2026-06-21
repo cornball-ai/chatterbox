@@ -16,3 +16,4 @@ Named list of torch tensors
 \description{
 Read safetensors file
 }
+\keyword{internal}

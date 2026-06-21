@@ -33,3 +33,12 @@ results match single \code{\link{generate}} calls up to CFM noise
 handling - the fixed noise buffer means row i sees the same initial
 noise it would alone. Standard model only.
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda")
+res <- generate_batch(model,
+                      c("First sentence.", "Second sentence."),
+                      "reference_voice.wav")
+write_audio(res[[1]]$audio, res[[1]]$sample_rate, "first.wav")
+}
+}

@@ -19,3 +19,4 @@ Tokenizer object (list)
 Loads vocab.json, merges.txt, and optionally added_tokens.json
 for GPT-2 byte-level BPE tokenization.
 }
+\keyword{internal}

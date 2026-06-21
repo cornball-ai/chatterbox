@@ -32,3 +32,4 @@ Generated speech tokens
 \description{
 Run T3 inference to generate speech tokens
 }
+\keyword{internal}

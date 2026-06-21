@@ -7,7 +7,7 @@ if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
     t <- seq(0, duration, length.out = sr * duration)
     y <- sin(2 * pi * 440 * t)
 
-    spec <- compute_mel_spectrogram(y, sr = sr)
+    spec <- chatterbox:::compute_mel_spectrogram(y, sr = sr)
     expect_inherits(spec, "torch_tensor")
     # Expect (batch, n_mels, time)
     expect_equal(spec$dim(), 3L)

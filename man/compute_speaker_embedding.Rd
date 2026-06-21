@@ -20,3 +20,4 @@ Speaker embedding tensor (1, 256)
 \description{
 Compute speaker embedding from audio
 }
+\keyword{internal}

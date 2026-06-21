@@ -16,3 +16,4 @@ Mel spectrogram (batch, time, 40)
 \description{
 Compute mel spectrogram for voice encoder (40 bins, 16kHz)
 }
+\keyword{internal}

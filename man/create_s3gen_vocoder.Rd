@@ -14,3 +14,4 @@ HiFTGenerator module
 \description{
 Create HiFiGAN vocoder with S3Gen configuration
 }
+\keyword{internal}

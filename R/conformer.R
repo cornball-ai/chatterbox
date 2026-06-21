@@ -608,6 +608,8 @@ upsample_conformer_encoder_full <- torch::nn_module(
 #' @param model Conformer encoder module
 #' @param state_dict State dictionary
 #' @param prefix Key prefix (e.g., "flow.encoder.")
+#' @return The \code{model} module, with weights copied in from
+#'   \code{state_dict}.
 load_conformer_encoder_weights <- function(model, state_dict,
     prefix = "flow.encoder.") {
     copy_if_exists <- function(r_param, key)

@@ -105,3 +105,14 @@ List with elements:
 \description{
 Generate speech from text
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda")
+res <- generate(model, "Hello world!", "reference_voice.wav")
+write_audio(res$audio, res$sample_rate, "hello.wav")
+
+# Fastest native path: TorchScript decode loop
+res <- generate(model, "Hello world!", "reference_voice.wav",
+                backend = "jit")
+}
+}
