@@ -1,3 +1,11 @@
+# chatterbox 0.2.0.1 (development)
+
+- `serve()` resolves a voice-library name (e.g. `"Barry"`) against
+  `voices_dir` before treating the `voice` field as a path. Previously a
+  like-named file or directory in the server's working directory shadowed
+  the library voice, so `/v1/audio/speech` returned a 500 ("cannot open
+  the connection"). A path is now accepted only when it is a regular file.
+
 # chatterbox 0.2.0
 
 First CRAN release. Gathers the 0.1.0.1 - 0.1.0.16 development series:
