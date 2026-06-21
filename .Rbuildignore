@@ -18,3 +18,5 @@
 ^src/.*\.o$
 ^src/.*\.so$
 ^tasks$
+^vignettes$
+^cran-comments\.md$
