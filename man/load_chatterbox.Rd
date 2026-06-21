@@ -18,3 +18,9 @@ Idempotent: an already-loaded model is returned unchanged, so
 \code{chatterbox(load = TRUE)} followed by a stray
 \code{load_chatterbox()} does not reload.
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda", load = FALSE)
+model <- load_chatterbox(model)
+}
+}

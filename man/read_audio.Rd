@@ -14,3 +14,9 @@ List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
 \description{
 Read audio file
 }
+\examples{
+tmp <- file.path(tempdir(), "tone.wav")
+write_audio(sin(2 * pi * 440 * seq(0, 1, length.out = 24000)), 24000, tmp)
+a <- read_audio(tmp)
+str(a)  # list(samples = ..., sr = ...)
+}

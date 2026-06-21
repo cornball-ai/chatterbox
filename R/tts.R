@@ -73,6 +73,8 @@ normalize_internal_caps <- function(text) {
 #' @param caps Apply the internal-caps mitigation. Default TRUE.
 #' @param punctuation Apply punctuation normalization. Default TRUE.
 #' @return Normalized text.
+#' @examples
+#' normalize_tts_text("hello   world")
 #' @export
 normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
     if (isTRUE(caps)) {
@@ -115,6 +117,14 @@ normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
 #'   and only when unset). Persistent session side effect; default TRUE. See
 #'   Details.
 #' @return Chatterbox TTS model object, loaded unless \code{load = FALSE}
+#' @examples
+#' \dontrun{
+#' # Construct and load the standard model on GPU
+#' model <- chatterbox("cuda")
+#'
+#' # Bare object without weights (load later with load_chatterbox())
+#' model <- chatterbox("cuda", load = FALSE)
+#' }
 #' @export
 chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE,
                        tune_gc = TRUE) {
@@ -203,6 +213,11 @@ chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE,
 #'
 #' @param model Chatterbox model object
 #' @return Chatterbox model with loaded weights
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda", load = FALSE)
+#' model <- load_chatterbox(model)
+#' }
 #' @export
 load_chatterbox <- function(model) {
     if (!inherits(model, "chatterbox")) {
@@ -267,6 +282,11 @@ load_chatterbox <- function(model) {
 #'
 #' @param model Chatterbox model object (with turbo=TRUE)
 #' @return Chatterbox model with loaded weights
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda", turbo = TRUE, load = FALSE)
+#' model <- load_chatterbox_turbo(model)
+#' }
 #' @export
 load_chatterbox_turbo <- function(model) {
     if (isTRUE(model$loaded)) {
@@ -334,6 +354,12 @@ is_loaded <- function(model) {
 #'   conditioning (\code{\link{normalize_loudness}}). Default matches
 #'   Python: \code{TRUE} for turbo models, \code{FALSE} for standard.
 #' @return Voice embedding that can be used for synthesis
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda")
+#' voice <- create_voice_embedding(model, "reference_voice.wav")
+#' res <- generate(model, "Reusing a cached voice.", voice)
+#' }
 #' @export
 create_voice_embedding <- function(model, audio, sample_rate = NULL,
                                    autocast = NULL, norm_loudness = NULL) {
@@ -502,6 +528,16 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'     \item{audio_sec}{Audio duration in seconds}
 #'     \item{path}{Output file path (only when \code{output_path} is set)}
 #'   }
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda")
+#' res <- generate(model, "Hello world!", "reference_voice.wav")
+#' write_audio(res$audio, res$sample_rate, "hello.wav")
+#'
+#' # Fastest native path: TorchScript decode loop
+#' res <- generate(model, "Hello world!", "reference_voice.wav",
+#'                 backend = "jit")
+#' }
 #' @export
 generate <- function(model, text, voice, exaggeration = 0.5,
                      cfg_weight = 0.5, temperature = 0.8, top_p = 1.0,
@@ -901,6 +937,14 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #'   batched S3Gen pads dynamically to the batch's longest utterance.
 #' @return List with one \code{\link{generate}}-style result per text
 #'   (audio, sample_rate, eos_found, n_tokens, audio_sec)
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda")
+#' res <- generate_batch(model,
+#'                       c("First sentence.", "Second sentence."),
+#'                       "reference_voice.wav")
+#' write_audio(res[[1]]$audio, res[[1]]$sample_rate, "first.wav")
+#' }
 #' @export
 generate_batch <- function(model, texts, voice, ...) {
     if (!is_loaded(model)) {
@@ -968,6 +1012,11 @@ generate_batch <- function(model, texts, voice, ...) {
 #'   \code{eos_found}, \code{n_tokens}, \code{audio_sec}. When iterating
 #'   over many texts, collect these into a data.frame to identify which
 #'   inputs failed (\code{eos_found = FALSE}) and need reprocessing.
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda")
+#' tts_to_file(model, "Hello world!", "reference_voice.wav", "out.wav")
+#' }
 #' @export
 tts_to_file <- function(model, text, voice, output_path, ...) {
     result <- generate(model, text, voice, ..., output_path = output_path)
@@ -1146,6 +1195,12 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #'   in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 #'   backend, traced, normalize_text, max_new_tokens, ...)
 #' @return List with audio and sample_rate
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda")
+#' res <- tts_chunked(model, long_text, "reference_voice.wav")
+#' write_audio(res$audio, res$sample_rate, "long.wav")
+#' }
 #' @export
 tts_chunked <- function(model, text, voice, chunk_size = 200,
                         max_batch = NULL, ...) {
@@ -1288,6 +1343,10 @@ print.voice_embedding <- function(x, ...) {
 #'   ...). When \code{output_path} is set the audio is also written there
 #'   (the list gains a \code{path} element) and the list is returned
 #'   invisibly so the audio vector does not print.
+#' @examples
+#' \dontrun{
+#' quick_tts("Hello!", "reference_voice.wav", "out.wav")
+#' }
 #' @export
 quick_tts <- function(text, reference_audio, output_path = NULL,
                       device = "cpu", autocast = NULL, turbo = FALSE) {

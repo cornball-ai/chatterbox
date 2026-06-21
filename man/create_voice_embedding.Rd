@@ -25,3 +25,10 @@ Voice embedding that can be used for synthesis
 \description{
 Create voice embedding from reference audio
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda")
+voice <- create_voice_embedding(model, "reference_voice.wav")
+res <- generate(model, "Reusing a cached voice.", voice)
+}
+}

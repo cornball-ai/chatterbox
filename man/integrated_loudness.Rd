@@ -19,3 +19,7 @@ Measures the integrated gated loudness of a mono signal in LUFS,
 matching pyloudnorm's K-weighting meter (the measurement Python
 chatterbox turbo applies to reference audio).
 }
+\examples{
+samples <- sin(2 * pi * 440 * seq(0, 1, length.out = 48000))
+integrated_loudness(samples, 48000)
+}

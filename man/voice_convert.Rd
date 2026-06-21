@@ -28,3 +28,10 @@ or T3 generation is involved: the source speech is tokenized directly
 (25 tokens/s) and S3Gen renders the tokens with the target speaker's
 conditioning, so the result follows the source's timing.
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda")
+res <- voice_convert(model, "source_speech.wav", "target_voice.wav")
+write_audio(res$audio, res$sample_rate, "converted.wav")
+}
+}

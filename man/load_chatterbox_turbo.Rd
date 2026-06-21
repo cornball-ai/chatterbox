@@ -15,3 +15,9 @@ Chatterbox model with loaded weights
 Loads the turbo variant (GPT-2 backbone, MeanFlow decoder).
 Requires prior download via \code{\link{download_chatterbox_turbo_models}}.
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda", turbo = TRUE, load = FALSE)
+model <- load_chatterbox_turbo(model)
+}
+}

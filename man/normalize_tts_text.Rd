@@ -23,3 +23,6 @@ first-letter capitalization, uncommon-punctuation rewrite, trailing
 period). \code{punc_norm} is the Python-parity piece; the caps step is
 R-only and can be turned off.
 }
+\examples{
+normalize_tts_text("hello   world")
+}

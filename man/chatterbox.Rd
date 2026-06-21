@@ -38,3 +38,12 @@ runs \code{gc()} on nearly every allocation once a model occupies more than
 setting always wins. This is a deliberate, persistent side effect (torch
 reads the rates later, at CUDA init); pass \code{tune_gc = FALSE} to skip it.
 }
+\examples{
+\dontrun{
+# Construct and load the standard model on GPU
+model <- chatterbox("cuda")
+
+# Bare object without weights (load later with load_chatterbox())
+model <- chatterbox("cuda", load = FALSE)
+}
+}

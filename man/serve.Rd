@@ -50,3 +50,9 @@ example systemd unit ships with the package:
 \code{system.file("chatterbox.service", package = "chatterbox")}.
 
 }
+\examples{
+\dontrun{
+# OpenAI-compatible TTS server on port 7810
+serve(port = 7810L, device = "cuda")
+}
+}

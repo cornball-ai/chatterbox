@@ -19,3 +19,7 @@ The output \code{path}, invisibly. Called for the side effect
 \description{
 Write audio file
 }
+\examples{
+tmp <- file.path(tempdir(), "tone.wav")
+write_audio(sin(2 * pi * 440 * seq(0, 1, length.out = 24000)), 24000, tmp)
+}

@@ -27,3 +27,9 @@ Thin convenience wrapper over \code{\link{generate}} with
 \code{output_path} set, kept for the file-summary return shape. New
 code can call \code{generate(..., output_path = path)} directly.
 }
+\examples{
+\dontrun{
+model <- chatterbox("cuda")
+tts_to_file(model, "Hello world!", "reference_voice.wav", "out.wav")
+}
+}

@@ -32,6 +32,11 @@
 #'
 #' @param path Path to audio file (WAV or MP3 format)
 #' @return List with samples (numeric vector normalized to \[-1, 1\]) and sr (sample rate)
+#' @examples
+#' tmp <- file.path(tempdir(), "tone.wav")
+#' write_audio(sin(2 * pi * 440 * seq(0, 1, length.out = 24000)), 24000, tmp)
+#' a <- read_audio(tmp)
+#' str(a)  # list(samples = ..., sr = ...)
 #' @export
 read_audio <- function(path) {
     # Decode by actual content, not the extension (a mislabeled reference
@@ -78,6 +83,9 @@ read_audio <- function(path) {
 #' @param path Output path (WAV format)
 #' @return The output \code{path}, invisibly. Called for the side effect
 #'   of writing a WAV file.
+#' @examples
+#' tmp <- file.path(tempdir(), "tone.wav")
+#' write_audio(sin(2 * pi * 440 * seq(0, 1, length.out = 24000)), 24000, tmp)
 #' @export
 write_audio <- function(samples, sr, path) {
     # Handle torch tensor input
@@ -108,6 +116,9 @@ write_audio <- function(samples, sr, path) {
 #' @param from_sr Source sample rate
 #' @param to_sr Target sample rate
 #' @return Resampled audio samples
+#' @examples
+#' tone <- sin(2 * pi * 440 * seq(0, 1, length.out = 24000))
+#' tone_16k <- resample_audio(tone, 24000, 16000)
 #' @export
 resample_audio <- function(samples, from_sr, to_sr) {
     if (from_sr == to_sr) {

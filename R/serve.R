@@ -59,6 +59,11 @@
 #' @param warmup Logical. Run one short synthesis at startup to trigger the
 #'   one-time JIT tracing, so the first client request isn't slow. Default TRUE.
 #' @return Does not return normally; runs until interrupted.
+#' @examples
+#' \dontrun{
+#' # OpenAI-compatible TTS server on port 7810
+#' serve(port = 7810L, device = "cuda")
+#' }
 #' @export
 serve <- function(port = 7810L, device = "cuda", voices_dir = NULL,
                   turbo = FALSE, timeout = 300L, max_body = 10L * 1024L ^ 2,

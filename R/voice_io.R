@@ -25,6 +25,12 @@
 #' @param path Output file path (suggested extension: .rds-like custom,
 #'   e.g. "narrator.voice")
 #' @return \code{path}, invisibly
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda")
+#' voice <- create_voice_embedding(model, "reference_voice.wav")
+#' save_voice_embedding(voice, file.path(tempdir(), "narrator.voice"))
+#' }
 #' @export
 save_voice_embedding <- function(voice, path) {
     if (!inherits(voice, "voice_embedding")) {
@@ -41,6 +47,12 @@ save_voice_embedding <- function(voice, path) {
 #' @param device Device to load tensors to (default "cpu"; use the
 #'   model's device, e.g. "cuda", for generation)
 #' @return A voice_embedding object
+#' @examples
+#' \dontrun{
+#' voice <- load_voice_embedding("narrator.voice", device = "cuda")
+#' model <- chatterbox("cuda")
+#' res <- generate(model, "Loaded a saved voice.", voice)
+#' }
 #' @export
 load_voice_embedding <- function(path, device = "cpu") {
     obj <- torch::torch_load(path)

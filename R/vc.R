@@ -20,6 +20,12 @@
 #' @param sample_rate Sample rate of \code{audio} (if not a file)
 #' @return List with \code{audio} (numeric vector), \code{sample_rate}
 #'   (24000), and \code{audio_sec}, like \code{\link{generate}}
+#' @examples
+#' \dontrun{
+#' model <- chatterbox("cuda")
+#' res <- voice_convert(model, "source_speech.wav", "target_voice.wav")
+#' write_audio(res$audio, res$sample_rate, "converted.wav")
+#' }
 #' @export
 voice_convert <- function(model, audio, voice, sample_rate = NULL) {
     if (!is_loaded(model)) {

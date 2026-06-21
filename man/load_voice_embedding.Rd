@@ -17,3 +17,10 @@ A voice_embedding object
 \description{
 Load a voice embedding from disk
 }
+\examples{
+\dontrun{
+voice <- load_voice_embedding("narrator.voice", device = "cuda")
+model <- chatterbox("cuda")
+res <- generate(model, "Loaded a saved voice.", voice)
+}
+}
