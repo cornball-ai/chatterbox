@@ -1,3 +1,9 @@
+## Submission
+
+chatterbox 0.2.1 — first CRAN submission. (0.2.1 folds in one
+post-tag fix over the 0.2.0 tag: `serve()` now resolves a voice-library
+name before treating the request's `voice` field as a path.)
+
 ## R CMD check results
 
 0 errors | 0 warnings | 1 note
