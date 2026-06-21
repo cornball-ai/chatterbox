@@ -723,7 +723,7 @@ pad_audio_for_tokenizer <- function(wav, sr) {
 #' @param state_dict Named list of tensors
 #' @param prefix Prefix for weight keys (default "tokenizer.")
 #' @return Model with loaded weights
-#' @export
+#' @keywords internal
 load_s3tokenizer_weights <- function(model, state_dict, prefix = "tokenizer.") {
     # Helper to copy weight if exists
     copy_if_exists <- function(r_param, key) {

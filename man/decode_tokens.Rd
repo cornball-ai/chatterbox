@@ -16,3 +16,4 @@ Decoded text string
 \description{
 Decode token IDs to text
 }
+\keyword{internal}

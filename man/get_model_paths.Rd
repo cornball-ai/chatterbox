@@ -11,3 +11,4 @@ Named list of local file paths
 \description{
 Get Paths to Downloaded Model Files
 }
+\keyword{internal}

@@ -285,7 +285,7 @@ create_mel_filterbank <- function(sr, n_fft, n_mels, fmin = 0, fmax = NULL,
 #' @param fmax Maximum frequency (default 8000)
 #' @param center Whether to center frames (default FALSE)
 #' @return Mel spectrogram tensor (batch, n_mels, time)
-#' @export
+#' @keywords internal
 compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
                                     hop_size = 480, win_size = 1920,
                                     fmin = 0, fmax = 8000, center = FALSE) {
@@ -355,7 +355,7 @@ compute_mel_spectrogram <- function(y, n_fft = 1920, n_mels = 80, sr = 24000,
 #' @param y Audio samples
 #' @param sr Sample rate (should be 16000)
 #' @return Mel spectrogram (batch, time, 40)
-#' @export
+#' @keywords internal
 compute_mel_spectrogram_ve <- function(y, sr = 16000) {
     # Voice encoder uses different params
     spec <- compute_mel_spectrogram(y, n_fft = 400, n_mels = 40, sr = sr,

@@ -16,3 +16,4 @@ Model with loaded weights
 \description{
 Load S3Gen weights
 }
+\keyword{internal}

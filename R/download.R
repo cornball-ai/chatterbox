@@ -116,7 +116,7 @@ download_chatterbox_models <- function(force = FALSE) {
 #' Get Paths to Downloaded Model Files
 #'
 #' @return Named list of local file paths
-#' @export
+#' @keywords internal
 get_model_paths <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
@@ -145,6 +145,8 @@ get_model_paths <- function()
 #'
 #' @return TRUE if all turbo model files exist locally
 #' @export
+#' @examples
+#' turbo_models_available()
 turbo_models_available <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {
@@ -229,7 +231,7 @@ download_chatterbox_turbo_models <- function(force = FALSE) {
 #' Get Paths to Downloaded Turbo Model Files
 #'
 #' @return Named list of local file paths
-#' @export
+#' @keywords internal
 get_turbo_model_paths <- function()
 {
     if (!requireNamespace("hfhub", quietly = TRUE)) {

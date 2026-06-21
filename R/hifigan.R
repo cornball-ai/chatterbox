@@ -634,7 +634,7 @@ hift_generator <- torch::nn_module(
 #' @param state_dict Named list of tensors
 #' @param prefix Prefix for weight keys (default "mel2wav.")
 #' @return Model with loaded weights
-#' @export
+#' @keywords internal
 load_hifigan_weights <- function(model, state_dict, prefix = "mel2wav.") {
     torch::with_no_grad({
         # Map weights from Python model to R implementation
@@ -779,7 +779,7 @@ load_hifigan_weights <- function(model, state_dict, prefix = "mel2wav.") {
 #'
 #' @param device Target device
 #' @return HiFTGenerator module
-#' @export
+#' @keywords internal
 create_s3gen_vocoder <- function(device = "cpu") {
     # S3Gen HiFiGAN configuration from Python model inspection:
     # - ups strides: (8, 5, 3), kernels: (16, 11, 7)

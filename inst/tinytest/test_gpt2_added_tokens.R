@@ -28,8 +28,8 @@ expect_true(is.na(none[[1]]$id))
 
 # --- turbo GPT-2 tokenizer end-to-end (needs the turbo files) -----------------
 if (turbo_models_available()) {
-    tp <- get_turbo_model_paths()
-    tok <- load_gpt2_tokenizer(tp$vocab, tp$merges, tp$added_tokens)
+    tp <- chatterbox:::get_turbo_model_paths()
+    tok <- chatterbox:::load_gpt2_tokenizer(tp$vocab, tp$merges, tp$added_tokens)
 
     expect_true(length(tok$added_tokens) >= 19L)
 

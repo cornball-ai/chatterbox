@@ -18,3 +18,4 @@ Model with loaded weights
 \description{
 Load S3Tokenizer weights from state dictionary
 }
+\keyword{internal}

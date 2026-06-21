@@ -38,3 +38,4 @@ a single jit_compile'd TorchScript call. The KV cache is auto-sized
 there is no shape freezing and no per-size recompilation - the
 script compiles once per session in milliseconds.
 }
+\keyword{internal}

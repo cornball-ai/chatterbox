@@ -14,3 +14,4 @@ Tokenizer object (list)
 \description{
 Load tokenizer from JSON file
 }
+\keyword{internal}

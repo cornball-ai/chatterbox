@@ -426,7 +426,7 @@ campplus <- torch::nn_module(
 #' @param audio Audio samples (tensor or numeric)
 #' @param sr Sample rate
 #' @return Speaker embedding (1, 192)
-#' @export
+#' @keywords internal
 compute_xvector_embedding <- function(model, audio, sr) {
     device <- model$parameters[[1]]$device
 
@@ -475,7 +475,7 @@ compute_xvector_embedding <- function(model, audio, sr) {
 #' @param state_dict Named list of tensors
 #' @param prefix Prefix for weight keys (default "speaker_encoder.")
 #' @return Model with loaded weights
-#' @export
+#' @keywords internal
 load_campplus_weights <- function(model, state_dict,
                                   prefix = "speaker_encoder.") {
     # Helper to copy weight if exists

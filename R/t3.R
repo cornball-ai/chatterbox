@@ -518,7 +518,7 @@ t3_model <- torch::nn_module(
 #' @param min_p Minimum probability threshold
 #' @param repetition_penalty Repetition penalty
 #' @return Generated speech tokens
-#' @export
+#' @keywords internal
 t3_inference <- function(model, cond, text_tokens, max_new_tokens = 1000,
                          temperature = 0.8, cfg_weight = 0.5, top_p = 1.0,
                          min_p = 0.05, repetition_penalty = 1.2) {
@@ -1474,7 +1474,7 @@ load_t3_turbo_weights <- function(model, state_dict) {
 #' @param top_p Nucleus sampling threshold
 #' @param repetition_penalty Repetition penalty
 #' @return Generated speech tokens (0-indexed)
-#' @export
+#' @keywords internal
 t3_inference_turbo <- function(model, cond, text_tokens,
                                max_new_tokens = 1000, temperature = 0.8,
                                top_k = 1000L, top_p = 0.95,

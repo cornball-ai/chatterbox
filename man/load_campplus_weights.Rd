@@ -18,3 +18,4 @@ Model with loaded weights
 \description{
 Load CAMPPlus weights from safetensors
 }
+\keyword{internal}

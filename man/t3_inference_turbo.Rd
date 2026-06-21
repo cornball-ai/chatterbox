@@ -31,3 +31,4 @@ Generated speech tokens (0-indexed)
 Uses GPT-2 backbone without CFG. Simpler sampling with top-k and
 repetition penalty.
 }
+\keyword{internal}

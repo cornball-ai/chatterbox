@@ -18,3 +18,4 @@ S3Gen model with loaded weights
 \description{
 Load S3Gen from safetensors file
 }
+\keyword{internal}

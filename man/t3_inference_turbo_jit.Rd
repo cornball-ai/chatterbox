@@ -36,3 +36,4 @@ jit_compile'd TorchScript call. No CFG (turbo), no rotary embeddings.
 The KV cache auto-sizes (conditioning + max_new_tokens), so generation
 always completes; the script compiles once per session.
 }
+\keyword{internal}

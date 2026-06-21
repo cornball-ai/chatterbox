@@ -18,3 +18,4 @@ Model with loaded weights
 \description{
 Load HiFiGAN weights from state dictionary
 }
+\keyword{internal}

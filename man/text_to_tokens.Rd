@@ -20,3 +20,4 @@ Token tensor (1, seq_len)
 \description{
 Convert text to token tensor
 }
+\keyword{internal}
