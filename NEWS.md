@@ -1,4 +1,4 @@
-# chatterbox 0.2.0.1 (development)
+# chatterbox 0.2.1
 
 - `serve()` resolves a voice-library name (e.g. `"Barry"`) against
   `voices_dir` before treating the `voice` field as a path. Previously a
