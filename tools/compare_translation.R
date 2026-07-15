@@ -23,3 +23,9 @@ audit <- function(label, reference, port) {
 audit("voice encoder",
   lines_of("R/voice_encoder.R", 130, 152),
   paste(readLines("R/yq_voice_encoder.R"), collapse = "\n"))
+
+# T3 Llama backbone: config + RoPE + attention/mlp/layer forwards
+audit("llama backbone",
+  paste(lines_of("R/llama.R", 18, 40), lines_of("R/llama.R", 82, 143),
+    lines_of("R/llama.R", 211, 361), sep = "\n"),
+  paste(readLines("R/yq_llama.R"), collapse = "\n"))

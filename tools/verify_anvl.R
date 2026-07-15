@@ -8,6 +8,7 @@ suppressMessages({
 
 e <- new.env()
 sys.source("R/yq_voice_encoder.R", envir = e)
+sys.source("R/yq_llama.R", envir = e)
 
 reltol <- function(a, b) max(abs(a - b)) / max(abs(b))
 ok <- TRUE
@@ -24,5 +25,11 @@ fix <- readRDS("tools/fixtures/voice_encoder.rds")
 w <- e$yq_ve_load_weights(fix$ve_path)
 emb <- as.array(e$yq_voice_encoder(nv_array(fix$mels, dtype = "f32"), w))
 report("voice_encoder", emb, fix$emb)
+
+# --- T3 Llama backbone ---
+fixl <- readRDS("tools/fixtures/llama.rds")
+wl <- e$yq_llama_load_weights(fixl$t3_path)
+out <- as.array(e$yq_llama(nv_array(fixl$embeds, dtype = "f32"), wl))
+report("llama", out, fixl$out)
 
 quit(status = if (ok) 0L else 1L)
