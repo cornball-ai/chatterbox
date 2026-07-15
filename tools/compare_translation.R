@@ -56,8 +56,14 @@ audit("conformer",
   lines_of("R/conformer.R", 18, 612),
   paste(readLines("R/yq_conformer.R"), collapse = "\n"))
 
-# Mel + Kaldi fbank frontends
+# Mel + Kaldi fbank frontends (incl. VE variant + S3 tokenizer log-mel)
 audit("mel_fbank",
-  paste(lines_of("R/audio_utils.R", 194, 360),
-    lines_of("R/kaldi_fbank.R", 7, 210), sep = "\n"),
+  paste(lines_of("R/audio_utils.R", 194, 370),
+    lines_of("R/kaldi_fbank.R", 7, 210),
+    lines_of("R/s3tokenizer.R", 138, 165), sep = "\n"),
   paste(readLines("R/yq_mel_fbank.R"), collapse = "\n"))
+
+# Windowed-sinc resampler
+audit("resample",
+  lines_of("R/resample.R", 36, 165),
+  paste(readLines("R/yq_resample.R"), collapse = "\n"))
