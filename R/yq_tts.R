@@ -1,7 +1,15 @@
-# anvl/yunque e2e glue: the voice-embedding (reference conditioning) stage.
-# Orchestrates the ported frontends + encoders exactly as the torch side's
-# create_voice_embedding / compute_speaker_embedding /
-# compute_xvector_embedding / s3gen$embed_ref chain does.
+# anvl/yunque e2e glue: the voice-embedding (reference conditioning) stage
+# and the generation stage. Orchestrates the ported frontends + encoders
+# exactly as the torch side's create_voice_embedding /
+# compute_speaker_embedding / compute_xvector_embedding / s3gen$embed_ref /
+# generate chain does.
+
+# T3 config constants the generation glue needs (t3_config_english).
+.yq_t3_config <- function() {
+  list(start_text_token = 255L, stop_text_token = 0L,
+    start_speech_token = 6561L, stop_speech_token = 6562L,
+    max_text_tokens = 2048L, speech_cond_prompt_len = 150L)
+}
 
 # Verbatim pure-R copy of trim_silence (audio_utils.R, librosa.effects.trim
 # semantics) so the anvl path stands alone.
@@ -143,4 +151,94 @@ yq_voice_embedding <- function(samples, sr, w, speech_cond_prompt_len = 150L) {
     ref_dict = list(prompt_token = ptok, prompt_feat = prompt_feat,
       embedding = emb)
   )
+}
+
+# drop_invalid_tokens (s3tokenizer.R): keep the span after the first SOS
+# and before the first EOS, then drop remaining out-of-vocab ids.
+.yq_drop_invalid_tokens <- function(tokens, vocab = 6561L) {
+  vals <- as.integer(tokens)
+  s <- match(vocab, vals) # SOS
+  s <- if (is.na(s)) 1L else s + 1L
+  e <- match(vocab + 1L, vals) # EOS
+  e <- if (is.na(e)) length(vals) else e - 1L
+  keep <- rep(FALSE, length(vals))
+  if (s <= e) {
+    keep[s:e] <- vals[s:e] < vocab
+  }
+  vals[keep]
+}
+
+#' Generate speech from text tokens (anvl, end to end)
+#'
+#' Torch-free port of the \code{generate()} chain (standard model): T3
+#' CFG sampling over the conditioned Llama backbone, invalid-token
+#' filtering, CFM flow to mel, HiFT vocoder to waveform, and the 20 ms
+#' cosine fade-in. Text normalization and BPE tokenization stay with the
+#' caller (they are pure R in \code{tokenizer.R} / \code{tts.R}).
+#'
+#' @param text_ids Integer vector of 0-based text token ids (no
+#'   start/stop wrapping; it is added here).
+#' @param voice List from \code{\link{yq_voice_embedding}}.
+#' @param w List of component weights: \code{t3}, \code{cond},
+#'   \code{llama}, \code{flow}, \code{hifigan} (from the respective
+#'   \code{yq_*_load_weights}).
+#' @param flow_noise Standard-normal noise matrix \code{[80, T]} with
+#'   \code{T >= 2 * (n_prompt + n_gen)} for the CFM initial state (sliced
+#'   like the reference \code{rand_noise} buffer).
+#' @param exaggeration,cfg_weight,temperature,top_p,min_p
+#'   ,repetition_penalty,max_new_tokens T3 sampling controls
+#'   (defaults match \code{generate()}).
+#' @param n_cfm_timesteps CFM Euler steps (default 10).
+#' @param source_phase,source_noise Optional vocoder RNG injections (see
+#'   \code{\link{yq_hifigan}}); NULL draws from the R RNG.
+#' @param speech_tokens Optional pre-generated 0-based speech tokens; skips
+#'   the T3 stage (used for deterministic e2e parity fixtures).
+#'
+#' @return List: \code{audio} (numeric, 24 kHz), \code{sample_rate},
+#'   \code{speech_tokens}, \code{mel} \code{[1, 80, 2 * n_tokens]}.
+#'
+#' @export
+yq_generate <- function(text_ids, voice, w, flow_noise,
+                        exaggeration = 0.5, cfg_weight = 0.5,
+                        temperature = 0.8, top_p = 1, min_p = 0.05,
+                        repetition_penalty = 1.2, max_new_tokens = 1000L,
+                        n_cfm_timesteps = 10L, source_phase = NULL,
+                        source_noise = NULL, speech_tokens = NULL) {
+  config <- .yq_t3_config()
+  if (is.null(speech_tokens)) {
+    if (length(text_ids) > config$max_text_tokens) {
+      stop("Input text is too long: ", length(text_ids), " text tokens ",
+        "exceed the T3 limit of ", config$max_text_tokens, call. = FALSE)
+    }
+    tt <- matrix(c(config$start_text_token, as.integer(text_ids),
+      config$stop_text_token), nrow = 1L)
+    prompt_emb <- .yq_t3_embed(w$t3$speech_emb, w$t3$speech_pos,
+      voice$cond_prompt_speech_tokens)
+    cond_emb <- yq_t3_cond_enc(
+      anvl::nv_array(voice$ve_embedding, dtype = "f32"), prompt_emb,
+      exaggeration, w$cond)
+    speech_tokens <- yq_t3_generate(cond_emb, tt, w$t3, w$llama, config,
+      max_new = max_new_tokens, temperature = temperature,
+      cfg_weight = cfg_weight, top_p = top_p, min_p = min_p,
+      repetition_penalty = repetition_penalty)
+  }
+  speech_tokens <- .yq_drop_invalid_tokens(speech_tokens)
+
+  mel <- yq_flow_inference(speech_tokens, voice$ref_dict$prompt_token,
+    voice$ref_dict$prompt_feat, voice$ref_dict$embedding, w$flow,
+    flow_noise, n_timesteps = n_cfm_timesteps)
+
+  res <- yq_hifigan(mel, w$hifigan, phase = source_phase,
+    noise = source_noise)
+  audio <- as.numeric(as.array(res$audio))
+
+  # 20 ms fade-in (s3gen trim_fade): first n_trim samples zeroed, next
+  # n_trim cosine-ramped
+  n_trim <- 24000L %/% 50L
+  fade <- c(rep(0, n_trim), (cos(seq(pi, 0, length.out = n_trim)) + 1) / 2)
+  k <- seq_len(min(length(fade), length(audio)))
+  audio[k] <- audio[k] * fade[k]
+
+  list(audio = audio, sample_rate = 24000L, speech_tokens = speech_tokens,
+    mel = mel)
 }
