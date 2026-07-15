@@ -70,3 +70,28 @@ audit("mel_fbank",
 audit("resample",
   lines_of("R/resample.R", 36, 165),
   paste(readLines("R/yq_resample.R"), collapse = "\n"))
+
+# CFM: pos/time embeddings, causal blocks, attention/FF, estimator, solver
+# (traced branches 686-717/739-745/772-774 are torch-only and excluded)
+audit("cfm",
+  paste(lines_of("R/s3gen.R", 60, 532), lines_of("R/s3gen.R", 552, 579),
+    lines_of("R/s3gen.R", 606, 685), lines_of("R/s3gen.R", 718, 738),
+    lines_of("R/s3gen.R", 746, 771), lines_of("R/s3gen.R", 775, 782),
+    sep = "\n"),
+  paste(readLines("R/yq_cfm.R"), collapse = "\n"))
+
+# Flow wrapper: make_pad_mask + causal_masked_diff_xvec
+audit("flow",
+  paste(lines_of("R/s3gen.R", 17, 34), lines_of("R/s3gen.R", 799, 941),
+    sep = "\n"),
+  paste(readLines("R/yq_flow.R"), collapse = "\n"))
+
+# Voice-embedding glue: create_voice_embedding + VE inference/windowing +
+# xvector frontend + embed_ref + trim_silence
+audit("tts glue",
+  paste(lines_of("R/tts.R", 364, 455),
+    lines_of("R/voice_encoder.R", 143, 268),
+    lines_of("R/speaker_encoder.R", 430, 471),
+    lines_of("R/s3gen.R", 980, 1056),
+    lines_of("R/audio_utils.R", 148, 182), sep = "\n"),
+  paste(readLines("R/yq_tts.R"), collapse = "\n"))
