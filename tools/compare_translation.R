@@ -40,3 +40,24 @@ audit("t3 cond enc",
 audit("t3 forward",
   lines_of("R/t3.R", 366, 447),
   paste(readLines("R/yq_t3.R"), collapse = "\n"))
+
+# CAMPPlus speaker xvector: blocks + pooling + model forward
+audit("campplus",
+  lines_of("R/speaker_encoder.R", 12, 428),
+  paste(readLines("R/yq_campplus.R"), collapse = "\n"))
+
+# S3 tokenizer: rope + FSQ + FSMN attention + encoder forward
+audit("s3tokenizer",
+  lines_of("R/s3tokenizer.R", 9, 657),
+  paste(readLines("R/yq_s3tokenizer.R"), collapse = "\n"))
+
+# Upsample conformer encoder (flow.encoder)
+audit("conformer",
+  lines_of("R/conformer.R", 18, 612),
+  paste(readLines("R/yq_conformer.R"), collapse = "\n"))
+
+# Mel + Kaldi fbank frontends
+audit("mel_fbank",
+  paste(lines_of("R/audio_utils.R", 194, 360),
+    lines_of("R/kaldi_fbank.R", 7, 210), sep = "\n"),
+  paste(readLines("R/yq_mel_fbank.R"), collapse = "\n"))
