@@ -1,12 +1,7 @@
 # anvl/yunque port of the T3 Llama backbone (520M): RoPE (llama3-scaled) +
 # RMSNorm + SwiGLU, plain MHA. Torch-free; yq_ marks the anvl impl.
 
-# [B, S, hidden] -> [B, n_head, S, head_dim]
-.yq_heads <- function(x, batch, n_head, head_dim) {
-  s <- anvl::shape(x)
-  anvl::nv_transpose(anvl::nv_reshape(x, c(batch, s[2L], n_head, head_dim)),
-    c(1L, 3L, 2L, 4L))
-}
+# .yq_heads comes from yq_common.R (source it first when standalone).
 
 # llama3 RoPE frequency scaling (per-frequency, by wavelength).
 .llama3_scale <- function(inv_freq, factor, low_f, high_f, old_ctx) {

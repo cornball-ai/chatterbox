@@ -4,14 +4,8 @@
 # attention (yunque::rel_position_attention). Torch-free; yq_ marks the port.
 # Batch-1, full-length (unpadded) path -- padding masks are not applied.
 
-# .yq_heads ([B, S, D] -> [B, H, S, hd]) comes from yq_llama.R -- one
-# definition package-wide; scripts sourcing this file standalone must
-# source yq_llama.R first.
-
-# Leaky ReLU (torch default negative slope 0.01); no yunque primitive.
-.yq_leaky_relu <- function(x, slope = 0.01) {
-  anvl::nv_max(x, 0) + anvl::nv_min(x, 0) * slope
-}
+# .yq_heads and .yq_leaky_relu come from yq_common.R (source it first
+# when standalone).
 
 # 1-D nearest upsample by an integer factor over [B, C, W].
 .yq_upsample1d_nearest <- function(x, factor = 2L) {

@@ -7,8 +7,8 @@ suppressMessages({
 })
 
 e <- new.env()
-for (f in c("yq_resample.R", "yq_mel_fbank.R", "yq_voice_encoder.R",
-  "yq_llama.R", "yq_s3tokenizer.R", "yq_campplus.R", "yq_tts.R")) {
+for (f in c("yq_common.R", "yq_resample.R", "yq_mel_fbank.R",
+  "yq_voice_encoder.R", "yq_s3tokenizer.R", "yq_campplus.R", "yq_tts.R")) {
   sys.source(file.path("R", f), envir = e)
 }
 

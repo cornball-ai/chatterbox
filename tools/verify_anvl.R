@@ -7,6 +7,7 @@ suppressMessages({
 })
 
 e <- new.env()
+sys.source("R/yq_common.R", envir = e)
 sys.source("R/yq_voice_encoder.R", envir = e)
 sys.source("R/yq_llama.R", envir = e)
 sys.source("R/yq_t3_cond.R", envir = e)

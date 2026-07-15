@@ -8,23 +8,8 @@
 # initial phase, source noise) are explicit arguments so parity
 # fixtures can inject the reference RNG values.
 
-.yq_leaky_relu <- function(x, slope = 0.01) {
-  anvl::nv_max(x, 0) + anvl::nv_min(x, 0) * slope
-}
-
-# Round doubles to their nearest float32 values (kept as doubles).
-# Used to mirror the reference's float32 elementwise rounding in the
-# host-side source prep; single-rounding emulation via double is exact
-# for +, -, *, /.
-.yq_f32 <- function(x) {
-  d <- dim(x)
-  y <- readBin(writeBin(as.numeric(x), raw(), size = 4L), "numeric",
-    size = 4L, n = length(x))
-  if (!is.null(d)) {
-    dim(y) <- d
-  }
-  y
-}
+# .yq_leaky_relu and .yq_f32 come from yq_common.R (source it first
+# when standalone).
 
 # Static slice along one dim of a rank-3 array (1-based inclusive).
 .yq_slice3 <- function(x, dim, from, to) {

@@ -6,18 +6,8 @@
 # applied where the reference applies it, but attention always runs
 # unmasked, so genuinely padded batches are not supported.
 
-# Round through float32 (dims preserved). The reference computes its
-# timestep schedule and sinusoid in torch f32 scalars; emulating that
-# rounding host-side keeps the schedule bit-identical.
-.yq_f32 <- function(x) {
-  d <- dim(x)
-  y <- readBin(writeBin(as.numeric(x), raw(), size = 4L), "numeric",
-    size = 4L, n = length(x))
-  if (!is.null(d)) {
-    dim(y) <- d
-  }
-  y
-}
+# .yq_f32 (float32 rounding emulation for the reference's torch-f32
+# scalar chains) comes from yq_common.R (source it first when standalone).
 
 # Sinusoidal timestep frequency table: exp(arange(half) * -log(1e4)/(half-1)),
 # f32-rounded like the reference's torch chain.

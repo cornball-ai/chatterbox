@@ -5,6 +5,7 @@ library(anvl)
 library(yunque)
 
 env <- new.env()
+sys.source("R/yq_common.R", envir = env)
 sys.source("R/yq_hifigan.R", envir = env)
 
 fx <- readRDS("tools/fixtures/hifigan.rds")

@@ -5,7 +5,7 @@ library(anvl)
 library(yunque)
 
 env <- new.env()
-sys.source("R/yq_llama.R", envir = env) # provides .yq_heads
+sys.source("R/yq_common.R", envir = env)
 sys.source("R/yq_conformer.R", envir = env)
 sys.source("R/yq_cfm.R", envir = env)
 sys.source("R/yq_flow.R", envir = env)
