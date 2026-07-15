@@ -57,3 +57,17 @@ cout <- as.array(torch::with_no_grad(ce$forward(cond)))
 saveRDS(list(spk = spk, prompt = prompt, emo = emo, out = cout,
   t3_path = paths$t3_cfg), "tools/fixtures/t3_cond.rds")
 cat(sprintf("t3_cond fixture: out %s\n", paste(dim(cout), collapse = "x")))
+
+# --- T3 forward (speech logits) ---
+t3 <- chatterbox:::t3_model()
+t3 <- chatterbox:::load_t3_weights(t3, sd)
+t3$eval()
+tt <- matrix(sample(0:703, 8L, replace = TRUE), nrow = 1L)
+stk <- matrix(sample(0:8193, 6L, replace = TRUE), nrow = 1L)
+t3out <- as.array(torch::with_no_grad(t3$forward(cond,
+  torch::torch_tensor(tt, dtype = torch::torch_long()),
+  torch::torch_tensor(stk, dtype = torch::torch_long()))$speech_logits))
+saveRDS(list(spk = spk, prompt = prompt, emo = emo, text_tokens = tt,
+  speech_tokens = stk, speech_logits = t3out, t3_path = paths$t3_cfg),
+  "tools/fixtures/t3.rds")
+cat(sprintf("t3 fixture: speech_logits %s\n", paste(dim(t3out), collapse = "x")))

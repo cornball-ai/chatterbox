@@ -10,6 +10,7 @@ e <- new.env()
 sys.source("R/yq_voice_encoder.R", envir = e)
 sys.source("R/yq_llama.R", envir = e)
 sys.source("R/yq_t3_cond.R", envir = e)
+sys.source("R/yq_t3.R", envir = e)
 
 reltol <- function(a, b) max(abs(a - b)) / max(abs(b))
 ok <- TRUE
@@ -39,5 +40,16 @@ wc <- e$yq_t3_cond_load_weights(fixc$t3_path)
 cout <- as.array(e$yq_t3_cond_enc(nv_array(fixc$spk, dtype = "f32"),
   nv_array(fixc$prompt, dtype = "f32"), fixc$emo, wc))
 report("t3_cond", cout, fixc$out)
+
+# --- T3 forward (speech logits) ---
+fixt3 <- readRDS("tools/fixtures/t3.rds")
+wt3 <- e$yq_t3_load_weights(fixt3$t3_path)
+wc2 <- e$yq_t3_cond_load_weights(fixt3$t3_path)
+wl2 <- e$yq_llama_load_weights(fixt3$t3_path)
+cemb <- e$yq_t3_cond_enc(nv_array(fixt3$spk, dtype = "f32"),
+  nv_array(fixt3$prompt, dtype = "f32"), fixt3$emo, wc2)
+logits <- as.array(e$yq_t3_forward(cemb, fixt3$text_tokens,
+  fixt3$speech_tokens, wt3, wl2))
+report("t3_forward", logits, fixt3$speech_logits)
 
 quit(status = if (ok) 0L else 1L)

@@ -35,3 +35,8 @@ audit("t3 cond enc",
   paste(lines_of("R/t3.R", 160, 197), lines_of("R/t3.R", 230, 244),
     lines_of("R/t3.R", 282, 319), sep = "\n"),
   paste(readLines("R/yq_t3_cond.R"), collapse = "\n"))
+
+# T3 forward: prepare_input_embeds + forward + heads
+audit("t3 forward",
+  lines_of("R/t3.R", 366, 447),
+  paste(readLines("R/yq_t3.R"), collapse = "\n"))
