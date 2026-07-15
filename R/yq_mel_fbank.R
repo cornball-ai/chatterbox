@@ -112,6 +112,8 @@
 #' @param y Numeric audio vector.
 #' @param n_fft,n_mels,sr,hop_size,win_size,fmin,fmax Frontend params
 #'   (defaults match the 24 kHz S3Gen config).
+#' @param center Centered STFT (torch \code{center = TRUE} semantics: an
+#'   extra \code{n_fft/2} reflect pad on top of the fixed frontend pad).
 #'
 #' @return AnvlArray \code{[1, n_mels, n_frames]}.
 #'
@@ -119,10 +121,14 @@
 yq_compute_mel_spectrogram <- function(y, n_fft = 1920L, n_mels = 80L,
                                        sr = 24000L, hop_size = 480L,
                                        win_size = 1920L, fmin = 0,
-                                       fmax = 8000) {
+                                       fmax = 8000, center = FALSE) {
   y <- as.numeric(y)
   pad_amount <- as.integer((n_fft - hop_size) / 2)
   y <- .yq_reflect_pad(y, pad_amount)
+  if (center) {
+    # torch_stft center=TRUE reflect-pads the already-padded signal
+    y <- .yq_reflect_pad(y, n_fft %/% 2L)
+  }
   sig <- anvl::nv_array(matrix(y, nrow = 1L), dtype = "f32")
   win <- yunque::hann_window(win_size)
   sp <- yunque::stft(sig, n_fft = as.integer(n_fft),
@@ -137,6 +143,23 @@ yq_compute_mel_spectrogram <- function(y, n_fft = 1920L, n_mels = 80L,
   spec <- anvl::nv_matmul(mel_basis, spec2d)            # [n_mels, nframes]
   spec <- anvl::nv_log(anvl::nv_max(spec, 1e-5))
   anvl::nv_reshape(spec, c(1L, n_mels, nframes))
+}
+
+#' Voice-encoder mel spectrogram (anvl)
+#'
+#' Torch-free port of \code{compute_mel_spectrogram_ve}: 16 kHz, 40 bins,
+#' centered STFT, transposed to \code{[1, T, 40]} for the LSTM.
+#'
+#' @param y Numeric audio vector (16 kHz).
+#' @param sr Sample rate (default 16000).
+#'
+#' @return AnvlArray \code{[1, n_frames, 40]}.
+#'
+#' @export
+yq_compute_mel_spectrogram_ve <- function(y, sr = 16000) {
+  spec <- yq_compute_mel_spectrogram(y, n_fft = 400L, n_mels = 40L, sr = sr,
+    hop_size = 160L, win_size = 400L, fmin = 0, fmax = 8000, center = TRUE)
+  anvl::nv_transpose(spec, c(1L, 3L, 2L))
 }
 
 #' Kaldi log-mel fbank for CAMPPlus (anvl)

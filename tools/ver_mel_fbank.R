@@ -24,5 +24,8 @@ r1 <- report("compute_mel_spectrogram", mel_got, fx$mel)
 kal_got <- as.array(env$yq_kaldi_fbank(fx$audio16))
 r2 <- report("kaldi_fbank", kal_got, fx$kaldi)
 
-cat(sprintf("MAX reltol = %.3e  -> %s\n", max(r1, r2),
-  if (max(r1, r2) < 1e-3) "PASS" else "FAIL"))
+ve_got <- as.array(env$yq_compute_mel_spectrogram_ve(fx$audio16))
+r3 <- report("compute_mel_spectrogram_ve", ve_got, fx$ve)
+
+cat(sprintf("MAX reltol = %.3e  -> %s\n", max(r1, r2, r3),
+  if (max(r1, r2, r3) < 1e-3) "PASS" else "FAIL"))
