@@ -27,14 +27,20 @@ yq_t3_load_weights <- function(path) {
 
 # embed tokens [B,L] + learned positions -> [B, L, dim]. zero_tok zeros the
 # token embedding (CFG unconditioned branch keeps only the position emb).
-.yq_t3_embed <- function(emb, pos, tokens, zero_tok = FALSE) {
+# positions: 0-based position ids (default 0..L-1); generation passes
+# c(0, 0, 1, 2, ...) to mirror the reference's double-BOS prefill.
+.yq_t3_embed <- function(emb, pos, tokens, zero_tok = FALSE,
+                         positions = NULL) {
   tokens <- matrix(as.integer(tokens), nrow = nrow(tokens))
   n <- ncol(tokens)
+  if (is.null(positions)) {
+    positions <- seq_len(n) - 1L
+  }
   x <- yunque::embedding(emb, tokens)
   if (zero_tok) {
     x <- x * 0
   }
-  p <- anvl::nv_unsqueeze(yunque::embedding(pos, seq_len(n) - 1L), 1L)
+  p <- anvl::nv_unsqueeze(yunque::embedding(pos, positions), 1L)
   x + anvl::nv_broadcast_to(p, anvl::shape(x))
 }
 
@@ -55,9 +61,10 @@ yq_t3_load_weights <- function(path) {
 #'
 #' @export
 yq_t3_forward <- function(cond_emb, text_tokens, speech_tokens, w, llama_w,
-                          zero_text = FALSE) {
+                          zero_text = FALSE, speech_positions = NULL) {
   te <- .yq_t3_embed(w$text_emb, w$text_pos, text_tokens, zero_tok = zero_text)
-  se <- .yq_t3_embed(w$speech_emb, w$speech_pos, speech_tokens)
+  se <- .yq_t3_embed(w$speech_emb, w$speech_pos, speech_tokens,
+    positions = speech_positions)
   embeds <- anvl::nv_concatenate(cond_emb, te, se, dimension = 2L)
   hidden <- yq_llama(embeds, llama_w)
   lc <- anvl::shape(cond_emb)[2L]
@@ -114,25 +121,45 @@ yq_t3_forward <- function(cond_emb, text_tokens, speech_tokens, w, llama_w,
 #'
 #' @export
 yq_t3_generate <- function(cond_emb, text_tokens, w, llama_w, config,
-                           max_new = 200L, temperature = 0.8, cfg_weight = 0.5,
-                           top_p = 1, min_p = 0.05, repetition_penalty = 1.2) {
+                           max_new = 1000L, temperature = 0.8,
+                           cfg_weight = 0.5, top_p = 1, min_p = 0.05,
+                           repetition_penalty = 1.2) {
   generated <- integer(0)
-  speech <- matrix(config$start_speech_token, nrow = 1L)
+  bos <- config$start_speech_token
+  last_id <- -1L
+  repeat_run <- 0L
   for (step in seq_len(max_new)) {
+    # the reference prefill ends in TWO BOS frames, both at position 0
+    speech <- matrix(c(bos, bos, generated), nrow = 1L)
+    positions <- c(0L, 0L, seq_len(length(generated)))
     ls <- ncol(speech)
-    lc <- as.array(yq_t3_forward(cond_emb, text_tokens, speech, w, llama_w))[1L, ls, ]
+    lc <- as.array(yq_t3_forward(cond_emb, text_tokens, speech, w, llama_w,
+      speech_positions = positions))[1L, ls, ]
     if (cfg_weight > 0) {
       lu <- as.array(yq_t3_forward(cond_emb, text_tokens, speech, w, llama_w,
-        zero_text = TRUE))[1L, ls, ]
-      lc <- lu + cfg_weight * (lc - lu)
+        zero_text = TRUE, speech_positions = positions))[1L, ls, ]
+      # extrapolate FROM the conditioned logits (t3_inference)
+      lc <- lc + cfg_weight * (lc - lu)
     }
-    nxt <- .yq_sample_speech_token(lc, generated, temperature, top_p, min_p,
-      repetition_penalty)
+    # penalty bookkeeping is seeded with BOS (reference generated_ids)
+    nxt <- .yq_sample_speech_token(lc, c(bos, generated), temperature, top_p,
+      min_p, repetition_penalty)
     if (nxt == config$stop_speech_token) {
       break
     }
+    # runaway guard: the same token 10x in a row is a degenerate loop
+    if (nxt == last_id) {
+      repeat_run <- repeat_run + 1L
+      if (repeat_run >= 10L) {
+        warning("Stopping generation: token ", nxt, " repeated 10x at step ",
+          step, " (degenerate loop)", call. = FALSE)
+        break
+      }
+    } else {
+      last_id <- nxt
+      repeat_run <- 1L
+    }
     generated <- c(generated, nxt)
-    speech <- cbind(speech, nxt)
   }
   generated
 }
