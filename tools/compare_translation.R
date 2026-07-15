@@ -36,9 +36,10 @@ audit("t3 cond enc",
     lines_of("R/t3.R", 282, 319), sep = "\n"),
   paste(readLines("R/yq_t3_cond.R"), collapse = "\n"))
 
-# T3 forward: prepare_input_embeds + forward + heads
+# T3 forward + generation: prepare_input_embeds, forward, heads, sampler,
+# t3_inference loop
 audit("t3 forward",
-  lines_of("R/t3.R", 366, 447),
+  lines_of("R/t3.R", 366, 660),
   paste(readLines("R/yq_t3.R"), collapse = "\n"))
 
 # CAMPPlus speaker xvector: blocks + pooling + model forward
@@ -86,12 +87,15 @@ audit("flow",
     sep = "\n"),
   paste(readLines("R/yq_flow.R"), collapse = "\n"))
 
-# Voice-embedding glue: create_voice_embedding + VE inference/windowing +
-# xvector frontend + embed_ref + trim_silence
+# TTS glue: create_voice_embedding + VE inference/windowing + xvector
+# frontend + embed_ref + trim_silence + drop_invalid + trim_fade +
+# generate tail
 audit("tts glue",
   paste(lines_of("R/tts.R", 364, 455),
+    lines_of("R/tts.R", 583, 700),
     lines_of("R/voice_encoder.R", 143, 268),
     lines_of("R/speaker_encoder.R", 430, 471),
-    lines_of("R/s3gen.R", 980, 1056),
+    lines_of("R/s3gen.R", 954, 1056),
+    lines_of("R/s3tokenizer.R", 658, 688),
     lines_of("R/audio_utils.R", 148, 182), sep = "\n"),
   paste(readLines("R/yq_tts.R"), collapse = "\n"))
