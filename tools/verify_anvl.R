@@ -9,6 +9,7 @@ suppressMessages({
 e <- new.env()
 sys.source("R/yq_voice_encoder.R", envir = e)
 sys.source("R/yq_llama.R", envir = e)
+sys.source("R/yq_t3_cond.R", envir = e)
 
 reltol <- function(a, b) max(abs(a - b)) / max(abs(b))
 ok <- TRUE
@@ -31,5 +32,12 @@ fixl <- readRDS("tools/fixtures/llama.rds")
 wl <- e$yq_llama_load_weights(fixl$t3_path)
 out <- as.array(e$yq_llama(nv_array(fixl$embeds, dtype = "f32"), wl))
 report("llama", out, fixl$out)
+
+# --- T3 conditioning encoder ---
+fixc <- readRDS("tools/fixtures/t3_cond.rds")
+wc <- e$yq_t3_cond_load_weights(fixc$t3_path)
+cout <- as.array(e$yq_t3_cond_enc(nv_array(fixc$spk, dtype = "f32"),
+  nv_array(fixc$prompt, dtype = "f32"), fixc$emo, wc))
+report("t3_cond", cout, fixc$out)
 
 quit(status = if (ok) 0L else 1L)

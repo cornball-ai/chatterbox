@@ -38,3 +38,22 @@ out <- as.array(torch::with_no_grad(lm$forward(
 saveRDS(list(embeds = embeds, out = out, t3_path = paths$t3_cfg),
   "tools/fixtures/llama.rds")
 cat(sprintf("llama fixture: out %s\n", paste(dim(out), collapse = "x")))
+
+# --- T3 conditioning encoder (cond_enc.*) ---
+ce <- chatterbox:::t3_cond_enc(chatterbox:::t3_config_english())
+csd <- sd[grepl("^cond_enc\\.", names(sd))]
+names(csd) <- sub("^cond_enc\\.", "", names(csd))
+ce$load_state_dict(csd, strict = FALSE)
+ce$eval()
+spk <- array(rnorm(1 * 256) * 0.1, c(1L, 256L))
+prompt <- array(rnorm(1 * 20 * 1024) * 0.1, c(1L, 20L, 1024L))
+emo <- 0.5
+cond <- list(
+  speaker_emb = torch::torch_tensor(spk, dtype = torch::torch_float()),
+  cond_prompt_speech_emb = torch::torch_tensor(prompt,
+    dtype = torch::torch_float()),
+  emotion_adv = emo)
+cout <- as.array(torch::with_no_grad(ce$forward(cond)))
+saveRDS(list(spk = spk, prompt = prompt, emo = emo, out = cout,
+  t3_path = paths$t3_cfg), "tools/fixtures/t3_cond.rds")
+cat(sprintf("t3_cond fixture: out %s\n", paste(dim(cout), collapse = "x")))

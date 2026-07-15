@@ -29,3 +29,9 @@ audit("llama backbone",
   paste(lines_of("R/llama.R", 18, 40), lines_of("R/llama.R", 82, 143),
     lines_of("R/llama.R", 211, 361), sep = "\n"),
   paste(readLines("R/yq_llama.R"), collapse = "\n"))
+
+# T3 conditioning encoder: attention_block + perceiver + cond_enc forwards
+audit("t3 cond enc",
+  paste(lines_of("R/t3.R", 160, 197), lines_of("R/t3.R", 230, 244),
+    lines_of("R/t3.R", 282, 319), sep = "\n"),
+  paste(readLines("R/yq_t3_cond.R"), collapse = "\n"))
