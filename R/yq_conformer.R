@@ -4,12 +4,9 @@
 # attention (yunque::rel_position_attention). Torch-free; yq_ marks the port.
 # Batch-1, full-length (unpadded) path -- padding masks are not applied.
 
-# [B, S, D] -> [B, H, S, hd]
-.yq_heads <- function(x, batch, n_head, head_dim) {
-  s <- anvl::shape(x)
-  anvl::nv_transpose(anvl::nv_reshape(x, c(batch, s[2L], n_head, head_dim)),
-    c(1L, 3L, 2L, 4L))
-}
+# .yq_heads ([B, S, D] -> [B, H, S, hd]) comes from yq_llama.R -- one
+# definition package-wide; scripts sourcing this file standalone must
+# source yq_llama.R first.
 
 # Leaky ReLU (torch default negative slope 0.01); no yunque primitive.
 .yq_leaky_relu <- function(x, slope = 0.01) {
