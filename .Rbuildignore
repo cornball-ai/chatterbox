@@ -20,3 +20,4 @@
 ^tasks$
 ^vignettes$
 ^cran-comments\.md$
+^tools$

@@ -26,4 +26,9 @@ Imports:
     hfhub,
     safetensors (>= 0.1.1)
 Suggests:
-    tinytest
+    tinytest,
+    anvl,
+    yunque
+Remotes:
+    r-xla/anvl,
+    cornball-ai/yunque
