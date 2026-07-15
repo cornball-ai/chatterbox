@@ -162,6 +162,40 @@ yq_compute_mel_spectrogram_ve <- function(y, sr = 16000) {
   anvl::nv_transpose(spec, c(1L, 3L, 2L))
 }
 
+#' S3 tokenizer log-mel spectrogram (anvl)
+#'
+#' Torch-free port of \code{s3_log_mel_spectrogram} (whisper-style): centered
+#' Hann STFT with the last frame dropped, power spectrum, Slaney mel banks,
+#' \code{log10} with an 8-dB dynamic-range floor, and \code{(x + 4) / 4}
+#' scaling. The floor/scale run host-side (global max reduce).
+#'
+#' @param audio Numeric audio vector (16 kHz).
+#' @param n_mels Mel bins (default 128).
+#' @param sr,n_fft,hop STFT params (defaults match the S3 tokenizer).
+#'
+#' @return AnvlArray \code{[1, n_mels, n_frames]}.
+#'
+#' @export
+yq_s3_log_mel_spectrogram <- function(audio, n_mels = 128L, sr = 16000L,
+                                      n_fft = 400L, hop = 160L) {
+  y <- .yq_reflect_pad(as.numeric(audio), n_fft %/% 2L) # torch center=TRUE
+  sig <- anvl::nv_array(matrix(y, nrow = 1L), dtype = "f32")
+  win <- yunque::hann_window(n_fft)
+  sp <- yunque::stft(sig, n_fft = as.integer(n_fft),
+    hop_length = as.integer(hop), window = win, center = FALSE)
+  nf <- n_fft %/% 2L + 1L
+  nframes <- anvl::shape(sp$real)[3L]
+  mag2 <- sp$real * sp$real + sp$imag * sp$imag
+  mag2 <- yunque::slice_lastdim(mag2, 1L, nframes - 1L) # whisper drops last
+  spec2d <- anvl::nv_reshape(mag2, c(nf, nframes - 1L)) # batch = 1
+  mel_fb <- .yq_create_mel_filterbank(sr, n_fft, n_mels, 0, sr / 2)
+  spec <- anvl::nv_matmul(anvl::nv_array(mel_fb, dtype = "f32"), spec2d)
+  # log10 + dynamic-range floor + scale, host-side (global max reduce)
+  s <- log10(pmax(as.array(spec), 1e-10))
+  s <- pmax(s, max(s) - 8)
+  anvl::nv_array(array((s + 4) / 4, c(1L, n_mels, nframes - 1L)), dtype = "f32")
+}
+
 #' Kaldi log-mel fbank for CAMPPlus (anvl)
 #'
 #' Torch-free port of \code{kaldi_fbank} (torchaudio compliance defaults used
