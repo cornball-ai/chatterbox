@@ -56,9 +56,12 @@ audit("conformer",
   lines_of("R/conformer.R", 18, 612),
   paste(readLines("R/yq_conformer.R"), collapse = "\n"))
 
-# Mel + Kaldi fbank frontends (incl. VE variant + S3 tokenizer log-mel)
+# Mel + Kaldi fbank frontends (incl. VE power mel + S3 tokenizer log-mel).
+# compute_ve_mel (voice_encoder.R) is the live VE path; audio_utils'
+# compute_mel_spectrogram_ve is dead code and deliberately not ported.
 audit("mel_fbank",
-  paste(lines_of("R/audio_utils.R", 194, 370),
+  paste(lines_of("R/audio_utils.R", 194, 354),
+    lines_of("R/voice_encoder.R", 11, 97),
     lines_of("R/kaldi_fbank.R", 7, 210),
     lines_of("R/s3tokenizer.R", 138, 165), sep = "\n"),
   paste(readLines("R/yq_mel_fbank.R"), collapse = "\n"))

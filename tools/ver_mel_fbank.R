@@ -24,8 +24,8 @@ r1 <- report("compute_mel_spectrogram", mel_got, fx$mel)
 kal_got <- as.array(env$yq_kaldi_fbank(fx$audio16))
 r2 <- report("kaldi_fbank", kal_got, fx$kaldi)
 
-ve_got <- as.array(env$yq_compute_mel_spectrogram_ve(fx$audio16))
-r3 <- report("compute_mel_spectrogram_ve", ve_got, fx$ve)
+ve_got <- as.array(env$yq_compute_ve_mel(fx$audio16))
+r3 <- report("compute_ve_mel", ve_got, fx$ve)
 
 s3m_got <- as.array(env$yq_s3_log_mel_spectrogram(fx$audio16))
 r4 <- report("s3_log_mel_spectrogram", s3m_got, fx$s3mel)

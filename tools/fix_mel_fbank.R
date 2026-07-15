@@ -17,7 +17,7 @@ kal <- torch::with_no_grad({
   chatterbox:::kaldi_fbank(audio16)
 })
 ve <- torch::with_no_grad({
-  chatterbox:::compute_mel_spectrogram_ve(audio16)
+  chatterbox:::compute_ve_mel(audio16)
 })
 # S3 tokenizer whisper-style log-mel (filters/window built as the module does)
 s3fb <- chatterbox:::create_mel_filterbank(sr = 16000, n_fft = 400L,
