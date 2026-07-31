@@ -60,3 +60,6 @@ tasks/
 
 # local bench/dev scripts (also in .Rbuildignore; never shipped or committed)
 scripts/
+
+# Generated verification fixtures (large, regenerable)
+tools/fixtures/
