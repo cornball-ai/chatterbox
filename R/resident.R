@@ -310,28 +310,42 @@ resident_load <- function(turbo = FALSE, device = "cuda", tune_gc = TRUE,
     # inference and the activation copy collection-bound. It takes the raw
     # device string: .set_cuda_gc_options() parses the index itself and
     # reads VRAM via nvidia-smi, so it needs no CUDA context.
-    if (!is.character(device) || length(device) != 1L) {
-        stop("device must be a single device string, e.g. \"cuda\"")
+    # Accept a string or a torch_device, as whisper's resident_load() does.
+    # as.character() on a torch_device is pure formatting -- no CUDA context
+    # -- so the raw string is available before the probe below.
+    dev_str <- if (inherits(device, "torch_device")) {
+        as.character(device)
+    } else {
+        device
     }
-    if (!grepl("^cuda", device)) {
+    if (!is.character(dev_str) || length(dev_str) != 1L) {
+        stop("device must be a device string or torch_device, e.g. \"cuda\"")
+    }
+    if (!grepl("^cuda", dev_str)) {
         stop("resident_load() requires a CUDA target device")
     }
     if (isTRUE(tune_gc)) {
-        .set_cuda_gc_options(device, turbo)
+        .set_cuda_gc_options(dev_str, turbo)
     }
 
     if (!torch::cuda_is_available()) {
         stop("CUDA is not available")
     }
-    target <- torch::torch_device(device)
+    target <- torch::torch_device(dev_str)
     if (is.null(target$index)) {
         target <- torch::torch_device(
             paste0("cuda:", torch::cuda_current_device()))
     }
 
     # Build on CPU; the device move is what resident_activate() is for.
-    model <- chatterbox(device = "cpu", turbo = turbo, load = TRUE,
-                        tune_gc = FALSE)
+    # chatterbox()/load_chatterbox() narrate their own progress, so
+    # verbose = FALSE has to suppress theirs too, not just ours.
+    load_model <- function() {
+        chatterbox(device = "cpu", turbo = turbo, load = TRUE,
+                   tune_gc = FALSE)
+    }
+    model <- if (isTRUE(verbose)) load_model() else
+        suppressMessages(load_model())
 
     manifest <- .resident_manifest(model)
 
@@ -372,10 +386,18 @@ resident_load <- function(turbo = FALSE, device = "cuda", tune_gc = TRUE,
              sha256 = unname(tools::sha256sum(paths[[nm]])))
     })
     names(artifacts) <- names(paths)
+    # Reported, not assumed: chatterbox loads at the weights' native dtype
+    # (fp32 in practice), so read it off the manifest rather than hardcode.
+    par_dtypes <- manifest$dtype[manifest$kind == "parameter"]
     identity <- list(
         variant = if (isTRUE(turbo)) "turbo" else "standard",
         repo = if (isTRUE(turbo)) CHATTERBOX_TURBO_REPO else CHATTERBOX_REPO,
         revision = .snapshot_revision(paths[[1]]),
+        dtype = if (length(par_dtypes)) {
+            names(sort(table(par_dtypes), decreasing = TRUE))[1]
+        } else {
+            NA_character_
+        },
         artifacts = artifacts
     )
 
@@ -554,11 +576,16 @@ resident_status <- function(res) {
         stop("not a chatterbox_resident handle")
     }
     list(
+        # `model` and `dtype` mirror whisper's resident_status() so a host
+        # consuming both packages can read one set of field names; `variant`
+        # and `paths` are the chatterbox-specific extras.
+        model = res$identity$variant,
         variant = res$identity$variant,
         state = res$state,
         in_flight = isTRUE(res$in_flight),
         device = if (is.null(res$target_device)) NA_character_ else
             as.character(res$target_device),
+        dtype = res$identity$dtype,
         pinned_bytes = if (identical(res$state, "unloaded")) 0 else
             res$pinned_bytes,
         gpu_bytes = res$gpu_bytes,

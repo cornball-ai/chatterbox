@@ -137,6 +137,24 @@ expect_true(all(vapply(st$identity$artifacts,
                        function(a) nchar(a$sha256) == 64, logical(1))))
 expect_true(grepl("^cuda:[0-9]+$", st$device))
 
+# Cross-package contract: a host consuming whisper and chatterbox through
+# one interface reads these field names from both.
+expect_true(all(c("model", "state", "in_flight", "device", "dtype",
+                  "pinned_bytes", "gpu_bytes", "identity", "last_error")
+                %in% names(st)))
+expect_equal(st$model, st$variant)
+expect_true(is.character(st$dtype) && !is.na(st$dtype))
+
+# device= accepts a torch_device as well as a string, as whisper's does,
+# and verbose = FALSE silences the underlying loader's messages too
+msgs <- capture.output(
+    res_dev <- resident_load(device = torch::torch_device("cuda"),
+                             verbose = FALSE),
+    type = "message")
+expect_equal(length(msgs), 0L)
+expect_true(grepl("^cuda:[0-9]+$", resident_status(res_dev)$device))
+resident_unload(res_dev)
+
 # ---- full cycle: tensor-level equivalence + generation smoke ----
 # Full-generation equality is NOT asserted. The standard model samples
 # multinomially (top_k gates only the turbo path), and both the CFM
