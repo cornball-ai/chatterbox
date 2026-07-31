@@ -731,3 +731,26 @@ There is no `useDynLib` and no compiled code.
 - Alternative to tts.api container backend for local TTS (no Docker required)
 - Use `tts.api::tts(..., backend = "native")` for unified interface
 - pytorch-migration skill for migration patterns
+
+## Before submitting to CRAN
+
+Run this against the real working tree, every time:
+
+```bash
+bash tools/check_tarball.sh
+```
+
+`R CMD build` packages the working **directory**, not the git tree, and it
+skips only a fixed known set of dot-entries -- not arbitrary
+dot-directories. Any untracked scratch left in the package root ships. This
+has happened twice in sibling repos: a `git worktree add` left a full second
+copy of whisper inside whisper, and a temporary clone of an unrelated
+package in subtitles' root contributed 179 of 213 tarball entries.
+
+CI runs the same validator, but **CI cannot catch this class** -- it checks
+out a clean tree, so untracked local files do not exist there. The local run
+is the only thing that sees them. Inspect the final tarball by hand too:
+
+```bash
+tar tzf chatterbox_<version>.tar.gz | awk -F/ 'NF>1 {print $2}' | sort -u
+```
