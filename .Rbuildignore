@@ -21,3 +21,6 @@
 ^vignettes$
 ^cran-comments\.md$
 ^tools$
+
+# r-ci writes this into the package root during CI setup
+^run\.sh$
