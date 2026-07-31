@@ -11,6 +11,7 @@
 # the manifest's logical bytes; allocator numbers are printed as evidence
 # only. Allocator GC options are applied by the loaders themselves.
 
+Sys.setenv(TORCH_VERIFY_LOAD = "FALSE")
 suppressMessages({
     library(chatterbox)
     library(torch)
