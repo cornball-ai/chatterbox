@@ -10,6 +10,7 @@ tts_chunked(
   chunk_size = 200,
   max_batch = NULL,
   on_chunk = NULL,
+  strategy = c("auto", "serial", "batched"),
   ...
 )
 }
@@ -32,22 +33,30 @@ chunk order.} The default \code{NULL} accumulates as before and the
 return value is unchanged either way, so a caller that ignores this
 sees identical behaviour.
 
-How much it actually streams depends on which synthesis strategy runs,
-and the difference is worth knowing before designing around it.
-\strong{Serial synthesis streams; batched synthesis does not.} Serial
-finishes one chunk at a time in order, so each is emitted the moment it
-is done. Batched runs T3 over \emph{every} chunk before any S3Gen work
-starts, then walks token-length buckets rather than text order -- so
-nothing is emitted until T3 finishes across the whole input, and a
-late-arriving early chunk holds back the ones behind it.
+How much it actually streams depends on \code{strategy}:
+\strong{serial streams, batched does not.} See there.}
 
-Today the strategy is not selectable: it follows the loaded model,
-because the turbo weights have no batched implementation. So the turbo
-model synthesizes serially and streams, and the standard model batches
-and does not. That coupling is incidental rather than intended --
-\code{\link{generate}} handles both models, so the standard weights
-could synthesize serially too, trading throughput for time-to-first-
-audio. Nothing exposes that choice yet.}
+\item{strategy}{Synthesis strategy.
+\describe{
+\item{\code{"auto"}}{(default) Batched where the weights support it,
+serial where they do not. This is what every existing caller
+already gets.}
+\item{\code{"serial"}}{One chunk at a time in text order. Each is
+finished when it is done, so \code{on_chunk} fires immediately and
+audio can start playing after chunk 1. Costs throughput: one CFM
+solve per chunk instead of one per batch. Works on both models.}
+\item{\code{"batched"}}{Runs T3 over \emph{every} chunk, buckets them
+by measured speech-token length, and synthesizes each bucket as one
+padded S3Gen solve. Better throughput. Nothing can be emitted until
+T3 finishes across the whole input, and buckets do not follow text
+order, so \code{on_chunk} fires late and in held-back runs.
+\strong{Standard weights only} -- there is no batched implementation
+for turbo, and asking for it there is an error rather than a silent
+fall back to serial.}
+}
+For a conversational turn, time-to-first-audio is the thing that
+matters and throughput is nearly irrelevant, so \code{"serial"} is the
+one to want. For synthesizing a long document, batched wins outright.}
 
 \item{...}{Synthesis arguments forwarded to the T3 and S3Gen stages, as
 in \code{\link{generate}} (exaggeration, cfg_weight, temperature,

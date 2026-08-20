@@ -1223,22 +1223,29 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #'   return value is unchanged either way, so a caller that ignores this
 #'   sees identical behaviour.
 #'
-#'   How much it actually streams depends on which synthesis strategy runs,
-#'   and the difference is worth knowing before designing around it.
-#'   \strong{Serial synthesis streams; batched synthesis does not.} Serial
-#'   finishes one chunk at a time in order, so each is emitted the moment it
-#'   is done. Batched runs T3 over \emph{every} chunk before any S3Gen work
-#'   starts, then walks token-length buckets rather than text order -- so
-#'   nothing is emitted until T3 finishes across the whole input, and a
-#'   late-arriving early chunk holds back the ones behind it.
-#'
-#'   Today the strategy is not selectable: it follows the loaded model,
-#'   because the turbo weights have no batched implementation. So the turbo
-#'   model synthesizes serially and streams, and the standard model batches
-#'   and does not. That coupling is incidental rather than intended --
-#'   \code{\link{generate}} handles both models, so the standard weights
-#'   could synthesize serially too, trading throughput for time-to-first-
-#'   audio. Nothing exposes that choice yet.
+#'   How much it actually streams depends on \code{strategy}:
+#'   \strong{serial streams, batched does not.} See there.
+#' @param strategy Synthesis strategy.
+#'   \describe{
+#'     \item{\code{"auto"}}{(default) Batched where the weights support it,
+#'       serial where they do not. This is what every existing caller
+#'       already gets.}
+#'     \item{\code{"serial"}}{One chunk at a time in text order. Each is
+#'       finished when it is done, so \code{on_chunk} fires immediately and
+#'       audio can start playing after chunk 1. Costs throughput: one CFM
+#'       solve per chunk instead of one per batch. Works on both models.}
+#'     \item{\code{"batched"}}{Runs T3 over \emph{every} chunk, buckets them
+#'       by measured speech-token length, and synthesizes each bucket as one
+#'       padded S3Gen solve. Better throughput. Nothing can be emitted until
+#'       T3 finishes across the whole input, and buckets do not follow text
+#'       order, so \code{on_chunk} fires late and in held-back runs.
+#'       \strong{Standard weights only} -- there is no batched implementation
+#'       for turbo, and asking for it there is an error rather than a silent
+#'       fall back to serial.}
+#'   }
+#'   For a conversational turn, time-to-first-audio is the thing that
+#'   matters and throughput is nearly irrelevant, so \code{"serial"} is the
+#'   one to want. For synthesizing a long document, batched wins outright.
 #' @param ... Synthesis arguments forwarded to the T3 and S3Gen stages, as
 #'   in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 #'   backend, traced, normalize_text, max_new_tokens, ...)
@@ -1251,7 +1258,8 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' }
 #' @export
 tts_chunked <- function(model, text, voice, chunk_size = 200,
-                        max_batch = NULL, on_chunk = NULL, ...) {
+                        max_batch = NULL, on_chunk = NULL,
+                        strategy = c("auto", "serial", "batched"), ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -1259,6 +1267,21 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
         stop("on_chunk must be a function of (audio, index, total), or NULL",
              call. = FALSE)
     }
+    strategy <- match.arg(strategy)
+    ## ONE COMBINATION IS IMPOSSIBLE, and it refuses rather than quietly
+    ## doing the other thing. The turbo weights have no batched synthesis
+    ## implementation, so a silent fall back to serial would hand the caller
+    ## a different throughput profile than it asked for and say nothing.
+    if (identical(strategy, "batched") && isTRUE(model$turbo)) {
+        stop("strategy = \"batched\" needs the standard weights; the turbo ",
+             "model has no batched synthesis path. Load with turbo = FALSE, ",
+             "or use strategy = \"serial\" or \"auto\".", call. = FALSE)
+    }
+    ## `auto` is capability negotiation rather than inference magic: batched
+    ## where the weights support it, serial where they do not. It is also
+    ## what every existing caller gets, so behaviour is unchanged.
+    serial <- identical(strategy, "serial") ||
+    (identical(strategy, "auto") && isTRUE(model$turbo))
 
     chunks <- .split_text_chunks(text, chunk_size)
     if (length(chunks) == 0L) {
@@ -1275,13 +1298,12 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     traced <- isTRUE(arg_or("traced", FALSE))
     audio_chunks <- vector("list", length(chunks))
 
-    # The turbo weights have no batched synthesis implementation, so this
-    # path is serial. Serial is also the strategy that streams -- each chunk
-    # is finished and in text order, so it goes out immediately. The two
-    # facts are independent and only coincide here: `generate()` handles
-    # both models, so the standard weights could run this loop too and trade
-    # throughput for time-to-first-audio. Nothing selects that yet.
-    if (isTRUE(model$turbo)) {
+    # SERIAL: one chunk at a time, in text order, so each is finished and
+    # can go out immediately. `generate()` handles both models -- it branches
+    # on `is_turbo` internally -- so this loop is not turbo's private path.
+    # The turbo weights simply have no alternative; the standard weights
+    # reach it by asking, trading batched throughput for time-to-first-audio.
+    if (serial) {
         for (i in seq_along(chunks)) {
             message(sprintf("Processing chunk %d/%d", i, length(chunks)))
             audio_chunks[[i]] <- generate(model, chunks[i], voice, ...)$audio
