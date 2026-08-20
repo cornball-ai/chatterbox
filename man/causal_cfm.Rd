@@ -3,8 +3,12 @@
 \alias{causal_cfm}
 \title{Causal Conditional Flow Matching}
 \usage{
-causal_cfm(in_channels = 320, out_channels = 80, spk_emb_dim = 80,
-           meanflow = FALSE)
+causal_cfm(
+  in_channels = 320,
+  out_channels = 80,
+  spk_emb_dim = 80,
+  meanflow = FALSE
+)
 }
 \arguments{
 \item{in_channels}{Input channels (x + mu + spks + cond)}

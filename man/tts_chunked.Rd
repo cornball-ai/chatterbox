@@ -3,7 +3,15 @@
 \alias{tts_chunked}
 \title{Generate speech for long text (the long-form policy layer)}
 \usage{
-tts_chunked(model, text, voice, chunk_size = 200, max_batch = NULL, ...)
+tts_chunked(
+  model,
+  text,
+  voice,
+  chunk_size = 200,
+  max_batch = NULL,
+  on_chunk = NULL,
+  ...
+)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -16,6 +24,21 @@ tts_chunked(model, text, voice, chunk_size = 200, max_batch = NULL, ...)
 
 \item{max_batch}{Maximum chunks per batched solve. Default NULL: sized
 per card from VRAM. Set an integer to override.}
+
+\item{on_chunk}{Optional function of \code{(audio, index, total)} called
+as each chunk becomes available, so a caller can start playing before
+the whole utterance is synthesized. \strong{Always called in original
+chunk order.} The default \code{NULL} accumulates as before and the
+return value is unchanged either way, so a caller that ignores this
+sees identical behaviour.
+
+How much it actually streams differs by path, and the difference is
+worth knowing before designing around it. Turbo synthesizes serially,
+so a chunk is emitted the moment it is done. The batched path runs T3
+over \emph{every} chunk before any S3Gen work starts, and then walks
+token-length buckets rather than original order -- so nothing is
+emitted until T3 finishes, and a late-arriving early chunk holds back
+the ones behind it. \strong{Turbo is the streaming-friendly path.}}
 
 \item{...}{Synthesis arguments forwarded to the T3 and S3Gen stages, as
 in \code{\link{generate}} (exaggeration, cfg_weight, temperature,

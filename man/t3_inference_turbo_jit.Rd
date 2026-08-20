@@ -3,9 +3,17 @@
 \alias{t3_inference_turbo_jit}
 \title{Turbo T3 inference with a TorchScript decode loop}
 \usage{
-t3_inference_turbo_jit(model, cond, text_tokens, max_new_tokens = 1000,
-                       temperature = 0.8, top_k = 1000L, top_p = 0.95,
-                       repetition_penalty = 1.2, max_cache_len = NULL)
+t3_inference_turbo_jit(
+  model,
+  cond,
+  text_tokens,
+  max_new_tokens = 1000,
+  temperature = 0.8,
+  top_k = 1000L,
+  top_p = 0.95,
+  repetition_penalty = 1.2,
+  max_cache_len = NULL
+)
 }
 \arguments{
 \item{model}{T3 turbo model}

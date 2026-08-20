@@ -3,8 +3,14 @@
 \alias{.turbo_sample_token}
 \title{Sample a token using turbo logit processors}
 \usage{
-.turbo_sample_token(logits, generated_ids, temperature, top_k, top_p,
-                    repetition_penalty)
+.turbo_sample_token(
+  logits,
+  generated_ids,
+  temperature,
+  top_k,
+  top_p,
+  repetition_penalty
+)
 }
 \arguments{
 \item{logits}{(B, vocab_size) logits}
