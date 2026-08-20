@@ -32,9 +32,12 @@ expect_true(grepl("serial", err))
 # Each must get past the strategy guard. They then fail later for want of a
 # real model, which is the proof they were not stopped here: a guard that
 # rejected everything would pass an "it errored" test.
+# The warning is `create_voice_embedding` failing to open "v", which is the
+# EVIDENCE the call got past the guard and kept going. Expected, so it is
+# silenced here rather than left to bury a warning that is not expected.
 past_guard <- function(...) {
-    e <- tryCatch(tts_chunked(..., text = "hi", voice = "v"),
-                  error = conditionMessage)
+    e <- suppressWarnings(tryCatch(tts_chunked(..., text = "hi", voice = "v"),
+                                   error = conditionMessage))
     !grepl("no batched", e)
 }
 expect_true(past_guard(fake(TRUE), strategy = "serial"))
