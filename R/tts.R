@@ -1128,6 +1128,31 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param chunk_size Target maximum chunk length in characters
 #' @return Character vector of chunks
 #' @noRd
+# Emit every chunk that is contiguous from `from`, in ORIGINAL order, and
+# return the new watermark.
+#
+# The batched path fills `audio_chunks` out of order: it walks token-length
+# buckets, so a short chunk late in the text can finish in the first group.
+# Streaming in completion order would deliver a player its audio scrambled,
+# which is worse than not streaming, so a chunk waits until everything ahead
+# of it exists.
+#
+# Worst case -- chunk 1 completes last -- this emits nothing until the end,
+# which is exactly the non-streaming behaviour it replaces. It never emits
+# less correctly, only less eagerly.
+#
+# The watermark is the caller's, not this function's, so calling again with
+# nothing new added is silent rather than a replay of the prefix.
+.emit_ready <- function(audio_chunks, from, on_chunk, total) {
+    i <- from
+    n <- length(audio_chunks)
+    while (i <= n && !is.null(audio_chunks[[i]])) {
+        on_chunk(audio_chunks[[i]], i, total)
+        i <- i + 1L
+    }
+    i
+}
+
 .split_text_chunks <- function(text, chunk_size = 200L) {
     # Greedily pack space-joined units into pieces of <= chunk_size chars.
     pack <- function(units) {
@@ -1191,6 +1216,20 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param chunk_size Maximum characters per chunk (default 200)
 #' @param max_batch Maximum chunks per batched solve. Default NULL: sized
 #'   per card from VRAM. Set an integer to override.
+#' @param on_chunk Optional function of \code{(audio, index, total)} called
+#'   as each chunk becomes available, so a caller can start playing before
+#'   the whole utterance is synthesized. \strong{Always called in original
+#'   chunk order.} The default \code{NULL} accumulates as before and the
+#'   return value is unchanged either way, so a caller that ignores this
+#'   sees identical behaviour.
+#'
+#'   How much it actually streams differs by path, and the difference is
+#'   worth knowing before designing around it. Turbo synthesizes serially,
+#'   so a chunk is emitted the moment it is done. The batched path runs T3
+#'   over \emph{every} chunk before any S3Gen work starts, and then walks
+#'   token-length buckets rather than original order -- so nothing is
+#'   emitted until T3 finishes, and a late-arriving early chunk holds back
+#'   the ones behind it. \strong{Turbo is the streaming-friendly path.}
 #' @param ... Synthesis arguments forwarded to the T3 and S3Gen stages, as
 #'   in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 #'   backend, traced, normalize_text, max_new_tokens, ...)
@@ -1203,9 +1242,13 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' }
 #' @export
 tts_chunked <- function(model, text, voice, chunk_size = 200,
-                        max_batch = NULL, ...) {
+                        max_batch = NULL, on_chunk = NULL, ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
+    }
+    if (!is.null(on_chunk) && !is.function(on_chunk)) {
+        stop("on_chunk must be a function of (audio, index, total), or NULL",
+             call. = FALSE)
     }
 
     chunks <- .split_text_chunks(text, chunk_size)
@@ -1223,11 +1266,16 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     traced <- isTRUE(arg_or("traced", FALSE))
     audio_chunks <- vector("list", length(chunks))
 
-    # Turbo has no batched synthesis path: synthesize serially
+    # Turbo has no batched synthesis path: synthesize serially. Which also
+    # makes it the one path that streams properly -- each chunk is finished
+    # and in order, so it goes out immediately.
     if (isTRUE(model$turbo)) {
         for (i in seq_along(chunks)) {
             message(sprintf("Processing chunk %d/%d", i, length(chunks)))
             audio_chunks[[i]] <- generate(model, chunks[i], voice, ...)$audio
+            if (!is.null(on_chunk)) {
+                on_chunk(audio_chunks[[i]], i, length(chunks))
+            }
             gc(verbose = FALSE)
         }
         return(list(audio = unlist(audio_chunks, use.names = FALSE),
@@ -1256,6 +1304,10 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     lens <- vapply(tk$token_vecs, length, integer(1L))
     buckets <- vapply(pmax(lens, 1L), .token_bucket, integer(1L))
     done <- 0L
+    ## How far the in-order stream has got. This walks buckets rather than
+    ## chunks, so a group can complete chunk 5 before chunk 1 exists --
+    ## emitting in completion order would hand a player its audio scrambled.
+    emitted <- 1L
     for (b in sort(unique(buckets))) {
         idx <- which(buckets == b)
         cap <- max(1L, max_batch %||% .cfm_max_batch(b, model$device))
@@ -1264,6 +1316,10 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
                 tk$eos[grp], voice, traced = traced)
             for (j in seq_along(grp)) {
                 audio_chunks[[grp[j]]] <- res[[j]]$audio
+            }
+            if (!is.null(on_chunk)) {
+                emitted <- .emit_ready(audio_chunks, emitted, on_chunk,
+                                       length(chunks))
             }
             done <- done + length(grp)
             message(sprintf("Synthesized %d/%d chunks", done, length(chunks)))
