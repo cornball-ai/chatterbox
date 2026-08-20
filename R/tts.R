@@ -1223,13 +1223,22 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #'   return value is unchanged either way, so a caller that ignores this
 #'   sees identical behaviour.
 #'
-#'   How much it actually streams differs by path, and the difference is
-#'   worth knowing before designing around it. Turbo synthesizes serially,
-#'   so a chunk is emitted the moment it is done. The batched path runs T3
-#'   over \emph{every} chunk before any S3Gen work starts, and then walks
-#'   token-length buckets rather than original order -- so nothing is
-#'   emitted until T3 finishes, and a late-arriving early chunk holds back
-#'   the ones behind it. \strong{Turbo is the streaming-friendly path.}
+#'   How much it actually streams depends on which synthesis strategy runs,
+#'   and the difference is worth knowing before designing around it.
+#'   \strong{Serial synthesis streams; batched synthesis does not.} Serial
+#'   finishes one chunk at a time in order, so each is emitted the moment it
+#'   is done. Batched runs T3 over \emph{every} chunk before any S3Gen work
+#'   starts, then walks token-length buckets rather than text order -- so
+#'   nothing is emitted until T3 finishes across the whole input, and a
+#'   late-arriving early chunk holds back the ones behind it.
+#'
+#'   Today the strategy is not selectable: it follows the loaded model,
+#'   because the turbo weights have no batched implementation. So the turbo
+#'   model synthesizes serially and streams, and the standard model batches
+#'   and does not. That coupling is incidental rather than intended --
+#'   \code{\link{generate}} handles both models, so the standard weights
+#'   could synthesize serially too, trading throughput for time-to-first-
+#'   audio. Nothing exposes that choice yet.
 #' @param ... Synthesis arguments forwarded to the T3 and S3Gen stages, as
 #'   in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 #'   backend, traced, normalize_text, max_new_tokens, ...)
@@ -1266,9 +1275,12 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     traced <- isTRUE(arg_or("traced", FALSE))
     audio_chunks <- vector("list", length(chunks))
 
-    # Turbo has no batched synthesis path: synthesize serially. Which also
-    # makes it the one path that streams properly -- each chunk is finished
-    # and in order, so it goes out immediately.
+    # The turbo weights have no batched synthesis implementation, so this
+    # path is serial. Serial is also the strategy that streams -- each chunk
+    # is finished and in text order, so it goes out immediately. The two
+    # facts are independent and only coincide here: `generate()` handles
+    # both models, so the standard weights could run this loop too and trade
+    # throughput for time-to-first-audio. Nothing selects that yet.
     if (isTRUE(model$turbo)) {
         for (i in seq_along(chunks)) {
             message(sprintf("Processing chunk %d/%d", i, length(chunks)))

@@ -32,13 +32,22 @@ chunk order.} The default \code{NULL} accumulates as before and the
 return value is unchanged either way, so a caller that ignores this
 sees identical behaviour.
 
-How much it actually streams differs by path, and the difference is
-worth knowing before designing around it. Turbo synthesizes serially,
-so a chunk is emitted the moment it is done. The batched path runs T3
-over \emph{every} chunk before any S3Gen work starts, and then walks
-token-length buckets rather than original order -- so nothing is
-emitted until T3 finishes, and a late-arriving early chunk holds back
-the ones behind it. \strong{Turbo is the streaming-friendly path.}}
+How much it actually streams depends on which synthesis strategy runs,
+and the difference is worth knowing before designing around it.
+\strong{Serial synthesis streams; batched synthesis does not.} Serial
+finishes one chunk at a time in order, so each is emitted the moment it
+is done. Batched runs T3 over \emph{every} chunk before any S3Gen work
+starts, then walks token-length buckets rather than text order -- so
+nothing is emitted until T3 finishes across the whole input, and a
+late-arriving early chunk holds back the ones behind it.
+
+Today the strategy is not selectable: it follows the loaded model,
+because the turbo weights have no batched implementation. So the turbo
+model synthesizes serially and streams, and the standard model batches
+and does not. That coupling is incidental rather than intended --
+\code{\link{generate}} handles both models, so the standard weights
+could synthesize serially too, trading throughput for time-to-first-
+audio. Nothing exposes that choice yet.}
 
 \item{...}{Synthesis arguments forwarded to the T3 and S3Gen stages, as
 in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
