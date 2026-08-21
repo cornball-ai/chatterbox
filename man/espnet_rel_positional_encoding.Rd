@@ -3,7 +3,11 @@
 \alias{espnet_rel_positional_encoding}
 \title{Sinusoidal positional encoding (Espnet RelPositionalEncoding)}
 \usage{
-espnet_rel_positional_encoding(d_model = 512, dropout_rate = 0.1, max_len = 5000)
+espnet_rel_positional_encoding(
+  d_model = 512,
+  dropout_rate = 0.1,
+  max_len = 5000
+)
 }
 \arguments{
 \item{d_model}{Model dimension}
