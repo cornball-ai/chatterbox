@@ -26,12 +26,19 @@ tts_chunked(
 \item{max_batch}{Maximum chunks per batched solve. Default NULL: sized
 per card from VRAM. Set an integer to override.}
 
-\item{on_chunk}{Optional function of \code{(audio, index, total)} called
-as each chunk becomes available, so a caller can start playing before
-the whole utterance is synthesized. \strong{Always called in original
-chunk order.} The default \code{NULL} accumulates as before and the
-return value is unchanged either way, so a caller that ignores this
+\item{on_chunk}{Optional function of \code{(audio, index, total, text)}
+called as each chunk becomes available, so a caller can start playing
+before the whole utterance is synthesized. \strong{Always called in
+original chunk order.} The default \code{NULL} accumulates as before and
+the return value is unchanged either way, so a caller that ignores this
 sees identical behaviour.
+
+\code{text} is the piece this chunk says. It is handed over at emit
+time rather than left to be recovered afterwards because a caller that
+has to report what was heard needs the split that was actually spoken,
+and because synthesis may be abandoned part-way -- on a barge-in, say --
+in which case the return value never arrives and the emitted pieces are
+the only record there is.
 
 How much it actually streams depends on \code{strategy}:
 \strong{serial streams, batched does not.} See there.}
@@ -63,7 +70,11 @@ in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 backend, traced, normalize_text, max_new_tokens, ...)}
 }
 \value{
-List with audio and sample_rate
+List with \code{audio}, \code{sample_rate}, and \code{chunks} --
+  the text pieces that were synthesized, in spoken order, one per chunk.
+  \code{chunks[[i]]} is what chunk \code{i} says, which is the mapping any
+  report of how far playback got depends on. Present whether or not
+  \code{on_chunk} was supplied.
 }
 \description{
 Splits at sentence boundaries (oversized sentences subdivided at commas,
