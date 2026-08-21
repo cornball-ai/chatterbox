@@ -1,3 +1,25 @@
+# chatterbox 0.2.1.2 (development)
+
+- `tts_chunked()` gains `on_chunk`, called as each chunk finishes so a
+  caller can start playing before the whole utterance is synthesized.
+  Always called in original chunk order: the batched path synthesizes
+  out of order, and streaming that to a player in completion order
+  would deliver the audio scrambled.
+
+- `tts_chunked()` gains `strategy` (`"auto"`, `"serial"`, `"batched"`).
+  Serial finishes one chunk at a time, so audio can start after chunk 1;
+  batched keeps the throughput. `"auto"` is what every existing caller
+  already gets. Asking for `"batched"` on turbo weights is an error
+  rather than a silent fall back to serial.
+
+- **The split comes back with the audio.** `on_chunk` receives the text
+  piece that chunk says, and the return gains `chunks` -- the same
+  pieces in spoken order, present whether or not a callback was
+  supplied. A caller reporting how much of a reply was actually heard
+  needs the split that was spoken; recovering it afterwards by
+  re-splitting the source cuts at the wrong boundary whenever the two
+  splits drift, and reads as a plausible sentence rather than an error.
+
 # chatterbox 0.2.1
 
 - `serve()` resolves a voice-library name (e.g. `"Barry"`) against
