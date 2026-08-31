@@ -1,3 +1,17 @@
+# chatterbox 0.2.1.3 (development)
+
+- `chatterbox()` and `resident_load()` take a `revision`, and it must be
+  a 40-hex commit. hfhub's default `"main"` is a BRANCH, resolved
+  through `refs/main` and then over the network, so weights served from
+  a read-only snapshot bind -- where `refs/` is a sibling of
+  `snapshots/` and not part of the mount -- could not load. An exact
+  commit goes straight to `snapshots/<revision>/<file>`.
+
+  It threads through every artifact of both model sets, standard and
+  turbo, and `resident_load()` verifies that each RESOLVED path names
+  the snapshot that was asked for. The revision is kept on the model
+  object, so the identity a resident host reports is the one it loaded.
+
 # chatterbox 0.2.1.2 (development)
 
 - `tts_chunked()` gains `on_chunk`, called as each chunk finishes so a
