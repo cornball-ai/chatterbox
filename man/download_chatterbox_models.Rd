@@ -3,10 +3,14 @@
 \alias{download_chatterbox_models}
 \title{Download Chatterbox Models from HuggingFace}
 \usage{
-download_chatterbox_models(force = FALSE)
+download_chatterbox_models(force = FALSE, revision = NULL)
 }
 \arguments{
 \item{force}{Re-download even if files exist}
+
+\item{revision}{Optional exact 40-hex commit. Every file is fetched at that
+one revision, so the resulting cache entry is a single self-contained
+snapshot directory.}
 }
 \value{
 Named list of local file paths (invisibly)

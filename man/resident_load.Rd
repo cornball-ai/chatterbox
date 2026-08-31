@@ -3,7 +3,13 @@
 \alias{resident_load}
 \title{Load Chatterbox as a Resident (Pinned Host Weights)}
 \usage{
-resident_load(turbo = FALSE, device = "cuda", tune_gc = TRUE, verbose = TRUE)
+resident_load(
+  turbo = FALSE,
+  device = "cuda",
+  tune_gc = TRUE,
+  verbose = TRUE,
+  revision = NULL
+)
 }
 \arguments{
 \item{turbo}{Load the turbo variant (default FALSE).}
@@ -18,6 +24,12 @@ for every later transition and synchronize.}
 (default TRUE), as [chatterbox()] does.}
 
 \item{verbose}{Print progress messages.}
+
+\item{revision}{Optional exact 40-hex commit. Every file this load reads
+resolves at that one revision, so the load works against a cache holding
+only that snapshot directory: no `refs/` entry, no network. The revision
+is verified against the path the artifacts actually came from before it
+enters the identity.}
 }
 \value{
 A `chatterbox_resident` handle (an environment). Fields of
