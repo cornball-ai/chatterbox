@@ -148,12 +148,14 @@ This package is a complete PyTorch → R torch migration example:
 
 ### Critical R torch Differences
 
-**Module callable pattern**: Use `self$submodule$forward(x)` not `self$submodule(x)`:
+**Module callable pattern**: `self$submodule(x)` and
+`self$submodule$forward(x)` both run the submodule's forward and return
+its output (verified on torch 0.17.0). This codebase uses the explicit
+`$forward()` form, so keep it for consistency, but do not treat the
+short form as broken:
 ```r
-# WRONG - returns the module object, not output
+# Both return the encoder output
 h <- self$encoder(x)
-
-# CORRECT
 h <- self$encoder$forward(x)
 ```
 
