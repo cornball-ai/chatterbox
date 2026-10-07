@@ -1128,6 +1128,47 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param chunk_size Target maximum chunk length in characters
 #' @return Character vector of chunks
 #' @noRd
+# Emit every chunk that is contiguous from `from`, in ORIGINAL order, and
+# return the new watermark.
+#
+# The batched path fills `audio_chunks` out of order: it walks token-length
+# buckets, so a short chunk late in the text can finish in the first group.
+# Streaming in completion order would deliver a player its audio scrambled,
+# which is worse than not streaming, so a chunk waits until everything ahead
+# of it exists.
+#
+# Worst case -- chunk 1 completes last -- this emits nothing until the end,
+# which is exactly the non-streaming behaviour it replaces. It never emits
+# less correctly, only less eagerly.
+#
+# The watermark is the caller's, not this function's, so calling again with
+# nothing new added is silent rather than a replay of the prefix.
+#
+# `texts` is the split that produced this audio, carried alongside it so a
+# caller recording what was spoken indexes into the pieces that were
+# actually synthesized. Reconstructing them later by re-splitting the
+# source text is the failure this exists to prevent: a changed separator,
+# different whitespace, or slightly different model output shifts the
+# boundaries, and the result is a plausible-looking transcript cut in the
+# wrong place rather than an error.
+.emit_ready <- function(audio_chunks, from, on_chunk, total, texts) {
+    i <- from
+    n <- length(audio_chunks)
+    # Chunk i says text piece i. Everything downstream that reports how far
+    # playback got is only meaningful because of that, so a mismatch is a
+    # programming error and stops here -- where it is one line to find --
+    # rather than surfacing as speech attributed to the wrong sentence.
+    if (length(texts) != n) {
+        stop("texts and audio_chunks must be the same length (",
+             length(texts), " vs ", n, ")", call. = FALSE)
+    }
+    while (i <= n && !is.null(audio_chunks[[i]])) {
+        on_chunk(audio_chunks[[i]], i, total, texts[[i]])
+        i <- i + 1L
+    }
+    i
+}
+
 .split_text_chunks <- function(text, chunk_size = 200L) {
     # Greedily pack space-joined units into pieces of <= chunk_size chars.
     pack <- function(units) {
@@ -1191,10 +1232,51 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' @param chunk_size Maximum characters per chunk (default 200)
 #' @param max_batch Maximum chunks per batched solve. Default NULL: sized
 #'   per card from VRAM. Set an integer to override.
+#' @param on_chunk Optional function of \code{(audio, index, total, text)}
+#'   called as each chunk becomes available, so a caller can start playing
+#'   before the whole utterance is synthesized. \strong{Always called in
+#'   original chunk order.} The default \code{NULL} accumulates as before and
+#'   the return value is unchanged either way, so a caller that ignores this
+#'   sees identical behaviour.
+#'
+#'   \code{text} is the piece this chunk says. It is handed over at emit
+#'   time rather than left to be recovered afterwards because a caller that
+#'   has to report what was heard needs the split that was actually spoken,
+#'   and because synthesis may be abandoned part-way -- on a barge-in, say --
+#'   in which case the return value never arrives and the emitted pieces are
+#'   the only record there is.
+#'
+#'   How much it actually streams depends on \code{strategy}:
+#'   \strong{serial streams, batched does not.} See there.
+#' @param strategy Synthesis strategy.
+#'   \describe{
+#'     \item{\code{"auto"}}{(default) Batched where the weights support it,
+#'       serial where they do not. This is what every existing caller
+#'       already gets.}
+#'     \item{\code{"serial"}}{One chunk at a time in text order. Each is
+#'       finished when it is done, so \code{on_chunk} fires immediately and
+#'       audio can start playing after chunk 1. Costs throughput: one CFM
+#'       solve per chunk instead of one per batch. Works on both models.}
+#'     \item{\code{"batched"}}{Runs T3 over \emph{every} chunk, buckets them
+#'       by measured speech-token length, and synthesizes each bucket as one
+#'       padded S3Gen solve. Better throughput. Nothing can be emitted until
+#'       T3 finishes across the whole input, and buckets do not follow text
+#'       order, so \code{on_chunk} fires late and in held-back runs.
+#'       \strong{Standard weights only} -- there is no batched implementation
+#'       for turbo, and asking for it there is an error rather than a silent
+#'       fall back to serial.}
+#'   }
+#'   For a conversational turn, time-to-first-audio is the thing that
+#'   matters and throughput is nearly irrelevant, so \code{"serial"} is the
+#'   one to want. For synthesizing a long document, batched wins outright.
 #' @param ... Synthesis arguments forwarded to the T3 and S3Gen stages, as
 #'   in \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 #'   backend, traced, normalize_text, max_new_tokens, ...)
-#' @return List with audio and sample_rate
+#' @return List with \code{audio}, \code{sample_rate}, and \code{chunks} --
+#'   the text pieces that were synthesized, in spoken order, one per chunk.
+#'   \code{chunks[[i]]} is what chunk \code{i} says, which is the mapping any
+#'   report of how far playback got depends on. Present whether or not
+#'   \code{on_chunk} was supplied.
 #' @examples
 #' \dontrun{
 #' model <- chatterbox("cuda")
@@ -1203,14 +1285,38 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' }
 #' @export
 tts_chunked <- function(model, text, voice, chunk_size = 200,
-                        max_batch = NULL, ...) {
+                        max_batch = NULL, on_chunk = NULL,
+                        strategy = c("auto", "serial", "batched"), ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
+    if (!is.null(on_chunk) && !is.function(on_chunk)) {
+        stop("on_chunk must be a function of (audio, index, total, text), ",
+             "or NULL", call. = FALSE)
+    }
+    strategy <- match.arg(strategy)
+    ## ONE COMBINATION IS IMPOSSIBLE, and it refuses rather than quietly
+    ## doing the other thing. The turbo weights have no batched synthesis
+    ## implementation, so a silent fall back to serial would hand the caller
+    ## a different throughput profile than it asked for and say nothing.
+    if (identical(strategy, "batched") && isTRUE(model$turbo)) {
+        stop("strategy = \"batched\" needs the standard weights; the turbo ",
+             "model has no batched synthesis path. Load with turbo = FALSE, ",
+             "or use strategy = \"serial\" or \"auto\".", call. = FALSE)
+    }
+    ## `auto` is capability negotiation rather than inference magic: batched
+    ## where the weights support it, serial where they do not. It is also
+    ## what every existing caller gets, so behaviour is unchanged.
+    serial <- identical(strategy, "serial") ||
+    (identical(strategy, "auto") && isTRUE(model$turbo))
 
     chunks <- .split_text_chunks(text, chunk_size)
     if (length(chunks) == 0L) {
-        return(list(audio = numeric(0), sample_rate = S3GEN_SR))
+        # `chunks` is character(0) rather than absent, so a caller reading
+        # res$chunks gets a vector on every path. One shape that is
+        # sometimes NULL is how a length() lands on the wrong branch.
+        return(list(audio = numeric(0), sample_rate = S3GEN_SR,
+                    chunks = character(0)))
     }
 
     # Resolve the voice once; re-encoding it per chunk is pure waste
@@ -1223,15 +1329,22 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     traced <- isTRUE(arg_or("traced", FALSE))
     audio_chunks <- vector("list", length(chunks))
 
-    # Turbo has no batched synthesis path: synthesize serially
-    if (isTRUE(model$turbo)) {
+    # SERIAL: one chunk at a time, in text order, so each is finished and
+    # can go out immediately. `generate()` handles both models -- it branches
+    # on `is_turbo` internally -- so this loop is not turbo's private path.
+    # The turbo weights simply have no alternative; the standard weights
+    # reach it by asking, trading batched throughput for time-to-first-audio.
+    if (serial) {
         for (i in seq_along(chunks)) {
             message(sprintf("Processing chunk %d/%d", i, length(chunks)))
             audio_chunks[[i]] <- generate(model, chunks[i], voice, ...)$audio
+            if (!is.null(on_chunk)) {
+                on_chunk(audio_chunks[[i]], i, length(chunks), chunks[[i]])
+            }
             gc(verbose = FALSE)
         }
         return(list(audio = unlist(audio_chunks, use.names = FALSE),
-                    sample_rate = S3GEN_SR))
+                    sample_rate = S3GEN_SR, chunks = chunks))
     }
 
     # Run T3 on every chunk first, so batching and the memory cap use
@@ -1256,6 +1369,10 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     lens <- vapply(tk$token_vecs, length, integer(1L))
     buckets <- vapply(pmax(lens, 1L), .token_bucket, integer(1L))
     done <- 0L
+    ## How far the in-order stream has got. This walks buckets rather than
+    ## chunks, so a group can complete chunk 5 before chunk 1 exists --
+    ## emitting in completion order would hand a player its audio scrambled.
+    emitted <- 1L
     for (b in sort(unique(buckets))) {
         idx <- which(buckets == b)
         cap <- max(1L, max_batch %||% .cfm_max_batch(b, model$device))
@@ -1265,6 +1382,10 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
             for (j in seq_along(grp)) {
                 audio_chunks[[grp[j]]] <- res[[j]]$audio
             }
+            if (!is.null(on_chunk)) {
+                emitted <- .emit_ready(audio_chunks, emitted, on_chunk,
+                                       length(chunks), chunks)
+            }
             done <- done + length(grp)
             message(sprintf("Synthesized %d/%d chunks", done, length(chunks)))
             gc(verbose = FALSE)
@@ -1272,7 +1393,7 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     }
 
     list(audio = unlist(audio_chunks, use.names = FALSE),
-         sample_rate = S3GEN_SR)
+         sample_rate = S3GEN_SR, chunks = chunks)
 }
 
 # ============================================================================

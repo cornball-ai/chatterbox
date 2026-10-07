@@ -3,12 +3,27 @@
 \alias{generate}
 \title{Generate speech from text}
 \usage{
-generate(model, text, voice, exaggeration = 0.5, cfg_weight = 0.5,
-         temperature = 0.8, top_p = 1, min_p = 0.05, autocast = NULL,
-         traced = FALSE, backend = c("r", "jit"), top_k = 1000L,
-         repetition_penalty = 1.2, normalize_text = FALSE,
-         max_new_tokens = 1000L, max_cache_len = NULL, cfm_len = NULL,
-         skip_vocoder = FALSE, output_path = NULL)
+generate(
+  model,
+  text,
+  voice,
+  exaggeration = 0.5,
+  cfg_weight = 0.5,
+  temperature = 0.8,
+  top_p = 1,
+  min_p = 0.05,
+  autocast = NULL,
+  traced = FALSE,
+  backend = c("r", "jit"),
+  top_k = 1000L,
+  repetition_penalty = 1.2,
+  normalize_text = FALSE,
+  max_new_tokens = 1000L,
+  max_cache_len = NULL,
+  cfm_len = NULL,
+  skip_vocoder = FALSE,
+  output_path = NULL
+)
 }
 \arguments{
 \item{model}{Chatterbox model}
@@ -42,7 +57,7 @@ milliseconds, via \code{torch::jit_compile}): with tuned GC
 settings (see \code{\link{chatterbox_gc_options}}) it is the
 fastest native path (~11 ms/token long-form), auto-sizes its KV
 cache so generation always completes, and ships no compiled code.
-It replaced an equivalent C++ backend (within ~20\\% of its speed)
+It replaced an equivalent C++ backend (within ~20\% of its speed)
 that required linking against torch's private libraries.}
 
 \item{top_k}{Integer. Top-k sampling parameter (turbo model only).

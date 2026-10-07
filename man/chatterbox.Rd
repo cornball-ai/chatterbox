@@ -32,7 +32,7 @@ the not-loaded error paths), then load later with
 When \code{tune_gc = TRUE} (the default) and \code{device} is CUDA, this
 raises torch's allocator GC floors before the first CUDA op. torch otherwise
 runs \code{gc()} on nearly every allocation once a model occupies more than
-20\\% of VRAM, which dominates inference. It sets session-global
+20\% of VRAM, which dominates inference. It sets session-global
 \code{torch.cuda_allocator_reserved_rate} (the model footprint over VRAM) and
 \code{torch.threshold_call_gc}, only when they are unset, so an explicit
 setting always wins. This is a deliberate, persistent side effect (torch

@@ -3,8 +3,13 @@
 \alias{create_voice_embedding}
 \title{Create voice embedding from reference audio}
 \usage{
-create_voice_embedding(model, audio, sample_rate = NULL, autocast = NULL,
-                       norm_loudness = NULL)
+create_voice_embedding(
+  model,
+  audio,
+  sample_rate = NULL,
+  autocast = NULL,
+  norm_loudness = NULL
+)
 }
 \arguments{
 \item{model}{Chatterbox model}

@@ -3,8 +3,15 @@
 \alias{serve}
 \title{Serve chatterbox over HTTP}
 \usage{
-serve(port = 7810L, device = "cuda", voices_dir = NULL, turbo = FALSE,
-      timeout = 300L, max_body = 10L * 1024L^2, warmup = TRUE)
+serve(
+  port = 7810L,
+  device = "cuda",
+  voices_dir = NULL,
+  turbo = FALSE,
+  timeout = 300L,
+  max_body = 10L * 1024L^2,
+  warmup = TRUE
+)
 }
 \arguments{
 \item{port}{Integer. TCP port to listen on. Default 7810.}

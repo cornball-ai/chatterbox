@@ -3,9 +3,16 @@
 \alias{t3_inference_turbo}
 \title{Run T3 turbo inference to generate speech tokens}
 \usage{
-t3_inference_turbo(model, cond, text_tokens, max_new_tokens = 1000,
-                   temperature = 0.8, top_k = 1000L, top_p = 0.95,
-                   repetition_penalty = 1.2)
+t3_inference_turbo(
+  model,
+  cond,
+  text_tokens,
+  max_new_tokens = 1000,
+  temperature = 0.8,
+  top_k = 1000L,
+  top_p = 0.95,
+  repetition_penalty = 1.2
+)
 }
 \arguments{
 \item{model}{T3 turbo model}

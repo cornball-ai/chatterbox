@@ -3,9 +3,18 @@
 \alias{t3_inference_jit}
 \title{T3 inference with a TorchScript decode loop}
 \usage{
-t3_inference_jit(model, cond, text_tokens, max_new_tokens = 1000,
-                 temperature = 0.8, cfg_weight = 0.5, top_p = 1, min_p = 0.05,
-                 repetition_penalty = 1.2, max_cache_len = NULL)
+t3_inference_jit(
+  model,
+  cond,
+  text_tokens,
+  max_new_tokens = 1000,
+  temperature = 0.8,
+  cfg_weight = 0.5,
+  top_p = 1,
+  min_p = 0.05,
+  repetition_penalty = 1.2,
+  max_cache_len = NULL
+)
 }
 \arguments{
 \item{model}{T3 model}

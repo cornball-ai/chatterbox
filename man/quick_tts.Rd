@@ -3,8 +3,14 @@
 \alias{quick_tts}
 \title{Quick TTS - one-line text-to-speech}
 \usage{
-quick_tts(text, reference_audio, output_path = NULL, device = "cpu",
-          autocast = NULL, turbo = FALSE)
+quick_tts(
+  text,
+  reference_audio,
+  output_path = NULL,
+  device = "cpu",
+  autocast = NULL,
+  turbo = FALSE
+)
 }
 \arguments{
 \item{text}{Text to synthesize}
