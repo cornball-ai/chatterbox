@@ -283,6 +283,11 @@
 #' @param tune_gc Apply the allocator GC options before CUDA init
 #'   (default TRUE), as [chatterbox()] does.
 #' @param verbose Print progress messages.
+#' @param revision Optional exact 40-hex commit. Every file this load reads
+#'   resolves at that one revision, so the load works against a cache holding
+#'   only that snapshot directory: no `refs/` entry, no network. The revision
+#'   is verified against the path the artifacts actually came from before it
+#'   enters the identity.
 #'
 #' @return A `chatterbox_resident` handle (an environment). Fields of
 #'   interest via [resident_status()]: state, byte counts, and a
@@ -301,7 +306,8 @@
 #' }
 #' @export
 resident_load <- function(turbo = FALSE, device = "cuda", tune_gc = TRUE,
-                          verbose = TRUE) {
+                          verbose = TRUE, revision = NULL) {
+    .chatterbox_rev(revision)
     # GC tuning must run before ANY CUDA op: torch reads the allocator
     # rates once, at lazy CUDA init, and the cuda_is_available() probe
     # below is enough to trigger it. This mirrors chatterbox()'s ordering
@@ -342,7 +348,7 @@ resident_load <- function(turbo = FALSE, device = "cuda", tune_gc = TRUE,
     # verbose = FALSE has to suppress theirs too, not just ours.
     load_model <- function() {
         chatterbox(device = "cpu", turbo = turbo, load = TRUE,
-                   tune_gc = FALSE)
+                   tune_gc = FALSE, revision = revision)
     }
     model <- if (isTRUE(verbose)) load_model() else
         suppressMessages(load_model())
@@ -377,8 +383,21 @@ resident_load <- function(turbo = FALSE, device = "cuda", tune_gc = TRUE,
         }
     }
 
-    paths <- if (isTRUE(turbo)) get_turbo_model_paths() else
-        get_model_paths()
+    paths <- if (isTRUE(turbo)) get_turbo_model_paths(revision = revision) else
+        get_model_paths(revision = revision)
+    # A requested revision is a claim about WHICH bytes loaded. Check it
+    # against where the artifacts actually resolved rather than trusting the
+    # argument, so a cache laid out some other way is refused here instead of
+    # filing the wrong weights under the right revision.
+    if (!is.null(revision)) {
+        for (nm in names(paths)) {
+            got <- .snapshot_revision(paths[[nm]])
+            if (is.na(got) || !identical(got, revision)) {
+                stop("asked for revision ", revision, " but ", nm,
+                     " resolved to ", paths[[nm]], call. = FALSE)
+            }
+        }
+    }
     if (verbose) message("Hashing ", length(paths), " artifacts (sha256)")
     artifacts <- lapply(names(paths), function(nm) {
         list(name = nm, file = basename(paths[[nm]]),

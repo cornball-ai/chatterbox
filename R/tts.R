@@ -116,6 +116,11 @@ normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
 #' @param tune_gc Tune torch's CUDA GC rates for faster inference (CUDA only,
 #'   and only when unset). Persistent session side effect; default TRUE. See
 #'   Details.
+#' @param revision Optional exact 40-hex commit. Every weight and tokenizer
+#'   file resolves out of that snapshot directory, so loading works against a
+#'   cache holding only that snapshot: no \code{refs/} entry and no network.
+#'   Carried on the returned object, so a later \code{load_chatterbox()} on it
+#'   resolves the same revision.
 #' @return Chatterbox TTS model object, loaded unless \code{load = FALSE}
 #' @examples
 #' \dontrun{
@@ -127,7 +132,11 @@ normalize_tts_text <- function(text, caps = TRUE, punctuation = TRUE) {
 #' }
 #' @export
 chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE,
-                       tune_gc = TRUE) {
+                       tune_gc = TRUE, revision = NULL) {
+    # Checked here, at construction, not at the first hub call. A bad
+    # revision is a configuration mistake, and saying so before any device
+    # setup or weight movement is the cheapest place to say it.
+    .chatterbox_rev(revision)
     # GC tuning must run before the first CUDA op (cuda_is_available below):
     # torch reads its allocator GC rates once, at lazy CUDA init.
     if (isTRUE(tune_gc)) {
@@ -146,7 +155,8 @@ chatterbox <- function(device = "cpu", turbo = FALSE, load = TRUE,
 
     model <- structure(
                        list(device = device, turbo = turbo, t3 = NULL, s3gen = NULL,
-                            voice_encoder = NULL, tokenizer = NULL, loaded = FALSE),
+                            voice_encoder = NULL, tokenizer = NULL, loaded = FALSE,
+                            revision = revision),
                        class = "chatterbox"
     )
     if (isTRUE(load)) {
@@ -237,7 +247,7 @@ load_chatterbox <- function(model) {
 
     # Get model file paths (requires prior download)
     message("Loading model files...")
-    paths <- get_model_paths()
+    paths <- get_model_paths(revision = model$revision)
 
     # Load tokenizer
     message("Loading text tokenizer...")
@@ -297,7 +307,7 @@ load_chatterbox_turbo <- function(model) {
 
     # Get turbo model file paths
     message("Loading turbo model files...")
-    paths <- get_turbo_model_paths()
+    paths <- get_turbo_model_paths(revision = model$revision)
 
     # Load GPT-2 tokenizer
     message("Loading GPT-2 tokenizer...")

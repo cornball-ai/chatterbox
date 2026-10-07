@@ -3,7 +3,13 @@
 \alias{chatterbox}
 \title{Create (and load) a Chatterbox TTS model}
 \usage{
-chatterbox(device = "cpu", turbo = FALSE, load = TRUE, tune_gc = TRUE)
+chatterbox(
+  device = "cpu",
+  turbo = FALSE,
+  load = TRUE,
+  tune_gc = TRUE,
+  revision = NULL
+)
 }
 \arguments{
 \item{device}{Device to use ("cpu", "cuda", "mps", etc.)}
@@ -16,6 +22,12 @@ Requires a prior download (\code{\link{download_chatterbox_models}}).}
 \item{tune_gc}{Tune torch's CUDA GC rates for faster inference (CUDA only,
 and only when unset). Persistent session side effect; default TRUE. See
 Details.}
+
+\item{revision}{Optional exact 40-hex commit. Every weight and tokenizer
+file resolves out of that snapshot directory, so loading works against a
+cache holding only that snapshot: no \code{refs/} entry and no network.
+Carried on the returned object, so a later \code{load_chatterbox()} on it
+resolves the same revision.}
 }
 \value{
 Chatterbox TTS model object, loaded unless \code{load = FALSE}
