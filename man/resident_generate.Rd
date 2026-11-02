@@ -3,15 +3,16 @@
 \alias{resident_generate}
 \title{Generate Speech with a Resident Model}
 \usage{
-resident_generate(res, text, voice, ...)
+resident_generate(res, text, voice = NULL, ...)
 }
 \arguments{
 \item{res}{A `chatterbox_resident` handle, currently active.}
 
 \item{text}{Text to synthesize.}
 
-\item{voice}{Reference voice (audio path or voice file), per
-[generate()].}
+\item{voice}{Reference voice (audio path or voice embedding), per
+[generate()]; NULL for the built-in voice of this model's variant
+([builtin_voice()]).}
 
 \item{...}{Passed to [generate()]: `exaggeration`,
 `cfg_weight`, `temperature`, `backend`, ...}

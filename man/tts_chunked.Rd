@@ -6,7 +6,7 @@
 tts_chunked(
   model,
   text,
-  voice,
+  voice = NULL,
   chunk_size = 200,
   max_batch = NULL,
   on_chunk = NULL,

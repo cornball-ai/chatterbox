@@ -65,9 +65,12 @@ few deliberate differences:
 - **No audio watermark.** Python chatterbox embeds Resemble's Perth
   imperceptible watermark in every generated clip; this port does not.
   If you need provenance marking for generated audio, add it downstream.
-- **A reference voice is required.** Python falls back to a builtin
-  default voice (`conds.pt`); the R API asks for reference audio
-  explicitly and skips that ~105 MB download.
+- **The built-in voice ships converted.** Python falls back to a builtin
+  default voice, `conds.pt`, a nested torch pickle R cannot read. The
+  same conditionals are in `inst/voices/` as safetensors (105 KB for
+  the standard model, 167 KB for turbo), so `generate()` with no `voice`
+  speaks in that voice as Python does; `builtin_voice()` returns it.
+  `conds.pt` itself is never downloaded.
 - **Reliability extras.** `generate()` reports `eos_found`, `n_tokens`,
   and `audio_sec`, always applies Python-parity punctuation
   normalization, and stops degenerate token loops early (Python 0.1.4

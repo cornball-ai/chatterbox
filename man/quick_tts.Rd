@@ -5,7 +5,7 @@
 \usage{
 quick_tts(
   text,
-  reference_audio,
+  reference_audio = NULL,
   output_path = NULL,
   device = "cpu",
   autocast = NULL,
@@ -15,7 +15,8 @@ quick_tts(
 \arguments{
 \item{text}{Text to synthesize}
 
-\item{reference_audio}{Path to reference audio file}
+\item{reference_audio}{Path to reference audio file, or NULL for the
+built-in voice}
 
 \item{output_path}{Optional output file path. If NULL, returns audio data.}
 

@@ -5,9 +5,9 @@
 
 CHATTERBOX_REPO <- "ResembleAI/chatterbox"
 
-# conds.pt (Python's builtin default voice) is intentionally absent:
-# it is a nested torch pickle that R torch cannot read, and the R API
-# requires a reference voice. Saves a ~105 MB download.
+# conds.pt (Python's builtin default voice) is not downloaded: it is a
+# nested torch pickle that R torch cannot read. The same tensors ship
+# with the package as inst/voices/*.safetensors (R/builtin_voice.R).
 CHATTERBOX_FILES <- c("ve.safetensors", "t3_cfg.safetensors",
                       "s3gen.safetensors", "tokenizer.json")
 

@@ -1,3 +1,16 @@
+# chatterbox 0.2.1.4 (development)
+
+- The built-in voice. Python chatterbox speaks in a default voice when
+  no reference clip is given: conditionals computed once from a clip
+  and shipped as `conds.pt`, a nested torch pickle R cannot read. The
+  same tensors now ship with the package as `inst/voices/*.safetensors`
+  (105 KB standard, 167 KB turbo; the conversion is recorded in
+  `inst/voices/README.md`), `builtin_voice()` loads them as a
+  `voice_embedding`, and `generate()`, `generate_batch()`,
+  `tts_chunked()`, `tts_to_file()`, `quick_tts()` and
+  `resident_generate()` take `voice = NULL` to mean that voice. A
+  reference clip is no longer required.
+
 # chatterbox 0.2.1.3 (development)
 
 - `chatterbox()` and `resident_load()` take a `revision`, and it must be

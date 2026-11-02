@@ -1,5 +1,6 @@
 # tinyrox says don't edit this manually, but it can't stop you!
 
+export(builtin_voice)
 export(chatterbox)
 export(chatterbox_gc_options)
 export(create_voice_embedding)
