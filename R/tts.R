@@ -1329,8 +1329,14 @@ tts_chunked <- function(model, text, voice = NULL, chunk_size = 200,
                     chunks = character(0)))
     }
 
-    # Resolve the voice once; re-encoding it per chunk is pure waste
-    voice <- .resolve_voice(model, voice)
+    # Resolve the voice once; re-encoding it per chunk is pure waste.
+    # Anything else passes through for generate() to judge, which is
+    # what lets the tests stand in a voice that is never encoded.
+    if (is.null(voice)) {
+        voice <- builtin_voice(model)
+    } else if (is.character(voice)) {
+        voice <- create_voice_embedding(model, voice)
+    }
 
     args <- list(...)
     arg_or <- function(name, default) args[[name]] %||% default
