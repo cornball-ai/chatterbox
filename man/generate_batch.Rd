@@ -3,14 +3,15 @@
 \alias{generate_batch}
 \title{Generate speech for several texts with one batched synthesis pass}
 \usage{
-generate_batch(model, texts, voice, ...)
+generate_batch(model, texts, voice = NULL, ...)
 }
 \arguments{
 \item{model}{Loaded chatterbox model (standard, not turbo)}
 
 \item{texts}{Character vector of texts to synthesize}
 
-\item{voice}{Shared voice: voice_embedding or reference audio path}
+\item{voice}{Shared voice: voice_embedding, reference audio path, or
+NULL for the built-in voice (\code{\link{builtin_voice}})}
 
 \item{...}{Arguments passed through to the T3 stage, as in
 \code{\link{generate}} (exaggeration, cfg_weight, temperature,

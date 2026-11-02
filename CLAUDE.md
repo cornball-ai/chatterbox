@@ -69,10 +69,12 @@ quick_tts("Hello!", "ref.wav", "out.wav")             # one-liner, loads per cal
 
 hfhub puts them in `~/.cache/huggingface/hub/`. Standard: `ResembleAI/chatterbox`
 (`t3_cfg.safetensors` 2.1 GB, `s3gen.safetensors` 1.1 GB, `ve.safetensors`,
-`tokenizer.json`). Turbo: `ResembleAI/chatterbox-turbo`. `conds.pt` is not
-downloaded on purpose: a nested torch pickle R cannot read, so the R API
-always needs a reference voice. A partial download shows up as header offsets
-past the file size; `download_chatterbox_models(force = TRUE)` fixes it.
+`tokenizer.json`). Turbo: `ResembleAI/chatterbox-turbo`. `conds.pt`, Python's
+built-in voice, is not downloaded: a nested torch pickle R cannot read. Its
+tensors ship as `inst/voices/*.safetensors` and `builtin_voice()` loads them;
+`generate(voice = NULL)` uses that voice. A partial download shows up as
+header offsets past the file size; `download_chatterbox_models(force = TRUE)`
+fixes it.
 
 ## R torch pitfalls that shaped this code
 

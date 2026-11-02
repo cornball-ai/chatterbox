@@ -470,7 +470,9 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'
 #' @param model Chatterbox model
 #' @param text Text to synthesize
-#' @param voice Voice embedding from create_voice_embedding() or path to reference audio
+#' @param voice Voice embedding from create_voice_embedding(), path to
+#'   reference audio, or NULL for the built-in voice
+#'   (\code{\link{builtin_voice}}), as Python falls back to
 #' @param exaggeration Emotion/expression exaggeration level (0-1, default 0.5)
 #' @param cfg_weight Classifier-free guidance weight (higher = more adherence to text, default 0.5)
 #' @param temperature Sampling temperature (default 0.8)
@@ -549,7 +551,7 @@ create_voice_embedding <- function(model, audio, sample_rate = NULL,
 #'                 backend = "jit")
 #' }
 #' @export
-generate <- function(model, text, voice, exaggeration = 0.5,
+generate <- function(model, text, voice = NULL, exaggeration = 0.5,
                      cfg_weight = 0.5, temperature = 0.8, top_p = 1.0,
                      min_p = 0.05, autocast = NULL, traced = FALSE,
                      backend = c("r", "jit"), top_k = 1000L,
@@ -578,12 +580,8 @@ generate <- function(model, text, voice, exaggeration = 0.5,
     # opt-in speed/VRAM trade.
     use_autocast <- isTRUE(autocast) && grepl("^cuda", device)
 
-    # Handle voice input
-    if (is.character(voice)) {
-        voice <- create_voice_embedding(model, voice, autocast = use_autocast)
-    } else if (!inherits(voice, "voice_embedding")) {
-        stop("voice must be a voice_embedding object or path to reference audio")
-    }
+    # A path is encoded now; NULL is the built-in voice
+    voice <- .resolve_voice(model, voice, use_autocast)
 
     speech_tokens <- .t3_text_to_tokens(model, text, voice,
                                         exaggeration = exaggeration, cfg_weight = cfg_weight,
@@ -936,7 +934,8 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #'
 #' @param model Loaded chatterbox model (standard, not turbo)
 #' @param texts Character vector of texts to synthesize
-#' @param voice Shared voice: voice_embedding or reference audio path
+#' @param voice Shared voice: voice_embedding, reference audio path, or
+#'   NULL for the built-in voice (\code{\link{builtin_voice}})
 #' @param ... Arguments passed through to the T3 stage, as in
 #'   \code{\link{generate}} (exaggeration, cfg_weight, temperature,
 #'   top_p, min_p, backend, repetition_penalty, normalize_text,
@@ -956,7 +955,7 @@ generate <- function(model, text, voice, exaggeration = 0.5,
 #' write_audio(res[[1]]$audio, res[[1]]$sample_rate, "first.wav")
 #' }
 #' @export
-generate_batch <- function(model, texts, voice, ...) {
+generate_batch <- function(model, texts, voice = NULL, ...) {
     if (!is_loaded(model)) {
         stop("Model not loaded. Call load_chatterbox() first.")
     }
@@ -1015,7 +1014,8 @@ generate_batch <- function(model, texts, voice, ...) {
 #'
 #' @param model Chatterbox model
 #' @param text Text to synthesize
-#' @param voice Voice embedding or path to reference audio
+#' @param voice Voice embedding, path to reference audio, or NULL for the
+#'   built-in voice
 #' @param output_path Output file path (WAV format)
 #' @param ... Additional arguments passed to generate()
 #' @return Invisibly returns a list with elements: \code{path},
@@ -1028,7 +1028,7 @@ generate_batch <- function(model, texts, voice, ...) {
 #' tts_to_file(model, "Hello world!", "reference_voice.wav", "out.wav")
 #' }
 #' @export
-tts_to_file <- function(model, text, voice, output_path, ...) {
+tts_to_file <- function(model, text, voice = NULL, output_path, ...) {
     result <- generate(model, text, voice, ..., output_path = output_path)
     invisible(list(path = output_path, eos_found = isTRUE(result$eos_found),
                    n_tokens = result$n_tokens %||% NA_integer_,
@@ -1294,7 +1294,7 @@ tts_to_file <- function(model, text, voice, output_path, ...) {
 #' write_audio(res$audio, res$sample_rate, "long.wav")
 #' }
 #' @export
-tts_chunked <- function(model, text, voice, chunk_size = 200,
+tts_chunked <- function(model, text, voice = NULL, chunk_size = 200,
                         max_batch = NULL, on_chunk = NULL,
                         strategy = c("auto", "serial", "batched"), ...) {
     if (!is_loaded(model)) {
@@ -1330,9 +1330,7 @@ tts_chunked <- function(model, text, voice, chunk_size = 200,
     }
 
     # Resolve the voice once; re-encoding it per chunk is pure waste
-    if (is.character(voice)) {
-        voice <- create_voice_embedding(model, voice)
-    }
+    voice <- .resolve_voice(model, voice)
 
     args <- list(...)
     arg_or <- function(name, default) args[[name]] %||% default
@@ -1452,7 +1450,11 @@ print.voice_embedding <- function(x, ...) {
     cat("Voice Embedding\n")
     cat("  Speaker embedding shape:",
         paste(dim(x$ve_embedding), collapse = " x "), "\n")
-    cat("  Reference sample rate:", x$sample_rate, "Hz\n")
+    if (is.na(x$sample_rate)) {
+        cat("  The built-in voice (no reference clip)\n")
+    } else {
+        cat("  Reference sample rate:", x$sample_rate, "Hz\n")
+    }
     invisible(x)
 }
 
@@ -1465,7 +1467,8 @@ print.voice_embedding <- function(x, ...) {
 #' Loads model if needed and generates speech. Convenient for quick tests.
 #'
 #' @param text Text to synthesize
-#' @param reference_audio Path to reference audio file
+#' @param reference_audio Path to reference audio file, or NULL for the
+#'   built-in voice
 #' @param output_path Optional output file path. If NULL, returns audio data.
 #' @param device Device to use
 #' @param autocast Use mixed precision (float16) on CUDA (default TRUE on CUDA)
@@ -1479,7 +1482,7 @@ print.voice_embedding <- function(x, ...) {
 #' quick_tts("Hello!", "reference_voice.wav", "out.wav")
 #' }
 #' @export
-quick_tts <- function(text, reference_audio, output_path = NULL,
+quick_tts <- function(text, reference_audio = NULL, output_path = NULL,
                       device = "cpu", autocast = NULL, turbo = FALSE) {
     # Create and load model in one call
     model <- chatterbox(device, turbo = turbo)

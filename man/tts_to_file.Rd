@@ -3,14 +3,15 @@
 \alias{tts_to_file}
 \title{Generate speech and save to file}
 \usage{
-tts_to_file(model, text, voice, output_path, ...)
+tts_to_file(model, text, voice = NULL, output_path, ...)
 }
 \arguments{
 \item{model}{Chatterbox model}
 
 \item{text}{Text to synthesize}
 
-\item{voice}{Voice embedding or path to reference audio}
+\item{voice}{Voice embedding, path to reference audio, or NULL for the
+built-in voice}
 
 \item{output_path}{Output file path (WAV format)}
 

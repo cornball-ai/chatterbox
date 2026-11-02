@@ -6,7 +6,7 @@
 generate(
   model,
   text,
-  voice,
+  voice = NULL,
   exaggeration = 0.5,
   cfg_weight = 0.5,
   temperature = 0.8,
@@ -30,7 +30,9 @@ generate(
 
 \item{text}{Text to synthesize}
 
-\item{voice}{Voice embedding from create_voice_embedding() or path to reference audio}
+\item{voice}{Voice embedding from create_voice_embedding(), path to
+reference audio, or NULL for the built-in voice
+(\code{\link{builtin_voice}}), as Python falls back to}
 
 \item{exaggeration}{Emotion/expression exaggeration level (0-1, default 0.5)}
 

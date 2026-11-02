@@ -558,13 +558,14 @@ resident_deactivate <- function(res, release = TRUE) {
 #'
 #' @param res A `chatterbox_resident` handle, currently active.
 #' @param text Text to synthesize.
-#' @param voice Reference voice (audio path or voice file), per
-#'   [generate()].
+#' @param voice Reference voice (audio path or voice embedding), per
+#'   [generate()]; NULL for the built-in voice of this model's variant
+#'   ([builtin_voice()]).
 #' @param ... Passed to [generate()]: `exaggeration`,
 #'   `cfg_weight`, `temperature`, `backend`, ...
 #' @return The generation result, same shape as [generate()].
 #' @export
-resident_generate <- function(res, text, voice, ...) {
+resident_generate <- function(res, text, voice = NULL, ...) {
     .resident_guard(res, "resident_generate")
     if (!identical(res$state, "active")) {
         stop("resident_generate(): model is not active; ",
